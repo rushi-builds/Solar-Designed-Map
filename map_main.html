@@ -1,0 +1,3642 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#0b5277">
+<title>Solar EPC 10X — GODLEVEL FIXED • Satellite / Image 2 / 3D</title>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+<style>
+*{box-sizing:border-box}
+html,body{width:100%;height:100%;margin:0;overflow:hidden;font-family:"Segoe UI",Arial,sans-serif;background:#eef3f6;color:#183747}
+body{display:flex;flex-direction:column}
+
+.topbar{
+  height:64px;min-height:64px;display:grid;grid-template-columns:1fr minmax(380px,560px) 1fr;
+  align-items:center;gap:16px;padding:0 18px;
+  background:linear-gradient(135deg,#073f62 0%,#0b5f88 52%,#0c7299 100%);
+  color:#fff;box-shadow:0 3px 16px rgba(0,0,0,.28);z-index:1000
+}
+.title{font-size:18px;font-weight:850;letter-spacing:.35px;white-space:nowrap}
+.location-pill{
+  justify-self:end;max-width:100%;font-size:11px;font-weight:700;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis;opacity:.98;text-align:right
+}
+
+.header-search{
+  position:relative;width:100%;background:rgba(255,255,255,.98);
+  border:1px solid rgba(255,255,255,.45);border-radius:9px;
+  box-shadow:0 5px 20px rgba(0,0,0,.25);overflow:visible
+}
+.header-search-row{display:flex;align-items:center;height:40px}
+.header-search-icon{width:34px;text-align:center;color:#647681;font-size:20px;line-height:1}
+#searchInput{
+  flex:1;width:100%;border:none;background:transparent;color:#193744;
+  padding:0 8px;font-size:12px;outline:none;font-family:inherit;min-width:0
+}
+#searchInput::placeholder{color:#7a8b93}
+#searchButton{
+  border:none;border-radius:0 8px 8px 0;background:#0a5279;color:#fff;
+  padding:0 16px;height:40px;font:850 10px "Segoe UI",Arial,sans-serif;cursor:pointer;letter-spacing:.25px
+}
+#searchButton:hover{background:#083f5d}
+#searchResults{
+  position:absolute;left:0;right:0;top:43px;max-height:340px;overflow-y:auto;
+  border:1px solid #dbe4e8;border-radius:9px;background:#fff;display:none;
+  box-shadow:0 8px 24px rgba(0,0,0,.22);z-index:3000
+}
+#searchResults.show{display:block}
+.search-item{
+  padding:10px 13px;font-size:11px;cursor:pointer;border-bottom:1px solid #edf1f3;
+  color:#294552;background:#fff
+}
+.search-item:last-child{border-bottom:none}
+.search-item:hover{background:#eef7fb}
+.search-loading,.search-empty{cursor:default;color:#607782;font-weight:700;padding:12px 13px}
+
+.workspace{
+  flex:1 1 auto;min-height:0;display:grid;
+  grid-template-columns:1fr 380px;overflow:hidden
+}
+
+.map-wrap{
+  position:relative;min-height:0;background:#dfe7eb;overflow:hidden;
+  display:grid;grid-template-columns:1fr 0 0;--split:50%;
+}
+.map-wrap.dual-open{grid-template-columns:var(--split) 10px calc(100% - var(--split) - 10px)}
+.map-pane{position:relative;min-width:0;min-height:0;overflow:hidden}
+#map,#map2{position:absolute;inset:0;background:#0e1a20}
+.secondary-pane{display:none}
+.map-wrap.dual-open .secondary-pane{display:block}
+.split-divider{display:none;background:linear-gradient(90deg,#d4dde1,#fff,#d4dde1);
+  z-index:1100;cursor:col-resize;align-items:center;justify-content:center;box-shadow:0 0 10px rgba(0,0,0,.15)}
+.map-wrap.dual-open .split-divider{display:flex}
+.split-handle{width:6px;height:46px;border-radius:5px;background:#0b5277;color:#fff;display:flex;
+  align-items:center;justify-content:center;font-weight:900;font-size:15px}
+.pane-badge{position:absolute;left:10px;bottom:10px;z-index:700;padding:4px 8px;border-radius:5px;
+  background:rgba(12,35,45,.80);color:#fff;font:800 9px "Segoe UI",Arial,sans-serif;letter-spacing:.45px;pointer-events:none}
+.secondary-badge{right:10px;left:auto}
+
+.sidebar{
+  background:#f7fafc;border-left:1px solid #d8e1e6;overflow-y:auto;
+  display:flex;flex-direction:column;box-shadow:-3px 0 12px rgba(0,0,0,.06)
+}
+.sidebar-section{
+  padding:12px 14px;border-bottom:1px solid #e4ecf0;background:#fff
+}
+.sidebar-section h3{
+  margin:0 0 8px;font-size:11px;font-weight:850;letter-spacing:.8px;
+  color:#0b5277;text-transform:uppercase;display:flex;align-items:center;gap:6px
+}
+.sidebar-section h3::before{
+  content:"";width:3px;height:14px;background:#0b5277;border-radius:2px
+}
+
+.stats-table{width:100%;border-collapse:collapse;font-size:11px}
+.stats-table tr{border-bottom:1px solid #eef2f5}
+.stats-table tr:last-child{border-bottom:none}
+.stats-table td{padding:6px 4px}
+.stats-table td.label{color:#71848d;font-weight:700;text-transform:uppercase;font-size:9.5px;letter-spacing:.4px}
+.stats-table td.value{text-align:right;font-weight:850;color:#123f54;font-size:12px}
+.stats-table td.value.hi{color:#0e7ba8}
+.stats-table td.value.warn{color:#a55b0f}
+.stats-table td.value.ok{color:#1e6b37}
+
+.radio-group{display:flex;gap:6px;margin-top:4px}
+.radio-btn{
+  flex:1;padding:8px 10px;border:1px solid #cbd7dd;background:#fff;border-radius:7px;
+  cursor:pointer;font:800 10px "Segoe UI",Arial,sans-serif;color:#294552;text-align:center;transition:.15s
+}
+.radio-btn:hover{background:#f0f6fa}
+.radio-btn.active{background:#0b5277;color:#fff;border-color:#0b5277}
+
+.field-row{display:flex;align-items:center;gap:8px;margin-top:6px}
+.field-row label{font-size:10px;font-weight:700;color:#5c7079;flex:1}
+.field-row input[type=number],.field-row input[type=text]{
+  width:80px;padding:6px 8px;border:1px solid #cbd7dd;border-radius:6px;
+  font:700 11px "Segoe UI",Arial,sans-serif;color:#123f54;text-align:right;outline:none
+}
+.field-row input[type=text]{flex:1;width:auto;text-align:left}
+.field-row input:focus{border-color:#0b5277;box-shadow:0 0 0 2px rgba(11,82,119,.15)}
+
+.obstacle-list{display:flex;flex-direction:column;gap:8px;margin-top:6px}
+.obstacle-card{
+  border:1px solid #d7e2e7;border-radius:8px;background:linear-gradient(180deg,#fff,#f8fbfc);
+  padding:9px 11px;box-shadow:0 1px 3px rgba(0,0,0,.04);position:relative;overflow:hidden;cursor:pointer
+}
+.obstacle-card::before{
+  content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:#c0663a
+}
+.obstacle-card.selected{box-shadow:0 0 0 2px #c0663a,0 4px 12px rgba(192,102,58,.25)}
+.obstacle-card.selected::before{background:#8f4818}
+.obs-header{
+  display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;gap:6px
+}
+.obs-title{font-weight:850;font-size:11px;color:#123f54;letter-spacing:.3px}
+.obs-type-badge{
+  padding:2px 7px;border-radius:10px;font-size:9px;font-weight:800;
+  background:#fde8dc;color:#8f4818;letter-spacing:.3px
+}
+.obs-grid{
+  display:grid;grid-template-columns:1fr 1fr;gap:3px 8px;font-size:10px;color:#3a5561
+}
+.obs-grid span.k{color:#8195a0;font-weight:700}
+.obs-grid span.v{font-weight:800;color:#173e51;text-align:right}
+.obs-actions{
+  display:flex;gap:4px;margin-top:7px;flex-wrap:wrap
+}
+.obs-actions button{
+  flex:1;min-width:0;padding:5px 6px;font:800 9px "Segoe UI",Arial,sans-serif;
+  border-radius:5px;min-height:0
+}
+
+.obs-form{
+  background:#fdf3ec;border:1px dashed #d19a76;border-radius:8px;padding:10px;
+  margin-top:8px;display:none
+}
+.obs-form.show{display:block}
+.obs-form h4{margin:0 0 8px;font-size:11px;color:#8f4818;font-weight:850}
+.obs-form select{
+  padding:6px 8px;border:1px solid #cbd7dd;border-radius:6px;font:700 11px "Segoe UI",Arial,sans-serif;
+  color:#123f54;background:#fff;outline:none;flex:1
+}
+.obs-form .form-actions{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap}
+.obs-form .form-actions button{flex:1;min-width:80px}
+
+button{
+  appearance:none;border:1px solid #cbd7dd;background:#fff;color:#294552;
+  border-radius:7px;padding:7px 12px;min-height:32px;cursor:pointer;
+  font:800 10px "Segoe UI",Arial,sans-serif;transition:.15s
+}
+button:hover:not(:disabled){box-shadow:0 3px 10px rgba(0,0,0,.13);transform:translateY(-1px)}
+button:disabled{opacity:.45;cursor:not-allowed}
+button.active{background:#e2f0fa;border-color:#78abc5;color:#0b5277}
+button.primary{background:#0b5277;color:#fff;border-color:#0b5277}
+button.primary:hover{background:#083f5d}
+button.orange{background:#c0663a;color:#fff;border-color:#c0663a}
+button.orange:hover{background:#a04519}
+button.undo{background:#fff4dc;border-color:#e1c170;color:#79570f}
+button.save{background:#e2f3e7;border-color:#92c69d;color:#1e6b37}
+button.download{background:#e0edf7;border-color:#8fb5d1;color:#0b5277}
+button.download.needs-save{background:#fff4dc;border-color:#e1c170;color:#79570f}
+button.cancel{background:#fae5e5;border-color:#dfaaaa;color:#943a3a}
+button.small{padding:5px 8px;min-height:28px;font-size:9px}
+button.wide{width:100%}
+
+.btn-row{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px}
+.btn-row button{flex:1;min-width:0}
+
+.mapTypeToggle{
+  position:absolute;top:12px;right:12px;z-index:900;background:#fff;border-radius:8px;
+  box-shadow:0 4px 14px rgba(0,0,0,.24);overflow:hidden;display:flex;border:1px solid #d6e0e5
+}
+.mapTypeToggle button{
+  border:none;background:#fff;color:#294552;padding:8px 12px;font:800 10px "Segoe UI",Arial,sans-serif;
+  cursor:pointer;border-radius:0;min-height:34px
+}
+.mapTypeToggle button.active{background:#0b5277;color:#fff}
+
+.map-bottom-controls{
+  position:absolute;
+  left:12px;
+  bottom:12px;
+  z-index:1080;
+  display:flex;
+  align-items:center
+}
+
+.labels-switch{
+  width:115px;
+  height:28px;
+  display:flex;
+  align-items:center;
+  gap:4px;
+  padding:2px 5px;
+  border:2px solid #dc2932;
+  border-radius:16px;
+  background:#fff;
+  color:#13243a;
+  box-shadow:0 3px 8px rgba(0,0,0,.25);
+  font:850 7px "Segoe UI",Arial,sans-serif;
+  letter-spacing:.2px;
+  transform:none!important
+}
+
+.labels-switch:hover{
+  background:#fff;
+  box-shadow:0 4px 10px rgba(0,0,0,.30)
+}
+
+.labels-switch.on{
+  border-color:#16a34a;
+  box-shadow:0 0 7px rgba(22,163,74,.4),0 3px 8px rgba(0,0,0,.25)
+}
+
+.labels-map-icon{
+  width:17px;
+  height:17px;
+  flex:0 0 17px
+}
+
+.labels-caption{
+  font-size:8px;
+  letter-spacing:.15px;
+  flex:1;
+  text-align:left
+}
+
+.labels-track{
+  position:relative;
+  width:43px;
+  height:20px;
+  display:flex;
+  align-items:center;
+  justify-content:flex-end;
+  padding-right:4px;
+  border-radius:12px;
+  background:#d91f27;
+  color:#fff;
+  font-size:6px;
+  letter-spacing:.1px;
+  transition:.18s
+}
+
+.labels-switch.on .labels-track{
+  justify-content:flex-start;
+  padding-left:4px;
+  padding-right:0;
+  background:#16a34a
+}
+
+.labels-knob{
+  position:absolute;
+  top:2px;
+  left:2px;
+  width:16px;
+  height:16px;
+  border-radius:50%;
+  background:#fff;
+  box-shadow:0 1px 3px rgba(0,0,0,.35);
+  transition:.18s
+}
+
+.labels-switch.on .labels-knob{
+  left:25px
+}
+
+@media(max-width:700px){
+
+  .map-bottom-controls{
+    left:8px;
+    bottom:10px
+  }
+
+  .labels-switch{
+    width:105px;
+    height:26px
+  }
+
+  .labels-caption{
+    font-size:10px
+  }
+
+  .labels-track{
+    width:40px;
+    height:19px
+  }
+
+  .labels-knob{
+    width:15px;
+    height:15px;
+    top:2px
+  }
+
+  .labels-switch.on .labels-knob{
+    left:23px
+  }
+}
+
+.advanced-map-controls{position:absolute;left:12px;top:12px;z-index:1200;display:flex;gap:6px;flex-wrap:wrap;max-width:calc(100% - 180px)}
+.map-tool{
+  min-height:34px;padding:0 11px;border:1px solid rgba(0,0,0,.10);border-radius:7px;
+  background:rgba(255,255,255,.97);color:#153d4d;box-shadow:0 3px 10px rgba(0,0,0,.18);
+  font:850 10px "Segoe UI",Arial,sans-serif;display:flex;align-items:center;gap:5px;cursor:pointer
+}
+.map-tool:hover{background:#fff;box-shadow:0 4px 14px rgba(0,0,0,.24)}
+.map-tool.active{background:#0b5277;color:#fff;border-color:#0b5277}
+
+.map-status{
+  position:absolute;left:12px;bottom:36px;z-index:900;display:none;
+  max-width:min(560px,calc(100vw - 24px));padding:8px 11px;border-radius:6px;
+  background:rgba(20,35,45,.92);color:#fff;font-size:11px;line-height:1.35
+}
+.map-status.show{display:block}
+.height-wizard{position:fixed;inset:0;z-index:4000;display:none;align-items:center;justify-content:center;background:rgba(5,20,28,.58);backdrop-filter:blur(3px)}
+.height-wizard.show{display:flex}
+.height-card{width:min(420px,calc(100vw - 28px));border:1px solid #c8d8df;border-radius:12px;background:#fff;box-shadow:0 18px 50px rgba(0,0,0,.34);padding:18px;color:#183747}
+.height-card h3{margin:0 0 6px;color:#0b5277;font-size:15px;letter-spacing:.25px}
+.height-card p{margin:0 0 14px;color:#617680;font-size:11px;line-height:1.45}
+.height-step{font-size:10px;font-weight:800;color:#78909b;text-transform:uppercase;letter-spacing:.55px;margin-bottom:8px}
+.height-input-row{display:flex;align-items:center;gap:8px}
+.height-input-row input{flex:1;width:100%;padding:10px 11px;border:1px solid #b9cbd3;border-radius:7px;outline:none;color:#123f54;font:800 14px "Segoe UI",Arial,sans-serif}
+.height-input-row input:focus{border-color:#0b5277;box-shadow:0 0 0 3px rgba(11,82,119,.13)}
+.height-unit{font-size:11px;font-weight:850;color:#657b84}
+.height-actions{display:flex;justify-content:flex-end;gap:7px;margin-top:16px}
+.height-actions button{min-width:86px}
+
+.coordinate-hud{
+  position:absolute;right:12px;bottom:10px;z-index:950;display:flex;gap:10px;
+  padding:6px 10px;border-radius:6px;background:rgba(12,25,31,.88);
+  color:#fff;border:1px solid rgba(255,255,255,.16);
+  font:700 9px "Consolas","SFMono-Regular",monospace;pointer-events:none
+}
+
+.site-point{
+  width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  background:#155e8d;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.35);
+  color:#fff;font:800 9px "Segoe UI",Arial,sans-serif
+}
+.site-point.first{background:#238a58}
+.obs-point{
+  width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  background:#c0663a;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.35);
+  color:#fff;font:800 9px "Segoe UI",Arial,sans-serif
+}
+.obs-point.first{background:#238a58}
+
+.side-label{
+  background:transparent;border:0;border-radius:0;padding:0;
+  font:900 12px "Segoe UI",Arial,sans-serif;color:#fff;white-space:nowrap;
+  letter-spacing:.15px;pointer-events:none;
+  text-shadow:-1px -1px 0 rgba(15,25,30,.95),1px -1px 0 rgba(15,25,30,.95),
+    -1px 1px 0 rgba(15,25,30,.95),1px 1px 0 rgba(15,25,30,.95),0 2px 4px rgba(0,0,0,.85)
+}
+.side-label.obs{color:#fff;background:transparent;border:0}
+.live-label{
+  background:transparent;border:0;border-radius:0;padding:0;
+  font:900 12px "Segoe UI",Arial,sans-serif;color:#fff;white-space:nowrap;
+  letter-spacing:.15px;pointer-events:none;
+  text-shadow:-1px -1px 0 rgba(15,25,30,.95),1px -1px 0 rgba(15,25,30,.95),
+    -1px 1px 0 rgba(15,25,30,.95),1px 1px 0 rgba(15,25,30,.95),0 2px 4px rgba(0,0,0,.85)
+}
+.live-label.obs{background:transparent}
+.angle-label{background:transparent;border:0;padding:0;color:#fff;font:900 10px "Segoe UI",Arial,sans-serif;white-space:nowrap;pointer-events:none;text-shadow:-1px -1px 0 rgba(30,20,20,.95),1px -1px 0 rgba(30,20,20,.95),-1px 1px 0 rgba(30,20,20,.95),1px 1px 0 rgba(30,20,20,.95),0 2px 4px rgba(0,0,0,.85)}
+
+.leaflet-container.draw-precision{cursor:crosshair !important}
+.leaflet-container.draw-precision .leaflet-interactive{cursor:crosshair !important}
+.fixed-site-endpoint-cross{width:16px;height:16px;position:relative;pointer-events:none;} .fixed-site-endpoint-cross:before,.fixed-site-endpoint-cross:after{content:"";position:absolute;left:1px;top:7px;width:14px;height:2px;background:#E8E5DC;border-radius:1px;box-shadow:0 1px 2px rgba(0,0,0,.45);} .fixed-site-endpoint-cross:after{transform:rotate(90deg);}
+.leaflet-container.fixed-site-endpoint-mode{cursor:none !important}
+.leaflet-container.location-select-mode{cursor:crosshair!important}
+.leaflet-container.location-select-mode .leaflet-interactive{cursor:crosshair!important}
+.leaflet-control-attribution{font-size:9px!important;background:rgba(255,255,255,.82)!important}
+.leaflet-tile{image-rendering:auto;backface-visibility:hidden}
+.leaflet-tile-pane{will-change:transform}
+.leaflet-container{background:#0e1a20}
+#map,#map2{will-change:transform}
+.site-dimension-hud{position:absolute;left:50%;top:58px;transform:translateX(-50%);z-index:1300;display:none;align-items:center;gap:6px;padding:6px 9px;border-radius:7px;background:rgba(10,31,40,.72);backdrop-filter:blur(5px);-webkit-backdrop-filter:blur(5px);color:#fff;font:700 11px/1.2 Segoe UI,Arial,sans-serif;box-shadow:0 2px 8px rgba(0,0,0,.22);pointer-events:none;white-space:nowrap}
+.map-pane.drawing-dimension-mode .site-dimension-hud{display:flex}
+.site-dimension-hud .value{font-weight:800}
+
+.direction-compass-control{position:absolute;right:-5px;top:62px;z-index:1200;width:55px;height:55px}
+.direction-compass-control .map-utility-button{display:block}
+.map-utility-controls{position:absolute;right:12px;bottom:46px;top:auto;z-index:1200;display:flex;flex-direction:column;align-items:center;gap:5px}
+.map-utility-button{width:40px;height:40px;padding:0;border:0;background:transparent;cursor:pointer;border-radius:50%;filter:drop-shadow(0 2px 5px rgba(0,0,0,.30));transition:transform .14s ease}
+.map-utility-button:hover{transform:scale(1.06)}
+#myLocationButton{background:#fff;border-radius:9px;box-shadow:0 2px 7px rgba(0,0,0,.28)}
+.map-utility-button:focus-visible{outline:3px solid #fff;outline-offset:2px;border-radius:50%}
+.map-utility-button:disabled{opacity:.55;cursor:wait}
+.map-utility-button img{display:block;width:40px;height:40px;object-fit:contain;pointer-events:none;background:transparent}
+
+/* Compact 4-arrow map navigation toggle */
+.map-nav-toggle{position:relative;width:40px;height:40px;padding:0;border:1px solid rgba(255,255,255,.38);border-radius:50%;background:rgba(255,255,255,.42);backdrop-filter:blur(5px);-webkit-backdrop-filter:blur(5px);box-shadow:0 2px 7px rgba(0,0,0,.28);color:#27363d;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:background .16s ease,transform .14s ease,box-shadow .16s ease}
+.map-nav-toggle:hover{background:rgba(255,255,255,.56);transform:scale(1.05);box-shadow:0 3px 10px rgba(0,0,0,.32)}
+.map-nav-toggle:focus-visible{outline:2px solid rgba(255,255,255,.95);outline-offset:2px}
+.four-arrow-svg{width:24px;height:24px;display:block}.map-nav-btn.center .four-arrow-svg{width:23px;height:23px}
+.map-nav-panel{display:none;position:absolute;right:0;bottom:0;width:126px;height:126px;border:1px solid rgba(255,255,255,.38);border-radius:16px;background:rgba(255,255,255,.30);backdrop-filter:blur(7px);-webkit-backdrop-filter:blur(7px);box-shadow:0 4px 16px rgba(0,0,0,.30);padding:8px}
+.map-nav-panel.open{display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr);gap:4px}
+.map-nav-btn{border:1px solid rgba(255,255,255,.30);border-radius:8px;background:rgba(255,255,255,.34);color:#24353d;font:900 18px/1 Arial,sans-serif;display:flex;align-items:center;justify-content:center;padding:0;cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,.16);transition:background .12s ease,transform .12s ease}
+.map-nav-btn:hover{background:rgba(255,255,255,.58);transform:scale(1.04)}
+.map-nav-btn:active{transform:scale(.96)}
+.map-nav-btn.center{font-size:21px;background:rgba(255,255,255,.48)}
+.map-nav-btn.minus{font-size:23px}
+.map-nav-spacer{pointer-events:none;background:transparent;border:0;box-shadow:none}
+.map-zoom-control{display:none}
+#directionCompassImage{transform-origin:50% 50%;transition:transform .18s ease}
+@media(max-width:900px){.direction-compass-control{right:8px;top:62px}.map-utility-controls{right:8px;bottom:44px;top:auto}}
+
+.legend-item{
+  display:flex;align-items:center;gap:6px;font-size:10px;color:#3a5561;padding:3px 0
+}
+.legend-swatch{width:14px;height:10px;border-radius:2px;border:1px solid rgba(0,0,0,.15)}
+
+@media(max-width:1100px){
+  .workspace{grid-template-columns:1fr 340px}
+}
+@media(max-width:900px){
+  .topbar{grid-template-columns:1fr;grid-template-rows:auto auto;height:auto;padding:8px 12px;gap:6px}
+  .location-pill{display:none}
+  .workspace{grid-template-columns:1fr;grid-template-rows:1fr 320px}
+  .sidebar{border-left:none;border-top:1px solid #d8e1e6}
+}
+
+
+/* =====================================================================
+   4K VECTOR PLAN + BASIC 3D PREVIEW
+   ===================================================================== */
+.three-d-modal{position:fixed;inset:0;z-index:5000;display:none;align-items:center;justify-content:center;background:rgba(3,14,22,.72);backdrop-filter:blur(4px)}
+.three-d-modal.show{display:flex}
+.three-d-card{width:min(1120px,calc(100vw - 24px));height:min(780px,calc(100vh - 24px));display:flex;flex-direction:column;overflow:hidden;border:1px solid #89aab8;border-radius:13px;background:#102530;box-shadow:0 22px 70px rgba(0,0,0,.5);color:#fff}
+.three-d-header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px 16px;background:linear-gradient(135deg,#073f62,#0b7299);border-bottom:1px solid rgba(255,255,255,.15)}
+.three-d-kicker{font-size:9px;font-weight:850;letter-spacing:1px;opacity:.8}
+.three-d-header h2{margin:2px 0 0;font-size:17px;letter-spacing:.2px}
+.three-d-toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:9px 12px;background:#173746;border-bottom:1px solid rgba(255,255,255,.1);font-size:9px;font-weight:800;color:#c6dce5}
+.three-d-toolbar label{display:flex;align-items:center;gap:5px;white-space:nowrap}
+.three-d-toolbar input[type=range]{width:120px;accent-color:#42c4e8}
+#threeDDataStatus{margin-left:auto;color:#f6cf7c;font-weight:700}
+.three-d-canvas-wrap{position:relative;flex:1;min-height:0;background:radial-gradient(circle at 50% 35%,#1e4e5c,#07151d 72%)}
+#threeDCanvas{display:block;width:100%;height:100%}
+.three-d-overlay{position:absolute;left:12px;bottom:10px;padding:6px 9px;border-radius:5px;background:rgba(5,20,28,.76);font-size:10px;color:#d5e9ef;pointer-events:none}
+.three-d-footer{padding:8px 12px;background:#0d202a;color:#93adb7;font-size:10px;border-top:1px solid rgba(255,255,255,.08)}
+@media(max-width:700px){.three-d-card{height:calc(100vh - 12px);width:calc(100vw - 12px)}#threeDDataStatus{width:100%;margin-left:0}.three-d-toolbar input[type=range]{width:100px}}
+
+
+#mapWorkspace:fullscreen{width:100vw;height:100vh;background:#0e1a20}
+#mapWorkspace:fullscreen .map-pane{min-height:100vh}
+
+</style>
+</head>
+
+<body>
+<header class="topbar">
+  <div class="title">SOLAR EPC — SITE & OBSTACLE GEOMETRY • GODLEVEL FIXED</div>
+  <div class="header-search">
+    <div class="header-search-row">
+      <span class="header-search-icon">⌕</span>
+      <input id="searchInput" type="text" placeholder="Search city, village, road, business, house, landmark or full address…" autocomplete="off">
+      <button id="searchButton" type="button">SEARCH</button>
+    </div>
+    <div id="searchResults"></div>
+  </div>
+  <div id="locationDisplay" class="location-pill">Location not set</div>
+</header>
+
+<div class="workspace">
+  <div class="map-wrap" id="mapWorkspace">
+    <div class="map-pane primary-pane" id="primaryPane">
+      <div id="map" aria-label="Primary HD satellite map"></div>
+      <div class="map-bottom-controls">
+        <button id="labelsToggle" class="labels-switch off" type="button" aria-pressed="false" title="Show or hide place-name and road labels">
+          <svg class="labels-map-icon" viewBox="0 0 28 28" aria-hidden="true">
+            <path d="M14 2.2c-4.5 0-8.1 3.4-8.1 7.7 0 5.3 8.1 15.3 8.1 15.3s8.1-10 8.1-15.3c0-4.3-3.6-7.7-8.1-7.7z" fill="#1e4b91"/>
+            <circle cx="14" cy="9.8" r="2.8" fill="#fff"/>
+            <path d="M3.5 20.8l5.2-3.2 5.1 2.8 5-3.1 5.7 3.5v3.1l-5.7-3.4-5 3.1-5.1-2.8-5.2 3.1z" fill="#20a95b" stroke="#fff" stroke-width="1.2" stroke-linejoin="round"/>
+          </svg>
+          <span class="labels-caption">LABELS</span>
+          <span class="labels-track"><span class="labels-knob"></span><span id="labelsState">OFF</span></span>
+        </button>
+      </div>
+    </div>
+
+    <div class="split-divider" id="splitDivider" title="Drag to resize dual maps">
+      <div class="split-handle">⋮</div>
+    </div>
+
+    <div class="map-pane secondary-pane" id="secondaryPane">
+      <div id="map2"></div>
+      <div class="pane-badge secondary-badge">SECOND MAP</div>
+    </div>
+
+    <div id="siteDimensionHud" class="site-dimension-hud" aria-live="polite">LENGTH: <span id="siteDimensionValue" class="value">—</span> m &nbsp;•&nbsp; type distance + ENTER to lock</div>
+
+    <div class="advanced-map-controls">
+      <button id="selectLocationButton" class="map-tool" type="button" title="Click map to select exact site location">⌖ SELECT</button>
+      <button id="dualMapButton" class="map-tool" type="button" title="Open synchronized second map">▣ DUAL</button>
+      <button id="streetViewButton" class="map-tool" type="button" title="Open Google Street View">◉ STREET</button>
+      <button id="threeDButton" class="map-tool" type="button" title="Open a basic 3D site preview">◇ 3D</button>
+      <button id="export4KButton" class="map-tool" type="button" title="Export a 3840 by 2160 vector site plan">▧ 4K PLAN</button>
+    </div>
+
+    <div id="buildBadge" style="position:absolute;right:12px;top:52px;z-index:899;padding:3px 7px;border-radius:4px;background:rgba(11,82,119,.86);color:#fff;font:800 8px Segoe UI,Arial;letter-spacing:.4px;pointer-events:none">GODLEVEL FIXED • BUILD 2026-08-26</div>
+
+    <div class="mapTypeToggle" aria-label="Base map type">
+      <button id="satBtn" class="active" type="button" title="Sharp satellite imagery">SATELLITE</button>
+      <button id="mapBtn" type="button" title="Street / road map">MAP</button>
+      <button id="aerialBtn" type="button" title="Second real aerial image source">IMAGE 2 / HD MAP</button>
+    </div>
+
+        <div id="directionCompassControl" class="direction-compass-control" aria-label="Direction compass">
+      <button id="compassButton" class="map-utility-button" type="button" title="Reset direction to north-up" aria-label="Direction compass, north-up">
+        <img id="directionCompassImage" alt="Direction compass" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADsAAAA6CAYAAAAOeSEWAAAVGElEQVR42s2bfXBV1b33P2vtvU9yTgIkvIVLQhJC0Ao+faQFuXIpeqXUsWKp9xYsveJj+8B0OuOMFgd85sqI0OkdkXIv40Onz1WwndpixfaWpqntlfKi0PoSvWJbRWxCyBsSJJwQk5ycvdfL88fe53hOcoBQbXvXzJoh++Xs9V3r9/r9/RDP/Xgnf45hsVgR/VtYtNCjfldYgWMl0srL/q6QEteLIYQYcc/lzzSssCipL3+xVuBYB2nFR74m1/W8/EVaMFphrf1QPywQpY5xrgLqgSqgwgpTZoRNRJusgEGgV1jRLa3sBJoFHBNW9P85DsCVzrDDtTYEajTW2qw4jBJ8KbAQmC+smOMgZkdgAdCAwIx4SRKKLdAMvAm8DrwMHAH6L1N/sMYgpIRhouwWeBaEQEgHqxXScRFCoFVwMcBVwM3AEmARUFHoIWklElFwgdGoj+YyoBt4AdgH/BLovCROa9FaYa3BcT0c170wWCEE1lpcx8VagxAgZWEjIYREOrJUCLkCuM1as9QYgzX5J2eMYWAwxWAqTdr3Qz3BIoSkuLiI4qIYiXgcxxmxCRXAcimd5UKKRuCnxpg91pgLnrQQAinDbzrYAgbK2uxxCyFxHAdrDVhwIqDG6AJWT1zvON4q6TgrgYQxGlSANgY/COjo6qa5tZ22zndJ9vaRGhrCpH0+EdmIo1ojPI/i4hhlY8dQM20qM+uqmVY5hVjWjgik4yAdZylwIypYoI15Enj+YoCz0pKDDcBVQYCQAifSXSkEOmdTtFYYrYeL8BprzBoV+POEEllXk06nOfSbJg4cfoWz53rx/QCV8265ENxZXg7AvmSSZHRdCIHb9Aae5zJ54nj+fuG1XL/gk8S8WO43E8D/Bj4OPB7NCwI2RmOVxXHcUH8B1xiNRGKd7JPR7siMVc39nXHAvcDd1tqJ1mq0NiR7z/PK63/gJ437SQ0NZR+urq6mp6eHgYGB6LcgkZGiXBSJBBMmTKC9vZ2THaf47lN7eXrvr/jHpZ/mb+ddw/iycaHEGQswD5gOTAW2A+cvpL9WG4TQyMj/OqtWfC6UdcdBSokQ4ZQynAgBAqwxk4F/jmYCwPcDftt0lKd++ksOv/Q6QRDkfXDbtm0UFxfz+9//HoC4EKyIxwHYk0qRip5bvnw5d911Fw0NDdl3A6X4w9vNvP3OCaQQTJk0ASlF7infAHjAUWDggkYrsiEhPscJLZfjIsRIYySlxHG8cY7rrZfSuS9z/WxPkm9/92l+8ONfcKKti5qamhFRy49+9CPmzZt3SW9x7bXX8vTTT48Qxerqak60dfKDHzey44mnOHP23PBX7wPWRxLHxQDrIEBK6SAdFynkBz7VGIzRodyHenWvkPK+jLK3db7Lv/6/J3n16JsMDKZwHIeNGzfy9a9/Pe8jx44do7y8HG9Y4JI7PM+jvLyct956K+/63XffzaZNm3Ach4HBFK+98Rb/9u8/4GTHqeHyeh/W3jsalyQL3QiCNP5QKjPXBOnU3cr3MUbzzok2Hn/yJ5zsOJU1PEopHnroIe666y5qa2uzv9Xb20traysVFaHb7bWW25NJbk8m6Y3eraiooLW1ld7e3jxdX7NmDZs2bUIplV1XW8cpdv3wP/jjifac9RqsNXcDay4lQc7/WnkbUjpIIbGRm9EqyJzq9dba/2OtnQmWk+1dfPepn9Ha3kV9fT39/f1orbPAYrEYN910E/v27Ys2LeDgwYO8//772Q8OWMtgjmXv6+vj4MGDWX2XUrJhwwYOHz7Ms88+mycBM2bMoKW1jbbOd6mrqaRs3NjQxQiREEJMkVK+Ix2nLWNvMlMQxg/5YK3BGIXVBgulCHE/QiwFwZmz5/i/u37EyY5T1NXV8Y1vfIMFCxawf/9+TGQEfve739HX10d7e/sIv+cA3580ibPGUCIlW8vLaRgcjNaar+vpdJqGhobsBriuy8MPP8yyZct44403aDlxkubWDj4+6wpKSxLh+0JUOq6nHdc9IIX0s2AdJwyWjMkXY6M1Wimk4+B63grX81a6noc2lh/+5Fk6uk4D0N7eTkdHB1/60pfYtm0bbhSWpVIpDh8+XDCsFMBN8TgrS0qYJCV/V1xcKHDEWsvzzz/P4OBguEmOw5YtW7jzzjt59913OXnyZLiGrtP88CfP4vtBmNa5HkLKldbaFVopVBCglEIgkI6L68UyYMPgPxPuCSGqpHRuk9JJWAsvvvoGx945kaejDzzwAN///vdZtGgRt95666hidN9aPuZ5/ENJCaPNVJcuXcrixYvZvXs3999/f/a0rbUce+cEL/3X77E2dC1YmzBa32aMrtJaoQM/qxpCylCMw5jYRHpqkI5zuxDiPoBzyfP84Jmf0/1eD67rZkXWGMP+/fvp6uripZdeygYOFxoSuGvMGB59/30+n0gwyXH4t74+LpVLJZNJWlpa2LFjR9ZYZUQ77fuc7+vnk9dcTSIRx2iFVuoK4G2j9X8ZpfBiRcgoBJZGK3QQoIOMUaJUa7Ukc+3l196g5WQH1dXV7Nq1i7q6upxQUtPQ0EB3d/eoTskAzw4O0qwUnhhdcn7mzBn27t2bB7Suro5du3ZRW1tLy8kOXmo6Ojx7WgKUWmsIAp/AT4d+VmuN1ipMjYwB7EKj9SKtFamhFHv2/gpjDG1tbTQ1NbF3717Wrl1LIpG4rDRTA18/d46kMWzq7eXOs2cLZLYXH4lEgrVr17J3716amppobW3FGMMzDf+J7+dFb4uivDr0LlphrEEOT8mA+Zl89IUXX2NgMJW9sWPHDpYuXcrUqVNHFRkNT1n3p8LfagkCfhlZ4ssZc+fOZerUqSxdupQdO3Z84M4GUxw88vLw9HA+hAmO68XCSf4nS4E5AH4QcODwKyM+2N7ezvr16z80bfOnjMOHD3PkyJGs3cgd+w79loXzr8FznIxRmiNct1RI2Z9xbcON4lXAbICOrm7e60kW1j1j/ipgMx6joG6/10N7TigppJwtPe8qIUSY11o7AmyGFuGPJ9rw/YDq6mp27tzJkiVLqKyspKSkhL/2KCkpobKykiVLlrBr1y6qq6sJApUXRgL1WFuvdeRzgwA3DPfCHFYIUYUQaG1o6ziF0pqenh4OHDjALbfcwh133MHJkyd58MEHC/KyoxlTpkwB4PTp03/y6a5bt47p06eTTCbZv38/PT09KK1p6ziF1gbHyZ5hlTUmq6iuCgKwFsdxQDoVQggGUyl6+/qx1jIwMMDu3bvZvXs3nudRUVHxJwMFmDFjxocCK4Rg586ddHd3j8ife/v6GUylGFNakmuohnFQEf8khCgDSA2l8xiHbEIdBHR2duK6LldffTVHjx5l7NixzJgxg+PHj2Otpa6ujjfffPMjEdcxY8YwZ86cbIp46tQpjh07RmdnYaIxNTREaiidC7ZsWG7uhBxNyEokAIbSPul0GGoVFRURj8ezM+R3DOvWrWPq1KnMnz+f3bt3U19fz8KFC1m+fPlHppvTp09n+fLleJ6XZxSFEHlrKioqihIIn6Gh9HDeKr8iIF03I5ojeOSvfe1rVFZWZv/+5je/SW9vL8899xx33HEHXV1ddHZ2Ul5ezle/+lUefPDBPJGrqKjIii7A1VdfPQJUS0sL3d3dBS18PB5n0qRJ+L5Pa2trSISNG8cDDzyQfaarq4vt27eHMb4xuaxiHh4ppMhlKJRWCkbhVl588UVuvPFGrrnmGh577DGWLFnCzJkzRzAOH3aEXLAcpZ0Q2Py4QQ0jyUWu/xw0Oh/sd77znTyifCjS5dbWVmbNmkVnZycHDx5k9erVvP322yMs5+nTpwsao9/85jejAtvc3MwzzzyTTfkAzp8/nydBub532KYM5oEVOUCk4/RKGTL1RUWxbCJdaARBwJNPPsmZM2dIJpN0dHSwc+dHW/5Mp9MsWrSIW265BWstr732GmvXrsUYQyqVGvF8LOZRFMvjmnvzwebshBCiGyGIx4uJFxcXJMcqKiqy1nDDhg1ZPVuzZs1HHlUdP36cz372syOkpaqqqqDriRfFKC7yMFojwhy2+2KFrU6ARDxO2dhShBAkEgk+//nPM2/ePMrLy/OCilxwowXa0tJy2UHE8L9Xr16dDSoymdjg4CBjx5RS5LqowA/pYSk7Lwa2GWh2HFlfM20qbtMbjB8/nhtuuIE9e/bw1ltv0dvb+6GCij81mMjVya1bt1JWVsasWbO4/fbbOXz4MH46TU1lBa7rIF0XKZ3mCM8FwR6L6qP1M+tqiMU8Ojo6WLNmDf+dxsDAAAMDA3R1dbFv377QocaLqa+dBkIQxQ5vRnjy2JLc0R8VgplWWcGkCeWF+deIsftLj4wbKjQmjS+j6m8m5156fXghu9CbLwPdMc/jxk9dO+JmTU0NjzzyCIsWLfqLg124cCFbt26lpqZmxL1P/e0chBRopdFKdWsVvKxVfruEjDjX3PeOIMQLQgiuXzCXRLw4u6v33HMPDQ0NdHR00NTUdNmLjcfjrF69mptvvvmiJZELjVdffZWOjg4aGhq45557stIVLy5i/jWzUEqhlEKr4AUdBEe0CjJUE2CRrheLilqZgrTodxx3n+vFSCRK+MKtn0FKSXV1NXPmzGHZsmVs3749z8mPVgQPHTpET08P1113HV/84hcvG2wqlWL79u0sW7aMOXPmUFtbi5SSpZ9eiOflmZ99GRG2xmC0xmiN8+V/+kIu0IhFd88gxBXW2ivGjSvl+B9PcLK9k8bGRs6dO5dHZ95666309vZemkqVkrlz5xIEAadOneLo0aOjYiUnT57MZz7zGZqbm7ORUm9vL42NjSSTSWqqpnDLjQuIFxVFpRAaBWK7hT4bNcOEhTqDc9eX/jEC6WRqmAgh+qwxcRX4S4o8zxNCcLy5NZsJZYBu2bKFr3zlK7S0tIwIFQv5y66uLvr7+5k5cyY333wzP//5zy8JdvHixWzatIkrr7wyr9RijCERL+am669j+rTKMC4Oy0j/arHPmwhgyJ6GU17Equ4BnhIY5v7PK6mvnZaVAM/zePjhh1m1ahWHDh2isbHxkot2XZddu3bxwgsv8L3vfY958+aNyqL/4he/4Ne//jUrV65k69atxKJwUAhBfW0VH/9YHVoF+H4a308/5ftDe9K+j+8HBIFCK5OdzlfuWF7gFAzWWh84H6TTs5VSldOmTOadE+28PzBIbW0tn/vc53jxxRdZv359lsBOJBIsWLAgr7CVG6yfPn2a9evXs3jxYu6///6CYiyE4IYbbuDMmTMEQdiOdODAAcaPH09lZSWvv/46586do3LKJL5wy40UxdyI99ZN2uhvaWP+qLXFGvuBJbahZIkjv3omLH1oHaZH1qJUEBaEXJfk2bNrBgcG/8WRcuLx5hZ+/MtDdJ/tpa6ujvb29rz49N5772XatGmsW7cuK265jWMZqciIV66IZ+lOKdmyZQvd3d1861vfypOM2tpaWlpaqJwykX+4+XomT5wAWoO1Z4F/RsrHw2YYgRQOQro4UmTbEyTD2jls+HWMNRit8JV6PO37OwKlmFA+joVzZzFpwjhaWlrygE6fPp0vf/nLPProo1mgJSUlbN68maqqquypJRIJSktLs+CqqqrYvHlzlrU0xvDoo4+yatWqvKRfKUVzczNTJ0/gs38/n4llY9GBn6lm7NBaPa6VIpwapXXohrRCqQClgg+qeAX7EEKfRaCC7X4QbEurgPLyUhbOm8X4sjF5u75x40aeeOIJ2trastfLysqora3NimtxcTEbNmxgw4YNFEdZVXd3N7W1tZSVfUAXdXR08Nhjj7Fx48asPxYCpkwaz9Ibr2PKxHIC38+UJbcprbeH4ELKVAcKFSiUDkEqrVBaha1B1prhGX5+zdb3z+OYR9JDQ/QPDN43Juaw8BMf45U/nKAneR6lNA899FAeUIBZs2aRTCZHpGLD8+JkMsns2bPp6urKXv/2t79NY2MjSinixUXUVFbw6QWfYNyYRAgIi7FsAx7JtAdJAW7UBCOsRRgBrptt5XUjY3ThypsxKOVjtD6TTqe/MZjy3w/gbgcxcfaMak6fTXKq+yxtbW0jfmfFihUcOnTokhb3lVdeYcWKFTz33HN51zva2/mbyeP55OyZzJpZg5CCQCuAs8aaHdqY7SFQAVLiCoGRBmktGIMVAmktJlqWe6k81BhNoAIEiqG0Op9KsykFp1BqjZNOz5taGmdq2TR6B1McPd5BoD4wPJs3b84LQowx2dPLpVJ+9rOfceTIkbzvFsU8PjVvNldMr6I0UYwQFmUM2tIEPI42j6NVJmIJZ4Fqf97fhxp/OLKNJvCzi+loa+O9M2EO+l7Ped49HS5eaX19oNQqYGU8XpQoLx+L0QFtXWdo7XqPvv4USmuMNpes1glAOhLPdRk3poRrrqrjf1xZi+s6eXySsvYpbeyTGP08GRYxA9b1cIXAlQLX8XCkREoHx3PDBMEUasG1FmOiApK1KK0JIj+qggDt+0jAWPP8kLWvAb+Vltt8K5cK6TK9dgqfmF3P+b5+ut47R7IvxWDKxw+CvFMPu18dYjGXkkQxUyaWU1kxgUkTxuE6zvBlNQI/xdo9WNOfB/RC7IYIXY6UkXXDFgBrTHSyGmshUAHpyCemjWHIWoojMQyM6geeUNp5zuihBilZAs4ix5EVEyeWUzZhLKXxUqwBP1D4wQfMptIaK8FzXRLFHrGRAEf2GxsDShf0Hrmu80L7MKzfOOw6SVuLUmElXhuNthZtwNcG36iwX8oqrEiDdbHWdFr04yCfiire84E5BjFbSFkfL4qRiA+zwlozpILhunXxTnJb2E0KwBFhR60UDp4bxvjRsYb3ZYHm6gytkRFhYyzWgjagjEHpgCDin61IIYiDsLlMx6+iWSqwVwls9v8IRLWXvP8jIKBXCLojsq85olL6L6jcBeJpIQSOELiOg+O4Yfd7ZLSi6mR4/3LySQeNR5qAGIGy6ACcIh9EMGLHHWw/2CYJF83yMycyqhGd1MjrIhc5SIl0JI4M2/8zDajuCMW2NtRXwJEOWINVAcKANAEOPkoIHBm11QuFIEBaHbbNAcracCelFxa9sTiOxBiD0Ta3lbZQw/fFGIB8YBf0MVHnsMgIsSgENkwIgoi7cT0XYTTGH0BYENoPRVak8FxBTAh8BwQaxwYIK8OeRaNxRQzHi2EAYzWe66F9gzYKIT74rI42Q/4FCLz/D9e85j54JxT7AAAAAElFTkSuQmCC">
+      </button>
+    </div>
+
+<div id="mapUtilityControls" class="map-utility-controls" aria-label="Location controls">
+
+      <button id="myLocationButton" class="map-utility-button" type="button" title="Use my current device location" aria-label="Use my current device location">
+        <img alt="My location" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACgAAAAoCAYAAACM/rhtAAAC70lEQVR42u1XMUhbURS9+SQ10MGQOjQZvEoyfClKA/qb5ZsoQimItpikg0PsUKsOGXQw1E2xBRFEC9mUj5D4wRAhAQeDDYgB84MkLjqIDuImLQ4dP7lO+WhMJalJTOEfeMN79753z7vvvXvvA1Chojb4eZB9qXpBhYp6gN/vp0Qi8apS6zGVJBePx7s2Njbg5OTEW3eei0QiQ16vlxCR+vv7KRgMfqnEuprHLjA9PU2iKP5VznEcbG5uap7Ea3a7nRCRbDYbrays/LgtW19f93V3dxMiEsuytLu7+7qm5JxOJyEizc7O0kN6q6urX1tbW6m9vZ2y2ay2JuQmJiYIEWlxcZFK0RdFcaSlpYUGBgao6uQODw+fW63We8a2t7ed+SO12WwkCMJUsU1Fo9F3VSW4sLBAiEhbW1vv82OhUOgzIlJhm5ubUzYhSZLRYrHQ2NgYVfUVDw8PUyaTgePjY2VuX18fnZ6e3tM1GAxwdHSk6PE8T1qtFhKJRMl2Sw7Uk5OThIi0v78PjY2Nd2SXl5dF51xfX0M8Hu/K900mE5yfnwMiksfjoYoS5Djuk8vlAqPRCLlc7o6soaGh+PFoNKDX63/l+7lcDnQ6HQwODkJvb++3qtxBn89HFouFJEkyFj6Awlb4kDo7O8nlcpV1B8vOxT09PR9kWYZYLKZ4JhAIaDo6Ou7omUwmiEajyl0TBGHq6uoKOI6rfhx0OBzEsixlMplnt8dTqVRTOBz+uLe3Zy2cw/M8sSxLNQnUkUhkCBGJ5/mSDLrd7rICe0WwtLSk5FlRFEeK6ezs7LzJ5+vx8fF/IveoKmNtbc0/Pz//XZZlYBgGzGYztLW1wdnZGVxcXIAsywAAMDo6CjMzM5qaE7xdcoXDYYUQAADDMOBwOEAQhKcptYohFou9RURaXl4O1GXJr9frfwMA6HS6P+rvTMUDKEwAKspBOp021C05KXXQVKJi6kXtyZVpM51OG5LJZHO1iSWTyea6Ptb/Hjcu3DP/e+sP6AAAAABJRU5ErkJggg==">
+      </button>
+      <div id="mapNavControl" class="map-nav-control" aria-label="Map navigation">
+        <button id="mapNavToggle" class="map-nav-toggle" type="button" title="Map controls" aria-label="Expand map controls" aria-expanded="false">
+          <svg class="four-arrow-svg" viewBox="0 0 40 40" aria-hidden="true"><path d="M17 17L9 9M9 9H15M9 9V15M23 17L31 9M31 9H25M31 9V15M17 23L9 31M9 31H15M9 31V25M23 23L31 31M31 31H25M31 31V25" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <div id="mapNavPanel" class="map-nav-panel" aria-hidden="true">
+          <button class="map-nav-btn map-nav-spacer" type="button" tabindex="-1" aria-hidden="true"></button>
+          <button class="map-nav-btn" type="button" data-pan="up" title="Move map up" aria-label="Move map up">↑</button>
+          <button class="map-nav-btn" type="button" data-zoom="in" title="Zoom in" aria-label="Zoom in">+</button>
+          <button class="map-nav-btn" type="button" data-pan="left" title="Move map left" aria-label="Move map left">←</button>
+          <button id="mapNavCenter" class="map-nav-btn center" type="button" title="Collapse map controls" aria-label="Collapse map controls" aria-expanded="true"><svg class="four-arrow-svg" viewBox="0 0 40 40" aria-hidden="true"><path d="M17 17L9 9M9 9H15M9 9V15M23 17L31 9M31 9H25M31 9V15M17 23L9 31M9 31H15M9 31V25M23 23L31 31M31 31H25M31 31V25" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+          <button class="map-nav-btn" type="button" data-pan="right" title="Move map right" aria-label="Move map right">→</button>
+          <button class="map-nav-btn map-nav-spacer" type="button" tabindex="-1" aria-hidden="true"></button>
+          <button class="map-nav-btn" type="button" data-pan="down" title="Move map down" aria-label="Move map down">↓</button>
+          <button class="map-nav-btn" type="button" data-zoom="out" title="Zoom out" aria-label="Zoom out">−</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="coordinateHud" class="coordinate-hud">
+      <span>X: —</span><span>Y: —</span><span>Z: —</span>
+    </div>
+
+    <div id="mapStatus" class="map-status" aria-live="polite"></div>
+  </div>
+
+  <div id="threeDModal" class="three-d-modal" role="dialog" aria-modal="true" aria-labelledby="threeDTitle">
+    <div class="three-d-card">
+      <div class="three-d-header">
+        <div>
+          <div class="three-d-kicker">SOLAR EPC VISUALIZATION</div>
+          <h2 id="threeDTitle">Basic 3D Site Preview</h2>
+        </div>
+        <button id="threeDClose" class="cancel small" type="button">CLOSE</button>
+      </div>
+      <div class="three-d-toolbar">
+        <button id="threeDReset" class="small" type="button">RESET VIEW</button>
+        <label>ROTATION <input id="threeDRotation" type="range" min="0" max="360" value="35" step="1"></label>
+        <label>PITCH <input id="threeDPitch" type="range" min="20" max="80" value="52" step="1"></label>
+        <span id="threeDDataStatus">Site boundary required for site geometry.</span>
+      </div>
+      <div class="three-d-canvas-wrap">
+        <canvas id="threeDCanvas" aria-label="Basic three dimensional site preview"></canvas>
+        <div class="three-d-overlay">Visual preview only • Height is used only when supplied and saved.</div>
+      </div>
+      <div class="three-d-footer">No terrain/building height is invented. Missing heights remain flat/unknown.</div>
+    </div>
+  </div>
+
+  <div id="heightWizard" class="height-wizard" role="dialog" aria-modal="true" aria-labelledby="heightWizardTitle">
+    <div class="height-card">
+      <div id="heightWizardStep" class="height-step">SAVE DETAILS</div>
+      <h3 id="heightWizardTitle">Enter site height</h3>
+      <p>Height is saved for the report only. It will not change area, perimeter, setback, clearance or usable-area calculations.</p>
+      <div class="height-input-row">
+        <input id="heightWizardInput" type="number" min="0" step="0.01" inputmode="decimal" placeholder="Enter height" autocomplete="off">
+        <span class="height-unit">m</span>
+      </div>
+      <div class="height-actions">
+        <button id="heightWizardCancel" class="cancel" type="button">CANCEL</button>
+        <button id="heightWizardNext" class="primary" type="button">NEXT</button>
+      </div>
+    </div>
+  </div>
+
+  <aside class="sidebar" id="sidebar">
+    <!-- SITE DIMENSIONS -->
+    <section class="sidebar-section">
+      <h3>Site Dimensions</h3>
+      <table class="stats-table">
+        <tr><td class="label">Length (OBB)</td><td class="value" id="siteLength">— m</td></tr>
+        <tr><td class="label">Width (OBB)</td><td class="value" id="siteWidth">— m</td></tr>
+        <tr><td class="label">Area (actual)</td><td class="value hi" id="siteArea">— m²</td></tr>
+        <tr><td class="label">Perimeter</td><td class="value" id="sitePerimeter">— m</td></tr>
+        <tr><td class="label">OBB Angle</td><td class="value" id="siteObbAngle">— °</td></tr>
+        <tr><td class="label">Points</td><td class="value" id="pointCount">0</td></tr>
+      </table>
+
+      <div class="field-row">
+        <label>Site Setback</label>
+        <input type="number" id="siteSetback" min="0" step="0.1" value="0" />
+        <span style="font-size:10px;color:#5c7079;font-weight:700">m</span>
+      </div>
+
+      <div class="btn-row">
+        <button id="drawButton" type="button" class="primary">📍 DRAW SITE</button>
+        <button id="undoButton" class="undo" type="button" disabled>↶ UNDO</button>
+        <button id="clearButton" type="button" disabled>CLEAR</button>
+      </div>
+    </section>
+
+    <!-- OBSTACLE PRESENT -->
+    <section class="sidebar-section">
+      <h3>Obstacle Present</h3>
+      <div class="radio-group">
+        <button class="radio-btn active" id="obsNoBtn" type="button">◯ NO</button>
+        <button class="radio-btn" id="obsYesBtn" type="button">● YES</button>
+      </div>
+    </section>
+
+    <!-- OBSTACLE DETAILS -->
+    <section class="sidebar-section" id="obstacleSection" style="display:none">
+      <h3>Obstacle Details</h3>
+
+      <div class="btn-row">
+        <button id="addObstacleBtn" type="button" class="orange">+ ADD OBSTACLE</button>
+      </div>
+
+      <div class="obs-form" id="obsForm">
+        <h4 id="obsFormTitle">New Obstacle</h4>
+        <div class="field-row">
+          <label>Type</label>
+          <select id="obsType">
+            <option value="polygon">Polygon (draw corners)</option>
+            <option value="rectangle">Rectangle (2 corners)</option>
+            <option value="circle">Circle</option>
+            <option value="cylinder">Cylinder / Circular Structure</option>
+            <option value="walkway">Walkway (line)</option>
+            <option value="safety_line">Safety Line</option>
+            <option value="handrail">Handrail</option>
+            <option value="property_line">Property Line</option>
+            <option value="tree">Tree</option>
+            <option value="other">Other / Custom</option>
+          </select>
+        </div>
+        <div class="field-row" id="obsRadiusRow" style="display:none">
+          <label>Radius (m)</label>
+          <input type="number" id="obsRadius" min="0.1" step="0.1" value="1" />
+        </div>
+        <div class="field-row" id="obsLengthRow">
+          <label>Length (m) *manual</label>
+          <input type="number" id="obsManualLength" min="0.1" step="0.1" value="2" />
+        </div>
+        <div class="field-row" id="obsWidthRow">
+          <label>Width (m) *manual</label>
+          <input type="number" id="obsManualWidth" min="0.1" step="0.1" value="1" />
+        </div>
+        <div class="field-row">
+          <label>Clearance (m)</label>
+          <input type="number" id="obsClearance" min="0" step="0.1" value="0.5" />
+        </div>
+        <div class="field-row">
+          <label>Remarks</label>
+          <input type="text" id="obsRemarks" placeholder="optional" />
+        </div>
+
+        <div class="form-actions">
+          <button id="obsDrawOnMap" type="button" class="orange">DRAW ON MAP</button>
+          <button id="obsSaveManual" type="button" class="save">SAVE MANUAL</button>
+          <button id="obsUndoPoint" type="button" class="undo" style="display:none">↶ UNDO POINT</button>
+          <button id="obsFinishDraw" type="button" class="primary" style="display:none">✓ FINISH</button>
+          <button id="obsCancelForm" type="button" class="cancel">CANCEL</button>
+        </div>
+      </div>
+
+      <div class="obstacle-list" id="obstacleList"></div>
+    </section>
+
+    <!-- USABLE AREA -->
+    <section class="sidebar-section" id="usableSection" style="display:none">
+      <h3>Usable Solar Area</h3>
+      <table class="stats-table">
+        <tr><td class="label">Site Area</td><td class="value" id="uSite">— m²</td></tr>
+        <tr><td class="label">Setback Area</td><td class="value warn" id="uSetback">— m²</td></tr>
+        <tr><td class="label">Obstacle Area (Union)</td><td class="value warn" id="uObstacle">— m²</td></tr>
+        <tr><td class="label">Clearance Area</td><td class="value warn" id="uClearance">— m²</td></tr>
+        <tr><td class="label">Usable Area</td><td class="value ok" id="uUsable">— m²</td></tr>
+        <tr><td class="label">Utilization</td><td class="value ok" id="uPct">— %</td></tr>
+      </table>
+      <div style="margin-top:8px;padding-top:8px;border-top:1px dashed #d0dbe0">
+        <div class="legend-item"><span class="legend-swatch" style="background:rgba(43,131,173,.2);border-color:#075b8c"></span> Site Boundary</div>
+        <div class="legend-item"><span class="legend-swatch" style="background:rgba(192,102,58,.3);border-color:#a04519"></span> Obstacle</div>
+        <div class="legend-item"><span class="legend-swatch" style="background:rgba(255,193,60,.25);border-color:#c88b1c"></span> Clearance Zone</div>
+        <div class="legend-item"><span class="legend-swatch" style="background:rgba(214,67,67,.20);border-color:#a53131"></span> Setback Zone</div>
+        <div class="legend-item"><span class="legend-swatch" style="background:rgba(46,163,88,.30);border-color:#1e6b37"></span> Usable Area</div>
+      </div>
+    </section>
+
+    <!-- SAVE / DOWNLOAD -->
+    <section class="sidebar-section">
+      <h3>Save & Export</h3>
+      <div class="btn-row">
+        <button id="saveButton" class="save" type="button" disabled>💾 SAVE</button>
+        <button id="downloadButton" class="download" type="button" disabled>📄 DOWNLOAD REPORT</button>
+      </div>
+      <div class="btn-row">
+        <button id="cancelButton" class="cancel wide" type="button">✕ CANCEL</button>
+      </div>
+      <div id="status" style="margin-top:6px;font-size:10px;color:#657a84;min-height:14px">Loading HD map…</div>
+    </section>
+  </aside>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
+
+<script>
+/* =====================================================================
+   SOLAR EPC — map imagery + geometry engine
+   External tile/geocoding providers are used for live map data; availability and terms depend on each provider.
+   ===================================================================== */
+
+const params = new URLSearchParams(window.location.search);
+
+/*
+   EXCEL INPUT INTEGRATION
+   ---------------------------------------------------------------
+   VBA injects C7/C8 directly into the temporary HTML as:
+
+     window.__SOLAR_EPC_INPUT = {
+       location: "C7",
+       maplink: "C8",
+       lat: <exact C8 latitude or null>,
+       lng: <exact C8 longitude or null>
+     };
+
+   URL parameters remain supported as a backward-compatible fallback.
+*/
+const excelInput = window.__SOLAR_EPC_INPUT || {};
+const initialLocation =
+  String(excelInput.location || params.get("location") || params.get("q") || params.get("site") || "").trim();
+const initialMapLink =
+  String(excelInput.maplink || params.get("maplink") || params.get("map") || params.get("googlemap") || "").trim();
+const initialLatFromExcel = Number(excelInput.lat);
+const initialLngFromExcel = Number(excelInput.lng);
+const initialPlaceId = String(excelInput.placeId || params.get("placeId") || "").trim();
+const initialCoordinateSource = String(excelInput.coordinateSource || "").trim();
+const injectedGoogleApiKey = String(excelInput.googleApiKey || "").trim();
+const injectedGoogleMapId = String(excelInput.googleMapId || "").trim();
+const hasInitialExactCoords =
+  Number.isFinite(initialLatFromExcel) && Number.isFinite(initialLngFromExcel) &&
+  Math.abs(initialLatFromExcel) <= 90 && Math.abs(initialLngFromExcel) <= 180;
+const projectId = params.get("projectId") || "";
+
+function $(id){return document.getElementById(id)}
+function setStatus(t){$("status").textContent=t||""}
+function fmt(v,d){d=d==null?2:d;return Number.isFinite(v)?v.toFixed(d):"—"}
+function encodeQ(t){return encodeURIComponent(String(t||"").trim())}
+function googleMapsUrlForLocation(t){return "https://www.google.com/maps/search/?api=1&query="+encodeQ(t)}
+function internalMapUrlForLocation(t,lat,lng){
+  try{
+    const u=new URL(window.location.href);
+    u.searchParams.set("location",String(t||""));
+    if(Number.isFinite(Number(lat))&&Number.isFinite(Number(lng))){
+      u.searchParams.set("lat",Number(lat).toFixed(8));
+      u.searchParams.set("lng",Number(lng).toFixed(8));
+    }
+    return u.toString();
+  }catch(e){return "";}
+}
+function escapeHtml(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]))}
+
+/* =====================================================================
+   GEOMETRY ENGINE (shared for Site + Obstacles)
+   ===================================================================== */
+const GeometryEngine = (function(){
+  let errorMessage="";
+  const R=6378137;
+  function clearError(){errorMessage="";}
+  function fail(msg,e){errorMessage=msg; if(e)console.warn("GeometryEngine:",msg,e); return null;}
+  function hasError(){return !!errorMessage;}
+  function lastError(){return errorMessage;}
+  function setError(msg){errorMessage=String(msg||"Geometry operation failed.");}
+  function makeProjector(anchorLat,anchorLng){
+    const cosLat=Math.cos(anchorLat*Math.PI/180);
+    return {
+      toXY(lat,lng){return [(lng-anchorLng)*Math.PI/180*R*cosLat,(lat-anchorLat)*Math.PI/180*R];},
+      toLatLng(x,y){return [anchorLat+(y/R)*180/Math.PI,anchorLng+(x/(R*cosLat))*180/Math.PI];}
+    };
+  }
+  function projectPoints(points){
+    if(!points||!points.length)return null;
+    const p=points.find(x=>x&&Number.isFinite(Number(x.lat))&&Number.isFinite(Number(x.lng)));
+    if(!p)return null;
+    const proj=makeProjector(Number(p.lat),Number(p.lng));
+    return {proj,xy:points.map(x=>proj.toXY(Number(x.lat),Number(x.lng)))};
+  }
+  function distanceMeters(a,b){return turf.distance(turf.point([a.lng,a.lat]),turf.point([b.lng,b.lat]),{units:"kilometers"})*1000;}
+  function perimeterOfRing(points){
+    if(!points||points.length<2)return 0; let t=0;
+    for(let i=1;i<points.length;i++)t+=distanceMeters(points[i-1],points[i]);
+    return t+distanceMeters(points[points.length-1],points[0]);
+  }
+  function lengthOfPolyline(points){
+    if(!points||points.length<2)return 0; let t=0;
+    for(let i=1;i<points.length;i++)t+=distanceMeters(points[i-1],points[i]); return t;
+  }
+  function cleanRing(points){
+    if(!Array.isArray(points))return fail("Geometry must be an array of points.");
+    const out=[];
+    points.forEach(p=>{
+      const lat=Number(p?.lat),lng=Number(p?.lng);
+      if(!Number.isFinite(lat)||!Number.isFinite(lng)||Math.abs(lat)>90||Math.abs(lng)>180)return;
+      const q={lat,lng},last=out[out.length-1];
+      if(!last||Math.abs(last.lat-lat)>1e-10||Math.abs(last.lng-lng)>1e-10)out.push(q);
+    });
+    if(out.length>1&&Math.abs(out[0].lat-out[out.length-1].lat)<1e-10&&Math.abs(out[0].lng-out[out.length-1].lng)<1e-10)out.pop();
+    if(out.length<3)return fail("A polygon needs at least three distinct points.");
+    let area2=0; for(let i=0;i<out.length;i++){const a=out[i],b=out[(i+1)%out.length];area2+=a.lng*b.lat-b.lng*a.lat;}
+    if(Math.abs(area2)<1e-12)return fail("Polygon area is zero; points are collinear or duplicated.");
+    return out;
+  }
+  function polygonArea(points){
+    const clean=cleanRing(points); if(!clean)return 0;
+    const ring=clean.map(p=>[p.lng,p.lat]);ring.push(ring[0]);
+    try{return Math.abs(turf.area(turf.polygon([ring])));}catch(e){fail("Could not calculate polygon area.",e);return 0;}
+  }
+  function convexHull(pts){
+    const p=pts.slice().sort((a,b)=>a[0]-b[0]||a[1]-b[1]); if(p.length<=1)return p;
+    const cross=(O,A,B)=>(A[0]-O[0])*(B[1]-O[1])-(A[1]-O[1])*(B[0]-O[0]);
+    const lower=[];for(const pt of p){while(lower.length>=2&&cross(lower[lower.length-2],lower[lower.length-1],pt)<=0)lower.pop();lower.push(pt);}
+    const upper=[];for(let i=p.length-1;i>=0;i--){const pt=p[i];while(upper.length>=2&&cross(upper[upper.length-2],upper[upper.length-1],pt)<=0)upper.pop();upper.push(pt);}
+    lower.pop();upper.pop();return lower.concat(upper);
+  }
+  function minAreaOBB(points){
+    if(!points||points.length<2)return {length:0,width:0,angleDeg:0};
+    const projected=projectPoints(points);if(!projected)return {length:0,width:0,angleDeg:0};
+    const hull=convexHull(projected.xy);if(hull.length<2)return {length:0,width:0,angleDeg:0};
+    if(hull.length===2){const dx=hull[1][0]-hull[0][0],dy=hull[1][1]-hull[0][1];return {length:Math.hypot(dx,dy),width:0,angleDeg:Math.atan2(dy,dx)*180/Math.PI};}
+    let best={area:Infinity,length:0,width:0,angleDeg:0};
+    for(let i=0;i<hull.length;i++){
+      const a=hull[i],b=hull[(i+1)%hull.length],angle=Math.atan2(b[1]-a[1],b[0]-a[0]);
+      const cos=Math.cos(-angle),sin=Math.sin(-angle);let minX=Infinity,maxX=-Infinity,minY=Infinity,maxY=-Infinity;
+      for(const p of hull){const x=p[0]*cos-p[1]*sin,y=p[0]*sin+p[1]*cos;minX=Math.min(minX,x);maxX=Math.max(maxX,x);minY=Math.min(minY,y);maxY=Math.max(maxY,y);}
+      const w=maxX-minX,h=maxY-minY,area=w*h;
+      if(area<best.area)best={area,length:Math.max(w,h),width:Math.min(w,h),angleDeg:(angle*180/Math.PI+360)%180};
+    }
+    return best;
+  }
+  function toTurfPolygon(points){
+    const clean=cleanRing(points);if(!clean)return null;
+    const ring=clean.map(p=>[p.lng,p.lat]);ring.push(ring[0]);
+    try{
+      const f=turf.polygon([ring]);
+      if(typeof turf.kinks==="function"&&turf.kinks(f).features.length)return fail("Polygon self-intersects; draw a simple non-crossing boundary.");
+      return f;
+    }catch(e){return fail("Invalid polygon geometry.",e);}
+  }
+  function circleToTurfPolygon(lat,lng,r){
+    if(!Number.isFinite(Number(lat))||!Number.isFinite(Number(lng))||!Number.isFinite(Number(r))||Number(r)<=0)return fail("Circle radius must be greater than zero.");
+    try{return turf.circle([Number(lng),Number(lat)],Number(r)/1000,{steps:96,units:"kilometers"});}catch(e){return fail("Could not create circle geometry.",e);}
+  }
+  function bufferFeature(f,m){
+    if(!f)return null;if(!Number.isFinite(Number(m)))return fail("Buffer distance is invalid.");if(Math.abs(Number(m))<1e-8)return f;
+    try{const out=turf.buffer(f,Number(m)/1000,{units:"kilometers",steps:24});return out||fail("Buffer operation returned no geometry.");}catch(e){return fail("Buffer operation failed.",e);}
+  }
+  function intersectFeatures(a,b){
+    if(!a||!b)return null;try{return turf.intersect(a,b)||null;}catch(e){return fail("Intersection operation failed.",e);}
+  }
+  function differenceFeatures(a,b){
+    if(!a)return null;if(!b)return a;try{return turf.difference(a,b)||null;}catch(e){return fail("Difference operation failed.",e);}
+  }
+  function unionFeatures(list){
+    const arr=(list||[]).filter(Boolean);if(!arr.length)return null;if(arr.length===1)return arr[0];
+    let acc=arr[0];
+    for(let i=1;i<arr.length;i++){try{acc=turf.union(acc,arr[i]);if(!acc)return fail("Union operation returned no geometry.");}catch(e){return fail("Union operation failed.",e);}}
+    return acc;
+  }
+  function featureArea(f){if(!f)return 0;try{return Math.abs(turf.area(f));}catch(e){fail("Could not calculate feature area.",e);return 0;}}
+  function featureToLeafletLatLngs(f){
+    if(!f?.geometry)return [];
+    const cv=ring=>ring.map(c=>[c[1],c[0]]);
+    if(f.geometry.type==="Polygon")return f.geometry.coordinates.map(cv);
+    if(f.geometry.type==="MultiPolygon")return f.geometry.coordinates.map(poly=>poly.map(cv));
+    return [];
+  }
+  function polygonPoints(f){
+    return allOuterPoints(f);
+  }
+  function allOuterPoints(f){
+    if(!f?.geometry)return [];
+    if(f.geometry.type==="Polygon")return f.geometry.coordinates[0].map(x=>({lat:x[1],lng:x[0]}));
+    if(f.geometry.type==="MultiPolygon")return f.geometry.coordinates.flatMap(poly=>poly[0].map(x=>({lat:x[1],lng:x[0]})));
+    return [];
+  }
+  return {distanceMeters,perimeterOfRing,lengthOfPolyline,polygonArea,minAreaOBB,toTurfPolygon,circleToTurfPolygon,bufferFeature,intersectFeatures,differenceFeatures,unionFeatures,featureArea,polygonPoints,allOuterPoints,featureToLeafletLatLngs,clearError,hasError,lastError,setError};
+})();
+
+/* =====================================================================
+   APP STATE
+   ===================================================================== */
+const state = {
+  mode:"pan",
+  points:[], markers:[], sideLabels:[], boundary:null, measurementLayers:[], liveMeasurementLayers:[],
+  liveLine:null, liveLabel:null, siteFixedCross:null, searchMarker:null, deviceLocationMarker:null,
+  siteLengthInput:"", siteFixedSegmentLength:null, siteLastCursor:null,
+  closed:false, map:null, map2:null,
+  dualOpen:false, selectionMode:false, selectedLocation:null,
+  selectedPlaceId:String(excelInput.placeId||params.get("placeId")||"").trim(),
+  coordinateSource:String(excelInput.coordinateSource||""),
+  lastCleanLocation:initialLocation, _syncing:false,
+
+  obstaclePresent:false,
+  obstacles:[],
+  editingObstacleId:null,
+  drawingObstacle:null,
+  obsMarkers:[], obsSideLabels:[],
+  obsLiveLine:null, obsLiveLabel:null, obsLiveCircle:null,
+  obsPreviewLayer:null, obsMeasurementLayers:[], obsLiveMeasurementLayers:[], selectedObstacleId:null,
+
+  setbackLayer:null, clearanceLayer:null, usableLayer:null,
+  labelsVisible:false, siteSetback:0, siteHeight:null, boundarySaved:false
+};
+
+/* =====================================================================
+   MAP INIT — sharp integer zoom, real imagery, and no mode auto-switching
+   Satellite: Google satellite tiles with Esri imagery underneath as fallback.
+   Satellite: sharp Google imagery.
+   HD Map: green/natural aerial imagery with its own native zoom cap.
+   Map: Google road tiles with OpenStreetMap underneath as fallback.
+
+   Important quality fixes:
+   - integer-only zoom prevents half-zoom tile scaling/blur;
+   - Google uses native z20 and real Bing/Esri fallbacks below it;
+   - no CSS filter is applied to imagery;
+   - the selected base layer never changes while zooming.
+   ===================================================================== */
+const GOOGLE_TILE_OPTIONS={
+  subdomains:["0","1","2","3"], minZoom:2, maxZoom:20, maxNativeZoom:20,
+  detectRetina:false, tileSize:256, keepBuffer:10,
+  updateWhenZooming:true, updateWhenIdle:true, zoomAnimation:true,
+  crossOrigin:true, attribution:"&copy; Google"
+};
+const FALLBACK_TILE_OPTIONS={
+  minZoom:2, maxZoom:20, maxNativeZoom:19, tileSize:256, keepBuffer:10,
+  updateWhenZooming:true, updateWhenIdle:true, crossOrigin:true,
+  attribution:"Imagery &copy; Esri"
+};
+
+// Google satellite source. The smart layer hides grey no-data placeholders
+// so the Bing/Esri layers underneath remain visible everywhere.
+const SmartGoogleTileLayer=L.TileLayer.extend({
+  createTile(coords,done){
+    const tile=L.TileLayer.prototype.createTile.call(this,coords,done);
+    tile.addEventListener("load",()=>{if(looksLikeNoDataTile(tile))tile.style.opacity="0"},{once:true});
+    return tile;
+  }
+});
+const googleSat=new SmartGoogleTileLayer(
+  "https://mt{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}&scale=2",
+  Object.assign({},GOOGLE_TILE_OPTIONS)
+);
+const googleLabels=L.tileLayer(
+  "https://mt{s}.google.com/vt/lyrs=h&x={x}&y={y}&z={z}&scale=2",
+  Object.assign({},GOOGLE_TILE_OPTIONS,{pane:"overlayPane",attribution:""})
+);
+
+// Esri is a real imagery backfill, not a CSS blur or screenshot fallback.
+
+function addMapLayer(map,layer){map.addLayer(layer)}
+function bringMapLayerFront(layer){layer.bringToFront()}
+
+const esriSat=L.tileLayer(
+  "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+  FALLBACK_TILE_OPTIONS
+);
+
+// HD MAP primary: ArcGIS World Imagery WAYBACK — a separate archived
+// real aerial/satellite imagery source, intentionally different from Google SATELLITE.
+// The Wayback cache exposes native imagery through z20, so HD MAP can request
+// real z20 tiles instead of simply enlarging a z19 tile.
+const ClarityImagery=L.TileLayer.extend({
+  createTile(coords,done){
+    const tile=L.TileLayer.prototype.createTile.call(this,coords,done);
+    tile.addEventListener("load",()=>{
+      if(looksLikeNoDataTile(tile))tile.style.opacity="0";
+    },{once:true});
+    tile.addEventListener("error",()=>{tile.style.opacity="0"},{once:true});
+    return tile;
+  }
+});
+const clarityImagery=new ClarityImagery(
+  "https://wayback.maptiles.arcgis.com/arcgis/rest/services/World_Imagery/WMTS/1.0.0/default028mm/MapServer/tile/56450/{z}/{y}/{x}",
+  {minZoom:2,maxZoom:20,maxNativeZoom:20,tileSize:256,keepBuffer:10,
+   updateWhenZooming:true,updateWhenIdle:true,crossOrigin:true,
+   attribution:"Imagery &copy; Esri World Imagery Wayback (2024-10-10)"}
+);
+
+// Bing is a second real aerial source. It is kept underneath Google so a
+// Google 404/tile failure can still show imagery instead of a grey tile.
+function tileXYToQuadKey(x,y,z){
+  let q="";
+  for(let i=z;i>0;i--){
+    let d=0,m=1<<(i-1);
+    if((x&m)!==0)d++;
+    if((y&m)!==0)d+=2;
+    q+=d;
+  }
+  return q;
+}
+const BingAerial=L.TileLayer.extend({
+  getTileUrl(coords){
+    const q=tileXYToQuadKey(coords.x,coords.y,coords.z);
+    const sub="0123"[(coords.x+coords.y)%4];
+    return "https://ecn.t"+sub+".tiles.virtualearth.net/tiles/a"+q+".jpeg?g=1&mkt=en-US&n=z";
+  }
+});
+function looksLikeNoDataTile(tile){
+  try{
+    if(!tile.naturalWidth||!tile.naturalHeight)return false;
+    const canvas=document.createElement("canvas");canvas.width=64;canvas.height=64;
+    const ctx=canvas.getContext("2d",{willReadFrequently:true});
+    ctx.drawImage(tile,0,0,64,64);
+    const a=ctx.getImageData(0,0,64,64).data;
+    let coloured=0,sum=0;
+    for(let i=0;i<a.length;i+=16){
+      const r=a[i],g=a[i+1],b=a[i+2];
+      sum+=(r+g+b)/3;
+      if(Math.max(r,g,b)-Math.min(r,g,b)>12)coloured++;
+    }
+    const mean=sum/(a.length/16);
+    return coloured<18&&mean>150&&mean<235;
+  }catch(e){return false;}
+}
+const SmartBingAerial=BingAerial.extend({
+  createTile(coords,done){
+    const tile=L.TileLayer.prototype.createTile.call(this,coords,done);
+    tile.addEventListener("load",()=>{if(looksLikeNoDataTile(tile))tile.style.opacity="0"},{once:true});
+    return tile;
+  }
+});
+const bingAerial=new SmartBingAerial("",{
+  minZoom:2,maxZoom:20,maxNativeZoom:19,tileSize:256,keepBuffer:10,
+  updateWhenZooming:true,updateWhenIdle:true,crossOrigin:true,
+  attribution:"&copy; Microsoft Bing"
+});
+// HD MAP: use a genuinely different, high-detail HYBRID basemap.
+// This is not the plain SATELLITE layer: it combines real aerial imagery
+// with Google's crisp road/place reference overlay, making the scene much
+// easier to read while preserving photographic ground detail.
+// `scale=2` requests the higher-density tile rendering. Native zoom remains
+// capped at z19 so z20 safely resamples the real z19 source instead of asking
+// providers for missing z20 tiles.
+const googleHybridHD=new SmartGoogleTileLayer(
+  "https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}&scale=2",
+  Object.assign({},GOOGLE_TILE_OPTIONS,{maxZoom:20,maxNativeZoom:19})
+);
+const googleHybridLabelsHD=L.tileLayer(
+  "https://mt{s}.google.com/vt/lyrs=h&x={x}&y={y}&z={z}&scale=2",
+  Object.assign({},GOOGLE_TILE_OPTIONS,{maxZoom:20,maxNativeZoom:19,pane:"overlayPane",attribution:""})
+);
+
+const googleRoads=L.tileLayer(
+  "https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}&scale=2",
+  Object.assign({},GOOGLE_TILE_OPTIONS)
+);
+const osmRoads=L.tileLayer(
+  "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+  {subdomains:["a","b","c"],minZoom:2,maxZoom:20,maxNativeZoom:19,keepBuffer:10,
+   updateWhenZooming:true,updateWhenIdle:true,crossOrigin:true,
+   attribution:"&copy; OpenStreetMap contributors"}
+);
+
+// Every composite base keeps its fallback underneath. Only one composite is
+// active at a time, so changing modes is explicit and zooming cannot change it.
+const HDSatLayer=L.Layer.extend({
+  onAdd(map){
+    this._map=map;
+    addMapLayer(map,esriSat); esriSat.bringToBack();
+    addMapLayer(map,bingAerial);
+    addMapLayer(map,googleSat);
+    bringMapLayerFront(googleSat);
+    return this;
+  },
+  onRemove(map){
+    if(map.hasLayer(googleSat))map.removeLayer(googleSat);
+    if(map.hasLayer(bingAerial))map.removeLayer(bingAerial);
+    if(map.hasLayer(esriSat))map.removeLayer(esriSat);
+    return this;
+  }
+});
+const hdSat=new HDSatLayer();
+
+// HD MAP uses a separate ArcGIS World Imagery Wayback release as the primary real aerial/satellite source.
+// It is intentionally separate from the plain Google SATELLITE layer and the
+// road-only MAP layer. Esri World Imagery and Bing Aerial remain real fallbacks.
+// No artificial sharpening/filter is used.
+const AerialLayer=L.Layer.extend({
+  onAdd(map){
+    this._map=map;
+    // Real fallback layers first, then the separate Wayback imagery on top.
+    // Failed/no-data Wayback tiles are made transparent so the real imagery
+    // underneath remains visible. Google Satellite/Hybrid is NOT used here.
+    addMapLayer(map,esriSat);
+    addMapLayer(map,bingAerial);
+    addMapLayer(map,clarityImagery);
+    clarityImagery.bringToFront();
+    // Do NOT place Google Satellite/Hybrid over HD MAP.
+    return this;
+  },
+  onRemove(map){
+    if(map.hasLayer(clarityImagery))map.removeLayer(clarityImagery);
+    if(map.hasLayer(bingAerial))map.removeLayer(bingAerial);
+    if(map.hasLayer(esriSat))map.removeLayer(esriSat);
+    return this;
+  }
+});
+const aerialLayer=new AerialLayer();
+
+const RoadLayer=L.Layer.extend({
+  onAdd(map){
+    this._map=map;
+    addMapLayer(map,osmRoads); osmRoads.bringToBack();
+    addMapLayer(map,googleRoads); bringMapLayerFront(googleRoads);
+    return this;
+  },
+  onRemove(map){
+    if(map.hasLayer(googleRoads))map.removeLayer(googleRoads);
+    if(map.hasLayer(osmRoads))map.removeLayer(osmRoads);
+    return this;
+  }
+});
+const roadLayer=new RoadLayer();
+
+state.map=L.map("map",{
+  center:[20.5937,78.9629],zoom:5,minZoom:2,maxZoom:20,
+  zoomControl:false,attributionControl:true,preferCanvas:true,worldCopyJump:true,
+  zoomSnap:1,zoomDelta:1,wheelPxPerZoomLevel:100,zoomAnimation:true,
+  fadeAnimation:true,markerZoomAnimation:true
+});
+hdSat.addTo(state.map);
+
+function updateCoordinateHud(latlng){
+  const c=state.map.getCenter(),z=state.map.getZoom();
+  $("coordinateHud").innerHTML=
+    "<span>X: "+(latlng?latlng.lng:c.lng).toFixed(6)+"</span>"+
+    "<span>Y: "+(latlng?latlng.lat:c.lat).toFixed(6)+"</span>"+
+    "<span>Z: "+Number(z).toFixed(0)+"</span>";
+}
+state.map.on("move zoomend",()=>updateCoordinateHud(null));
+state.map.on("mouseout",()=>updateCoordinateHud(null));
+setTimeout(()=>{updateCoordinateHud(null);state.map.invalidateSize(true)},200);
+
+function updateMapLabels(){
+  const button=$("labelsToggle");
+  const isRoadMode=state.map.hasLayer(roadLayer);
+  if(state.map.hasLayer(googleLabels))state.map.removeLayer(googleLabels);
+  if(state.labelsVisible&&!isRoadMode){
+    googleLabels.addTo(state.map);
+    googleLabels.bringToFront();
+  }
+  button.classList.toggle("on",state.labelsVisible);
+  button.classList.toggle("off",!state.labelsVisible);
+  button.setAttribute("aria-pressed",String(state.labelsVisible));
+  $("labelsState").textContent=state.labelsVisible?"ON":"OFF";
+  button.title=isRoadMode?"Road-map text is built into the road tiles":"Toggle place-name and road labels";
+}
+$("labelsToggle").addEventListener("click",()=>{
+  state.labelsVisible=!state.labelsVisible;
+  updateMapLabels();
+  setStatus(state.map.hasLayer(roadLayer)?"Road-map labels are built into MAP tiles.":state.labelsVisible?"Map labels ON.":"Map labels OFF — clean imagery.");
+});
+
+function activateBaseLayer(which){
+  if(state.map.hasLayer(googleLabels))state.map.removeLayer(googleLabels);
+  [hdSat,aerialLayer,roadLayer].forEach(layer=>{
+    if(state.map.hasLayer(layer))state.map.removeLayer(layer);
+  });
+  if(which==="sat")hdSat.addTo(state.map);
+  else if(which==="aerial")aerialLayer.addTo(state.map);
+  else roadLayer.addTo(state.map);
+
+  // Keep each mode on its own real imagery source. SATELLITE uses Google;
+  // HD MAP uses separate Esri/Bing aerial imagery and can use higher real
+  // native Esri cache levels where available. No fake sharpening is used.
+  const nativeLimit=20;
+  state.map.setMaxZoom(nativeLimit);
+  if(state.map.getZoom()>nativeLimit)state.map.setZoom(nativeLimit,{animate:false});
+
+  $("satBtn").classList.toggle("active",which==="sat");
+  $("mapBtn").classList.toggle("active",which==="map");
+  $("aerialBtn").classList.toggle("active",which==="aerial");
+  updateMapLabels();
+  setStatus(which==="sat"?"Satellite mode active — Google satellite imagery.":which==="aerial"?"HD MAP active — separate high-resolution Esri aerial imagery with Bing fallback.":"Road map active.");
+}
+$("satBtn").addEventListener("click",()=>activateBaseLayer("sat"));
+$("mapBtn").addEventListener("click",()=>activateBaseLayer("map"));
+$("aerialBtn").addEventListener("click",()=>activateBaseLayer("aerial"));
+updateMapLabels();
+
+function removeDeviceLocationMarker(){
+  if(state.deviceLocationMarker){
+    try{state.map.removeLayer(state.deviceLocationMarker)}catch(e){}
+    state.deviceLocationMarker=null;
+  }
+}
+function showDeviceLocation(lat,lng){
+  removeDeviceLocationMarker();
+  state.deviceLocationMarker=L.circleMarker([lat,lng],{
+    radius:8,color:"#fff",weight:3,fillColor:"#1479ee",fillOpacity:1,interactive:false
+  }).addTo(state.map);
+  state.deviceLocationMarker.bringToFront();
+}
+$("myLocationButton").addEventListener("click",()=>{
+  if(!navigator.geolocation){setStatus("This browser does not provide device location.");return;}
+  const btn=$("myLocationButton");btn.disabled=true;
+  setStatus("Finding your current location…");
+  navigator.geolocation.getCurrentPosition(pos=>{
+    const lat=Number(pos.coords.latitude),lng=Number(pos.coords.longitude);
+    if(!Number.isFinite(lat)||!Number.isFinite(lng)){btn.disabled=false;setStatus("Device returned an invalid location.");return;}
+    clearSearchMarker();
+    state.selectedLocation={lat,lng};
+    const label="Current location • "+lat.toFixed(6)+", "+lng.toFixed(6);
+    state.lastCleanLocation=label;
+    $("locationDisplay").textContent=label;$("searchInput").value=label;
+    showDeviceLocation(lat,lng);
+    state.map.flyTo([lat,lng],Math.max(18,Math.min(19,state.map.getMaxZoom())),{duration:.8});
+    notifyParentLocation(label,lat,lng);
+    btn.disabled=false;setStatus("Current device location opened.");
+  },err=>{
+    btn.disabled=false;
+    const msg=err&&err.code===1?"Location permission denied.":"Could not get device location.";
+    setStatus(msg+" Use SELECT or search instead.");
+  },{enableHighAccuracy:true,timeout:15000,maximumAge:0});
+});
+function setCompassHeading(deg){
+  const img=$("directionCompassImage");
+  if(img&&Number.isFinite(Number(deg)))img.style.transform="rotate("+Number(deg)+"deg)";
+}
+$("compassButton").addEventListener("click",()=>{
+  const c=state.map.getCenter();
+  if(typeof state.map.setBearing==="function")state.map.setBearing(0);
+  setCompassHeading(0);
+  state.map.setView(c,state.map.getZoom(),{animate:true});
+  setStatus("North-up direction restored.");
+});
+
+function toggleMapFullscreen(){
+  const target=$("mapWorkspace");
+  if(!target)return;
+  try{
+    if(!document.fullscreenElement){
+      const p=target.requestFullscreen||target.webkitRequestFullscreen;
+      if(p){Promise.resolve(p.call(target)).then(()=>setTimeout(()=>state.map.invalidateSize(true),250)).catch(()=>setStatus("Fullscreen permission was blocked by the browser."));}
+      else setStatus("Fullscreen is not supported in this browser.");
+    }else{
+      const p=document.exitFullscreen||document.webkitExitFullscreen;
+      if(p)Promise.resolve(p.call(document)).then(()=>setTimeout(()=>state.map.invalidateSize(true),250));
+    }
+  }catch(e){setStatus("Fullscreen is not available in this browser.");}
+}
+// Compact 4-arrow button expands into the navigation pad; the same center button collapses it.
+const mapNavToggle=$("mapNavToggle");
+const mapNavPanel=$("mapNavPanel");
+const mapNavCenter=$("mapNavCenter");
+function setMapNavExpanded(open){
+  mapNavPanel.classList.toggle("open",open);
+  mapNavPanel.setAttribute("aria-hidden",String(!open));
+  mapNavToggle.setAttribute("aria-expanded",String(open));
+  mapNavToggle.setAttribute("aria-label",open?"Map controls expanded":"Expand map controls");
+  mapNavToggle.style.display=open?"none":"flex";
+}
+mapNavToggle.addEventListener("click",()=>setMapNavExpanded(true));
+mapNavCenter.addEventListener("click",()=>setMapNavExpanded(false));
+mapNavPanel.querySelectorAll("[data-pan]").forEach(btn=>{
+  btn.addEventListener("click",()=>{
+    const d=btn.dataset.pan;
+    const c=state.map.getCenter();
+    const z=state.map.getZoom();
+    const span=180/Math.pow(2,Math.max(0,z-2));
+    const dx=span*0.22;
+    const dy=span*0.16;
+    const next={lat:c.lat,lng:c.lng};
+    if(d==="up") next.lat+=dy;
+    if(d==="down") next.lat-=dy;
+    if(d==="left") next.lng-=dx;
+    if(d==="right") next.lng+=dx;
+    state.map.panTo(next,{animate:true,duration:.22});
+  });
+});
+mapNavPanel.querySelector('[data-zoom="in"]').addEventListener("click",()=>state.map.zoomIn(1,{animate:true}));
+mapNavPanel.querySelector('[data-zoom="out"]').addEventListener("click",()=>state.map.zoomOut(1,{animate:true}));
+
+// The compass remains a separate normal compass control.
+document.addEventListener("fullscreenchange",()=>setTimeout(()=>state.map.invalidateSize(true),250));
+
+// On phones that expose a compass heading, rotate the compass image to the
+// device direction. The map itself remains north-up, so the control is stable
+// on desktop and still becomes a real direction indicator on mobile.
+function handleDeviceHeading(e){
+  let heading=null;
+  if(Number.isFinite(e.webkitCompassHeading))heading=e.webkitCompassHeading;
+  else if(Number.isFinite(e.alpha))heading=(360-e.alpha)%360;
+  if(heading!=null)setCompassHeading(heading);
+}
+function enableDeviceHeading(){
+  try{
+    if(typeof DeviceOrientationEvent!=="undefined"&&typeof DeviceOrientationEvent.requestPermission==="function"){
+      DeviceOrientationEvent.requestPermission().then(r=>{if(r==="granted")window.addEventListener("deviceorientation",handleDeviceHeading,true)}).catch(()=>{});
+    }else{
+      window.addEventListener("deviceorientationabsolute",handleDeviceHeading,true);
+      window.addEventListener("deviceorientation",handleDeviceHeading,true);
+    }
+  }catch(e){}
+}
+$("compassButton").addEventListener("click",enableDeviceHeading,{once:true});
+
+/* =====================================================================
+   DUAL MAP
+   ===================================================================== */
+function ensureSecondMap(){
+  if(state.map2) return state.map2;
+  state.map2 = L.map("map2",{
+    center:state.map.getCenter(), zoom:state.map.getZoom(),
+    zoomControl:false, preferCanvas:true, worldCopyJump:true,
+    minZoom:2, maxZoom:20, zoomSnap:1, zoomDelta:1
+  });
+  L.tileLayer("https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}&scale=2",
+    {subdomains:["0","1","2","3"],minZoom:2,maxZoom:20,maxNativeZoom:20,
+     tileSize:256,keepBuffer:10,updateWhenZooming:true,updateWhenIdle:true,
+     crossOrigin:true,attribution:"&copy; Google"}).addTo(state.map2);
+  state.map2.on("moveend",()=>{
+    if(state._syncing)return;
+    state._syncing=true;
+    state.map.setView(state.map2.getCenter(),state.map2.getZoom(),{animate:false});
+    state._syncing=false;
+  });
+  return state.map2;
+}
+state.map.on("moveend",()=>{
+  if(!state.map2||!state.dualOpen||state._syncing)return;
+  state._syncing=true;
+  state.map2.setView(state.map.getCenter(),state.map.getZoom(),{animate:false});
+  state._syncing=false;
+});
+function toggleDualMap(){
+  state.dualOpen=!state.dualOpen;
+  if(state.dualOpen){ensureSecondMap();
+    document.getElementById("mapWorkspace").classList.add("dual-open");
+    $("dualMapButton").classList.add("active");
+    setTimeout(()=>{state.map.invalidateSize(true);state.map2.invalidateSize(true);
+      state.map2.setView(state.map.getCenter(),state.map.getZoom(),{animate:false})},150);
+  }else{
+    document.getElementById("mapWorkspace").classList.remove("dual-open");
+    $("dualMapButton").classList.remove("active");
+    setTimeout(()=>state.map.invalidateSize(true),150);
+  }
+}
+$("dualMapButton").addEventListener("click",toggleDualMap);
+
+let dividerDragging=false;
+$("splitDivider").addEventListener("pointerdown",e=>{
+  if(!state.dualOpen)return;dividerDragging=true;
+  document.body.style.userSelect="none";document.body.style.cursor="col-resize";e.preventDefault();
+});
+window.addEventListener("pointermove",e=>{
+  if(!dividerDragging)return;
+  const ws=$("mapWorkspace"),r=ws.getBoundingClientRect();
+  let pct=((e.clientX-r.left)/r.width)*100; pct=Math.max(25,Math.min(75,pct));
+  ws.style.setProperty("--split",pct+"%");
+  state.map.invalidateSize(true);if(state.map2)state.map2.invalidateSize(true);
+});
+window.addEventListener("pointerup",()=>{dividerDragging=false;document.body.style.userSelect="";document.body.style.cursor="";});
+
+/* =====================================================================
+   STREET VIEW + LOCATION SELECT
+   ===================================================================== */
+function openStreetViewAt(lat,lng){
+  if(!Number.isFinite(lat)||!Number.isFinite(lng))return;
+  window.open(`https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${lat},${lng}`,"_blank","noopener,noreferrer");
+}
+$("streetViewButton").addEventListener("click",()=>{
+  const c=state.selectedLocation||state.map.getCenter();
+  openStreetViewAt(c.lat,c.lng);
+});
+$("selectLocationButton").addEventListener("click",function(){
+  state.selectionMode=!state.selectionMode;
+  this.classList.toggle("active",state.selectionMode);
+  state.map.getContainer().classList.toggle("location-select-mode",state.selectionMode);
+  if(state.map2)state.map2.getContainer().classList.toggle("location-select-mode",state.selectionMode);
+  setStatus(state.selectionMode?"SELECT LOCATION active — click exact site point.":"Selection cancelled.");
+});
+async function selectMapLocation(latlng){
+  state.selectionMode=false;
+  $("selectLocationButton").classList.remove("active");
+  state.map.getContainer().classList.remove("location-select-mode");
+  if(state.map2)state.map2.getContainer().classList.remove("location-select-mode");
+  clearSearchMarker();
+  createSearchMarker(latlng.lat,latlng.lng,"Selected");
+  state.selectedLocation={lat:latlng.lat,lng:latlng.lng};
+  state.selectedPlaceId="";
+  state.coordinateSource="Manual map selection";
+  const fb="Selected • "+latlng.lat.toFixed(6)+", "+latlng.lng.toFixed(6);
+  $("locationDisplay").textContent=fb;$("searchInput").value=fb;
+  try{
+    const r=await fetch("https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat="+
+      encodeURIComponent(latlng.lat)+"&lon="+encodeURIComponent(latlng.lng)+"&zoom=18",
+      {headers:{Accept:"application/json"}});
+    if(r.ok){
+      const d=await r.json();
+      const clean=d.display_name||fb;
+      $("locationDisplay").textContent=clean;$("searchInput").value=clean;
+      state.lastCleanLocation=clean;
+      notifyParentLocation(clean,latlng.lat,latlng.lng);
+      setStatus("Location selected."); return;
+    }
+  }catch(e){}
+  notifyParentLocation(fb,latlng.lat,latlng.lng);
+  setStatus("Coordinate selected.");
+}
+
+/* =====================================================================
+   EXCEL BRIDGE
+   ===================================================================== */
+function notifyParentLocation(txt,lat,lng){
+  const mapsUrl=googleMapsUrlForLocation(txt);
+  const internalUrl=internalMapUrlForLocation(txt,lat,lng);
+  state.lastCleanLocation=txt;
+  const p={type:"SOLAR_EPC_LOCATION_CHANGED",projectId,location:txt,mapsUrl,internalMapUrl:internalUrl,
+    placeId:state.selectedPlaceId||null,coordinateSource:state.coordinateSource||null,
+    latitude:lat!=null?+lat.toFixed(8):null,longitude:lng!=null?+lng.toFixed(8):null,
+    // VBA defines C8 as the Google Maps link. Keep the internal app URL
+    // separate so a location change never replaces the user's Google link.
+    excel:{C7:txt,C8:mapsUrl,internalMapUrl:internalUrl,placeId:state.selectedPlaceId||null,
+      latitude:lat!=null?+lat.toFixed(8):null,longitude:lng!=null?+lng.toFixed(8):null},timestamp:new Date().toISOString()};
+  // WebView2 is the reliable Excel bridge. Browser iframe/opener messaging
+  // remains as a compatibility fallback for web-hosted integrations.
+  try{if(window.chrome&&window.chrome.webview)window.chrome.webview.postMessage(p)}catch(e){}
+  try{if(window.parent&&window.parent!==window)window.parent.postMessage(p,"*")}catch(e){}
+  try{if(window.opener&&!window.opener.closed)window.opener.postMessage(p,"*")}catch(e){}
+  window.SOLAR_EPC_LAST_LOCATION=p;
+}
+
+/* =====================================================================
+   SEARCH — Nominatim (worldwide) + Photon (fast POI)
+   Finds cities, villages, houses, businesses, plots, roads — everything
+   ===================================================================== */
+let autocompleteTimer=null, currentSearchResults=[];
+let activeSearchController=null;
+let searchRequestId=0;
+let autocompleteRequestId=0;
+
+function parseCoordinateQuery(q){
+  const m=String(q||"").trim().match(/^(-?\d+(?:\.\d+)?)\s*[, ]\s*(-?\d+(?:\.\d+)?)$/);
+  if(!m)return null;
+  const lat=Number(m[1]),lon=Number(m[2]);
+  if(!Number.isFinite(lat)||!Number.isFinite(lon)||Math.abs(lat)>90||Math.abs(lon)>180)return null;
+  const label=lat.toFixed(6)+", "+lon.toFixed(6);
+  return {lat,lon,display_name:"Coordinates • "+label,type:"coordinates",score:1000,source:"coordinates"};
+}
+function clearSearchMarker(){
+  if(state.searchMarker){state.map.removeLayer(state.searchMarker);state.searchMarker=null}
+}
+function createSearchMarker(lat,lng,label){
+  clearSearchMarker();
+  const icon=L.divIcon({className:"",
+    html:'<div style="width:26px;height:26px;display:flex;align-items:center;justify-content:center;">'
+      +'<div style="width:18px;height:18px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);'
+      +'background:#d73535;border:3px solid #fff;box-shadow:0 2px 7px rgba(0,0,0,.45);"></div></div>',
+    iconSize:[26,26],iconAnchor:[13,26]});
+  state.searchMarker=L.marker([lat,lng],{icon,zIndexOffset:2000,title:label||""}).addTo(state.map);
+  if(label){
+    const safeLabel=escapeHtml(String(label));
+    state.searchMarker.bindPopup('<div style="font:700 12px Segoe UI,Arial;color:#123f57;max-width:280px;">'+safeLabel+'</div>',{closeButton:true,autoPan:true});
+    state.searchMarker.openPopup();
+  }
+}
+function normalizeResult(r){
+  const lat=Number(r.lat),lon=Number(r.lon);
+  if(!Number.isFinite(lat)||!Number.isFinite(lon)||Math.abs(lat)>90||Math.abs(lon)>180)return null;
+  return {lat,lon,display_name:String(r.display_name||"").trim()||("Coordinates • "+lat.toFixed(6)+", "+lon.toFixed(6)),
+    type:String(r.type||"place"),score:Number(r.score)||0,source:String(r.source||""),
+    placeId:String(r.placeId||r.place_id||"").trim()};
+}
+function dedupe(list){
+  const seen=new Set();
+  return list.filter(r=>{
+    const k=r.lat.toFixed(5)+"|"+r.lon.toFixed(5);
+    if(seen.has(k))return false;
+    seen.add(k);return true;
+  });
+}
+async function fetchProviderJson(url,controller){
+  const r=await fetch(url,{headers:{Accept:"application/json"},signal:controller.signal});
+  if(!r.ok)throw new Error("Provider HTTP "+r.status);
+  return r.json();
+}
+async function fetchGooglePlaceById(placeId,apiKey){
+  const id=String(placeId||"").trim(),key=String(apiKey||"").trim();
+  if(!id||!key)return null;
+  try{
+    const r=await fetch("https://places.googleapis.com/v1/places/"+encodeURIComponent(id),{
+      headers:{"X-Goog-Api-Key":key,"X-Goog-FieldMask":"id,displayName,formattedAddress,location,googleMapsUri",Accept:"application/json"}
+    });
+    if(!r.ok)return null;
+    const d=await r.json();
+    const lat=Number(d.location?.latitude),lng=Number(d.location?.longitude);
+    if(!Number.isFinite(lat)||!Number.isFinite(lng)||Math.abs(lat)>90||Math.abs(lng)>180)return null;
+    const name=String(d.displayName?.text||"").trim();
+    const address=String(d.formattedAddress||"").trim();
+    return {lat,lon:lng,placeId:String(d.id||id),
+      display_name:[name,address].filter(Boolean).join(", ")||"Google Maps place",
+      type:"google-place",source:"Google Places API"};
+  }catch(e){return null;}
+}
+function isGoogleMapsUrl(q){
+  return /^(?:https?:\/\/)?(?:maps\.app\.goo\.gl|goo\.gl\/maps|(?:www\.)?google\.[^/]+\/maps|maps\.google\.[^/]+)/i.test(String(q||"").trim());
+}
+function isGoogleShortLink(q){
+  return /^(?:https?:\/\/)?(?:maps\.app\.goo\.gl|goo\.gl\/maps)/i.test(String(q||"").trim());
+}
+function extractGooglePlaceIdFromUrl(q){
+  try{
+    const decoded=decodeURIComponent(String(q||""));
+    const m=decoded.match(/[?&](?:query_place_id|place_id)=([^&#]+)/i);
+    return m?decodeURIComponent(m[1]).trim():"";
+  }catch(e){return "";}
+}
+function extractGoogleMapsLink(q){
+  const raw=String(q||"").trim();
+  if(!isGoogleMapsUrl(raw))return null;
+  const full=/^https?:\/\//i.test(raw)?raw:"https://"+raw;
+  const decoded=decodeURIComponent(raw);
+  const coordinatePatterns=[
+    // In a Google place URL, !3dLAT!4dLNG is the actual place pin.
+    // It must take priority over @LAT,LNG, which is only the viewport center.
+    /!3d\s*(-?\d+(?:\.\d+)?)!4d\s*(-?\d+(?:\.\d+)?)/,
+    /@\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)/,
+    /(?:[?&]|%3F|%26)(?:q|query|ll|destination)=(-?\d+(?:\.\d+)?)[,%20]+(-?\d+(?:\.\d+)?)/i
+  ];
+  for(const re of coordinatePatterns){
+    const m=decoded.match(re);
+    if(m){
+      const lat=Number(m[1]),lon=Number(m[2]);
+      if(Math.abs(lat)<=90&&Math.abs(lon)<=180)return {url:full,lat,lon};
+    }
+  }
+  try{
+    const u=new URL(full);
+    const value=u.searchParams.get("query")||u.searchParams.get("q")||u.searchParams.get("destination")||u.searchParams.get("ll");
+    if(value){
+      const coordinate=parseCoordinateQuery(value);
+      if(coordinate)return {url:full,lat:coordinate.lat,lon:coordinate.lon};
+      if(value.length>1)return {url:full,query:value};
+    }
+    // Full Google Maps place URLs carry the searchable address in /place/...
+    // even when no latitude/longitude is exposed in the URL.
+    const placeMatch=u.pathname.match(/\/maps\/(?:place|search)\/(.+)/i);
+    if(placeMatch){
+      const rawPlace=placeMatch[1].split("/data")[0].split("/@")[0];
+      const place=decodeURIComponent(rawPlace).replace(/\+/g," ").replace(/\/$/,"").trim();
+      if(place.length>1)return {url:full,query:place};
+    }
+  }catch(e){}
+  return {url:full};
+}
+const OLC_ALPHABET="23456789CFGHJMPQRVWX";
+function decodeFullPlusCode(code){
+  const clean=String(code||"").toUpperCase().replace(/\s/g,"");
+  if(clean.indexOf("+")<0)return null;
+  // In OLC, the two characters after '+' are still pair-code characters;
+  // grid refinement starts only after the first 10 code characters.
+  const compact=clean.replace("+","");
+  const pair=compact.slice(0,10).replace(/[^23456789CFGHJMPQRVWX]/g,"");
+  const grid=compact.slice(10).replace(/[^23456789CFGHJMPQRVWX]/g,"");
+  if(pair.length<2)return null;
+  const resolutions=[20,1,0.05,0.0025,0.000125];
+  let lat=-90,lon=-180;
+  for(let i=0;i<Math.min(pair.length,10);i++){
+    const digit=OLC_ALPHABET.indexOf(pair[i]);
+    if(digit<0)return null;
+    const res=resolutions[Math.floor(i/2)];
+    if(i%2===0)lat+=digit*res;else lon+=digit*res;
+  }
+  const used=Math.min(Math.ceil(pair.length/2),5);
+  const pairRes=resolutions[used-1];
+  if(grid.length){
+    const gridStart=0.000125;
+    let latRes=gridStart/5,lonRes=gridStart/4;
+    for(let i=0;i<grid.length;i++){
+      const digit=OLC_ALPHABET.indexOf(grid[i]);
+      if(digit<0)return null;
+      lat+=Math.floor(digit/4)*latRes;
+      lon+=(digit%4)*lonRes;
+      latRes/=5;lonRes/=4;
+    }
+    return {lat:lat+latRes/2,lon:lon+lonRes/2,accuracy:Math.max(latRes,lonRes)};
+  }
+  return {lat:lat+pairRes/2,lon:lon+pairRes/2,accuracy:pairRes};
+}
+function encodePlusCodePrefix(lat,lon,count=8){
+  const resolutions=[20,1,0.05,0.0025];
+  let la=Math.min(89.999999,Math.max(-89.999999,Number(lat)))+90;
+  let lo=Number(lon);
+  while(lo< -180)lo+=360;while(lo>=180)lo-=360;lo+=180;
+  let out="";
+  for(let i=0;i<4&&out.length<count;i++){
+    const res=resolutions[i];
+    let a=Math.floor(la/res),b=Math.floor(lo/res);
+    a=Math.max(0,Math.min(19,a));b=Math.max(0,Math.min(19,b));
+    out+=OLC_ALPHABET[a]+OLC_ALPHABET[b];
+    la-=a*res;lo-=b*res;
+  }
+  return out.slice(0,count);
+}
+function decodeShortPlusCode(code,referenceLat,referenceLon){
+  const clean=String(code||"").toUpperCase().replace(/\s/g,"");
+  const plus=clean.indexOf("+");
+  if(plus<0)return null;
+  const before=clean.slice(0,plus),after=clean.slice(plus+1);
+  if(before.length>=8)return decodeFullPlusCode(before.slice(0,8)+"+"+after);
+  if(!Number.isFinite(referenceLat)||!Number.isFinite(referenceLon))return null;
+  const prefix=encodePlusCodePrefix(referenceLat,referenceLon,8-before.length);
+  return decodeFullPlusCode(prefix+before+"+"+after);
+}
+async function fetchGooglePlaceSummary(url){
+  try{
+    // Jina provides a CORS-readable text view of a Google Maps place page.
+    const target="https://r.jina.ai/http://"+url.replace(/^https?:\/\//i,"");
+    const r=await fetch(target,{headers:{Accept:"text/plain"}});
+    if(!r.ok)return null;
+    const text=await r.text();
+    const address=(text.match(/\s*([^\n]+)/)||[])[1]?.trim()||"";
+    const title=(text.match(/^Title:\s*(.+)$/m)||[])[1]?.trim()||"";
+    const plus=(text.match(/\b[23456789CFGHJMPQRVWX]{4,8}\+[23456789CFGHJMPQRVWX]{2,3}\b/i)||[])[0]||"";
+    let lat=NaN,lon=NaN;
+    const coordPatterns=[
+      /!3d\s*(-?\d+(?:\.\d+)?)!4d\s*(-?\d+(?:\.\d+)?)/,
+      /@\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)/
+    ];
+    for(const re of coordPatterns){
+      const m=text.match(re);
+      if(m){lat=Number(m[1]);lon=Number(m[2]);if(Math.abs(lat)<=90&&Math.abs(lon)<=180)break;}
+    }
+    return {address,title,plusCode:plus,lat,lon,text};
+  }catch(e){return null;}
+}
+async function resolveGoogleShortLink(url){
+  try{
+    const endpoint="https://unshorten.me/json/"+encodeURIComponent(url);
+    const r=await fetch(endpoint,{headers:{Accept:"application/json"}});
+    if(!r.ok)return null;
+    const d=await r.json();
+    if(d&&d.success&&d.resolved_url){
+      let resolved=d.resolved_url;
+      try{
+        const u=new URL(resolved),cont=u.searchParams.get("continue");
+        if(cont)resolved=decodeURIComponent(cont);
+      }catch(e){}
+      return resolved;
+    }
+  }catch(e){}
+  return null;
+}
+function openExternalGoogleMaps(url){
+  const w=window.open(url,"_blank","noopener,noreferrer");
+  setStatus(w?"Google Maps link opened in a new tab.":"Pop-up blocked — allow pop-ups to open the Google Maps link.");
+}
+async function handleGoogleMapsSearch(q){
+  let info=extractGoogleMapsLink(q);
+  if(!info)return false;
+  if(Number.isFinite(info.lat)&&Number.isFinite(info.lon)){
+    openSearchResult({lat:info.lat,lon:info.lon,display_name:"Google Maps location",type:"google-link",source:"Google Maps",placeId:extractGooglePlaceIdFromUrl(info.url)});
+    return true;
+  }
+  const exactPlaceId=extractGooglePlaceIdFromUrl(info.url);
+  if(exactPlaceId){
+    const exactPlace=await fetchGooglePlaceById(exactPlaceId,injectedGoogleApiKey);
+    if(exactPlace){openSearchResult(exactPlace);return true;}
+    setStatus("Exact Google Place ID found, but coordinates could not be loaded. No location was guessed.");
+    return true;
+  }
+  if(info.query){
+    const results=await searchProviders(info.query,15);
+    if(results.length){renderResults(results);openSearchResult(results[0]);return true;}
+  }
+  // Resolve maps.app.goo.gl/ goo.gl links first, then search the address from
+  // the final Google /place/ URL inside this map instead of opening Google Maps.
+  if(isGoogleShortLink(info.url)){
+    setStatus("Resolving Google Maps link inside this map…");
+    const resolved=await resolveGoogleShortLink(info.url);
+    if(resolved){
+      // Use Google's exact place-pin coordinates first. The @ coordinate is
+      // only the map viewport and can point to a different nearby property.
+      const resolvedInfo=extractGoogleMapsLink(resolved);
+      if(Number.isFinite(resolvedInfo?.lat)&&Number.isFinite(resolvedInfo?.lon)){
+        const summary=await fetchGooglePlaceSummary(resolved);
+        openSearchResult({lat:resolvedInfo.lat,lon:resolvedInfo.lon,
+          display_name:summary?.address||"Google Maps place",type:"google-place",source:"Google Maps"});
+        return true;
+      }
+      const summary=await fetchGooglePlaceSummary(resolved);
+      const contextQuery=summary?.address||summary?.title||"";
+      const contextResults=contextQuery?await searchProviders(contextQuery,15):[];
+      const reference=contextResults[0]||state.map.getCenter();
+      if(summary?.plusCode){
+        const exact=decodeShortPlusCode(summary.plusCode,reference.lat,reference.lng);
+        if(exact){
+          openSearchResult({lat:exact.lat,lon:exact.lon,
+            display_name:summary.address||summary.title||"Google Maps location",
+            type:"google-place",source:"Google Maps"});
+          return true;
+        }
+      }
+      info=extractGoogleMapsLink(resolved)||info;
+      if(Number.isFinite(info.lat)&&Number.isFinite(info.lon)){
+        openSearchResult({lat:info.lat,lon:info.lon,display_name:summary?.address||"Google Maps location",type:"google-link",source:"Google Maps"});
+        return true;
+      }
+      if(contextResults.length){renderResults(contextResults);openSearchResult(contextResults[0]);return true;}
+      if(info.query){
+        const results=await searchProviders(info.query,15);
+        if(results.length){renderResults(results);openSearchResult(results[0]);return true;}
+      }
+    }
+  }
+
+  // 4) Full Google Maps share/place links may not expose coordinates in the
+  // URL itself. Read the shared page and use its exact place coordinates,
+  // address, title or Plus Code when available.
+  try{
+    const summary=await fetchGooglePlaceSummary(info.url);
+    if(summary){
+      if(Number.isFinite(summary.lat)&&Number.isFinite(summary.lon)){
+        openSearchResult({lat:summary.lat,lon:summary.lon,
+          display_name:summary.address||summary.title||"Google Maps location",
+          type:"google-place",source:"Google Maps"});
+        return true;
+      }
+      const contextQuery=summary.address||summary.title||"";
+      const contextResults=contextQuery?await searchProviders(contextQuery,15):[];
+      const reference=contextResults[0]||state.map.getCenter();
+      if(summary.plusCode){
+        const exact=decodeShortPlusCode(summary.plusCode,reference.lat,reference.lng);
+        if(exact){
+          openSearchResult({lat:exact.lat,lon:exact.lon,
+            display_name:summary.address||summary.title||"Google Maps location",
+            type:"google-place",source:"Google Maps"});
+          return true;
+        }
+      }
+      if(contextResults.length){
+        renderResults(contextResults);
+        openSearchResult(contextResults[0]);
+        return true;
+      }
+    }
+  }catch(e){
+    console.warn("Full Google Maps page resolution failed:",e);
+  }
+
+  // Do not send the user to an external map as a silent fallback. Keep the
+  // current app open and explain what is needed if a resolver is unavailable.
+  setStatus("Google Maps link could not be resolved inside this map. Paste the full Maps URL or coordinates and try again.");
+  return true;
+}
+function extractPlusCodeQuery(q){
+  const text=String(q||"").trim().toUpperCase();
+  const m=text.match(/\b[23456789CFGHJMPQRVWX]{4,8}\+[23456789CFGHJMPQRVWX]{2,3}\b/);
+  if(!m)return null;
+  return {code:m[0],context:text.replace(m[0]," ").replace(/[ ,]+/g," ").trim()};
+}
+async function searchPlusCodeQuery(q){
+  const info=extractPlusCodeQuery(q);
+  if(!info)return null;
+  let ref=state.map.getCenter();
+  if(info.context.length>1){
+    try{
+      const contextResults=await searchProviders(info.context,5);
+      if(contextResults[0])ref={lat:contextResults[0].lat,lng:contextResults[0].lon};
+    }catch(e){}
+  }
+  const exact=decodeShortPlusCode(info.code,ref.lat,ref.lng);
+  if(!exact)return null;
+  return [{lat:exact.lat,lon:exact.lon,display_name:info.code+(info.context?" • "+info.context:""),type:"plus-code",score:1000,source:"Plus Code"}];
+}
+async function searchGooglePlacesText(q,limit=10){
+  const key=String(injectedGoogleApiKey||"").trim();
+  const query=String(q||"").trim();
+  if(!key||query.length<2)return [];
+  try{
+    const r=await fetch("https://places.googleapis.com/v1/places:searchText",{
+      method:"POST",
+      headers:{
+        "Content-Type":"application/json",
+        "X-Goog-Api-Key":key,
+        "X-Goog-FieldMask":"places.id,places.displayName,places.formattedAddress,places.location,places.googleMapsUri,places.primaryType,places.types"
+      },
+      body:JSON.stringify({textQuery:query,maxResultCount:Math.min(Math.max(Number(limit)||10,1),20),languageCode:"en"})
+    });
+    if(!r.ok)return [];
+    const d=await r.json();
+    return (Array.isArray(d.places)?d.places:[]).map(p=>{
+      const lat=Number(p.location?.latitude),lon=Number(p.location?.longitude);
+      if(!Number.isFinite(lat)||!Number.isFinite(lon))return null;
+      const name=String(p.displayName?.text||"").trim();
+      const address=String(p.formattedAddress||"").trim();
+      return normalizeResult({
+        lat,lon,placeId:p.id,
+        display_name:[name,address].filter(Boolean).join(", ")||"Google Maps place",
+        type:String(p.primaryType||p.types?.[0]||"place"),
+        score:1000,source:"Google Places"
+      });
+    }).filter(Boolean);
+  }catch(e){return [];}
+}
+
+async function searchGoogleGeocode(q,limit=8){
+  const key=String(injectedGoogleApiKey||"").trim();
+  const query=String(q||"").trim();
+  if(!key||query.length<2)return [];
+  try{
+    const url="https://maps.googleapis.com/maps/api/geocode/json?address="+encodeURIComponent(query)+"&language=en&key="+encodeURIComponent(key);
+    const r=await fetch(url,{headers:{Accept:"application/json"}});
+    if(!r.ok)return [];
+    const d=await r.json();
+    if(d.status!=="OK"||!Array.isArray(d.results))return [];
+    return d.results.slice(0,Math.max(1,Math.min(limit,10))).map(x=>{
+      const lat=Number(x.geometry?.location?.lat),lon=Number(x.geometry?.location?.lng);
+      if(!Number.isFinite(lat)||!Number.isFinite(lon))return null;
+      return normalizeResult({lat,lon,placeId:x.place_id,
+        display_name:String(x.formatted_address||query),
+        type:String(x.types?.[0]||"address"),score:1200,source:"Google Geocoding"});
+    }).filter(Boolean);
+  }catch(e){return [];}
+}
+
+function searchQueryTokens(q){
+  return String(q||"").toLowerCase().replace(/[^\p{L}\p{N}]+/gu," ").trim().split(/\s+/).filter(x=>x.length>1);
+}
+function resultRelevance(result,q){
+  const tokens=searchQueryTokens(q);
+  if(!tokens.length)return 0;
+  const rawQ=String(q||"").toLowerCase().trim();
+  const text=String(result.display_name||"").toLowerCase();
+  const hits=tokens.reduce((n,t)=>n+(text.includes(t)?1:0),0);
+  const phrase=text.includes(rawQ)?2:0;
+  const sourceBoost=/^google (places|geocoding)/i.test(String(result.source||""))?35:0;
+  const exactAddressBoost=(text===rawQ||text.startsWith(rawQ+","))?40:0;
+  const typeBoost=/address|street|premise|subpremise|postal|locality|business|establishment|point_of_interest/i.test(String(result.type||""))?8:0;
+  return (hits/tokens.length)*100+phrase*25+sourceBoost+exactAddressBoost+typeBoost+(Number(result.score)||0)/100;
+}
+
+async function searchProviders(q,limit=12){
+  const coordinate=parseCoordinateQuery(q);
+  if(coordinate)return [coordinate];
+  const plusResults=await searchPlusCodeQuery(q);
+  if(plusResults)return plusResults;
+  const query=String(q||"").trim();
+  if(query.length<2)return [];
+
+  // When the workbook provides a Google Maps API key, use Google's own
+  // Places search first. This gives the same underlying place database used
+  // by Google Maps instead of relying on a generic geocoder for businesses,
+  // landmarks and addresses. Generic providers remain the no-key fallback.
+  const googlePlaces=await searchGooglePlacesText(query,Math.min(limit,10));
+  const googleGeocodes=await searchGoogleGeocode(query,Math.min(limit,8));
+  // Google Places is best for businesses/landmarks; Google Geocoding is best
+  // for exact street addresses, PINs and locality names. Keep both before
+  // generic providers so the result can be verified against independent data.
+  const googleFirst=dedupe([...googlePlaces,...googleGeocodes]);
+
+  // With a configured Google key, do not let a generic geocoder replace an
+  // authoritative Google place/address match. Generic providers are retained
+  // as fallback when Google's APIs return nothing.
+  if(googleFirst.length){
+    return googleFirst.sort((a,b)=>{
+      const rb=resultRelevance(b,query),ra=resultRelevance(a,query);
+      if(Math.abs(rb-ra)>0.01)return rb-ra;
+      return (Number(b.score)||0)-(Number(a.score)||0);
+    }).slice(0,15);
+  }
+
+  if(activeSearchController)activeSearchController.abort();
+  const controller=new AbortController();
+  activeSearchController=controller;
+  const requestId=++searchRequestId;
+  const enc=encodeQ(query);
+  const urls={
+    // ArcGIS is the most reliable global address/POI geocoder here and does
+    // not require an API key for normal public geocoding requests.
+    arcgis:"https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates?f=json&maxLocations="+limit+"&outFields=*&singleLine="+enc,
+    photon:"https://photon.komoot.io/api/?limit="+limit+"&lang=en&q="+enc,
+    nominatim:"https://nominatim.openstreetmap.org/search?format=jsonv2&limit="+limit+"&addressdetails=1&dedupe=1&accept-language=en&q="+enc
+  };
+  const settled=await Promise.allSettled([
+    fetchProviderJson(urls.arcgis,controller),
+    fetchProviderJson(urls.photon,controller),
+    fetchProviderJson(urls.nominatim,controller)
+  ]);
+  if(controller.signal.aborted||requestId!==searchRequestId)return [];
+  const out=[];
+
+  const arcgis=settled[0].status==="fulfilled"?settled[0].value:null;
+  (arcgis?.candidates||[]).forEach(c=>{
+    const a=c.attributes||{};
+    const item=normalizeResult({lat:c.location?.y,lon:c.location?.x,
+      display_name:c.address||a.LongLabel||a.Match_addr||a.PlaceName||"Location",
+      type:a.Addr_type||a.Type||"address",score:c.score||0,source:"ArcGIS"});
+    if(item)out.push(item);
+  });
+
+  const photon=settled[1].status==="fulfilled"?settled[1].value:null;
+  (photon?.features||[]).forEach(f=>{
+    const c=f.geometry?.coordinates||[];if(c.length<2)return;
+    const p=f.properties||{};
+    const name=[p.name,p.housenumber?p.housenumber+" "+(p.street||""):p.street,
+      p.district,p.city||p.town||p.village||p.locality,p.state,p.country]
+      .filter(Boolean).join(", ");
+    const item=normalizeResult({lat:c[1],lon:c[0],display_name:name||p.name||"Location",
+      type:p.osm_value||p.type||"place",score:0,source:"Photon"});
+    if(item)out.push(item);
+  });
+
+  const nominatim=settled[2].status==="fulfilled"?settled[2].value:null;
+  (Array.isArray(nominatim)?nominatim:[]).forEach(x=>{
+    const item=normalizeResult({lat:x.lat,lon:x.lon,display_name:x.display_name,
+      type:x.type||x.class||"place",score:0,source:"Nominatim"});
+    if(item)out.push(item);
+  });
+  const merged=dedupe([...(googleFirst||[]),...out]);
+  return merged.sort((a,b)=>{
+    const rb=resultRelevance(b,query),ra=resultRelevance(a,query);
+    if(Math.abs(rb-ra)>0.01)return rb-ra;
+    return (Number(b.score)||0)-(Number(a.score)||0);
+  }).slice(0,15);
+}
+function renderResults(results){
+  const box=$("searchResults");box.innerHTML="";
+  if(!results.length){box.classList.remove("show");return;}
+  results.forEach((r,i)=>{
+    const item=document.createElement("div");item.className="search-item";
+    const parts=String(r.display_name||"").split(",");
+    const placeName=(parts.shift()||"Location").trim();
+    const placeAddress=parts.join(",").trim();
+    item.innerHTML='<div style="display:flex;justify-content:space-between;gap:8px;font-weight:800;color:#123f57;">'
+      +'<span>📍 '+escapeHtml(placeName)+'</span>'
+      +'<span style="font-size:9px;color:#78909b;text-transform:uppercase;">'+escapeHtml(r.source||r.type||"map")+'</span></div>'
+      +'<div style="margin-top:2px;">'+escapeHtml(placeAddress||r.display_name)+'</div>';
+    item.addEventListener("click",()=>openSearchResult(r));
+    box.appendChild(item);
+  });
+  box.classList.add("show");
+}
+function openSearchResult(r){
+  const lat=Number(r.lat),lng=Number(r.lon);
+  if(!Number.isFinite(lat)||!Number.isFinite(lng)||Math.abs(lat)>90||Math.abs(lng)>180){setStatus("That result has no valid map coordinate.");return;}
+  const clean=r.display_name||$("searchInput").value.trim()||"Selected";
+  if(state.points.length)clearAllSite();
+  clearSearchMarker();createSearchMarker(lat,lng,clean);
+  state.lastCleanLocation=clean;state.selectedLocation={lat,lng};
+  state.selectedPlaceId=String(r.placeId||r.place_id||"").trim();
+  state.coordinateSource=String(r.source||r.coordinateSource||"Search").trim();
+  $("locationDisplay").textContent=clean;$("searchInput").value=clean;
+  $("searchResults").classList.remove("show");
+  state.map.flyTo([lat,lng],19,{duration:.8});
+  notifyParentLocation(clean,lat,lng);
+  setStatus("Location opened. Press DRAW SITE to mark boundary.");
+}
+async function autocomplete(q){
+  if(q.length<2){$("searchResults").classList.remove("show");return;}
+  if(isGoogleMapsUrl(q)){
+    $("searchResults").innerHTML='<div class="search-item search-loading">Google Maps link detected — press SEARCH to open it.</div>';
+    $("searchResults").classList.add("show");
+    return;
+  }
+  const request=++autocompleteRequestId;
+  $("searchResults").innerHTML='<div class="search-item search-loading">Searching Google Maps data + ArcGIS + OSM…</div>';
+  $("searchResults").classList.add("show");
+  const results=await searchProviders(q,8);
+  if(request!==autocompleteRequestId)return;
+  currentSearchResults=results;
+  if(!results.length){$("searchResults").innerHTML='<div class="search-item search-empty">No result. Try a fuller address, PIN code or latitude,longitude.</div>';return;}
+  renderResults(results);
+}
+async function runSearch(q){
+  q=(q||"").trim();if(q.length<2){setStatus("Type at least 2 characters to search.");return;}
+  ++autocompleteRequestId;
+  const btn=$("searchButton");btn.disabled=true;btn.textContent="…";
+  $("searchResults").innerHTML='<div class="search-item search-loading">Finding exact location…</div>';
+  $("searchResults").classList.add("show");
+  try{
+    if(isGoogleMapsUrl(q)){
+      await handleGoogleMapsSearch(q);
+      return;
+    }
+    const results=await searchProviders(q,15);
+    if(!results.length){setStatus("Location not found. Add city/state/PIN or use coordinates.");return;}
+    currentSearchResults=results;renderResults(results);openSearchResult(results[0]);
+  }finally{btn.disabled=false;btn.textContent="SEARCH";}
+}
+$("searchButton").addEventListener("click",e=>{e.preventDefault();runSearch($("searchInput").value)});
+$("searchInput").addEventListener("input",function(){
+  clearTimeout(autocompleteTimer);
+  const q=this.value.trim();
+  if(q.length<2){$("searchResults").classList.remove("show");return;}
+  autocompleteTimer=setTimeout(()=>autocomplete(q),350);
+});
+$("searchInput").addEventListener("keydown",e=>{
+  if(e.key==="Enter"){e.preventDefault();clearTimeout(autocompleteTimer);runSearch(e.target.value)}
+  if(e.key==="Escape")$("searchResults").classList.remove("show");
+});
+document.addEventListener("click",e=>{if(!e.target.closest(".header-search"))$("searchResults").classList.remove("show")});
+
+async function geocodeInitial(text){
+  const locationText=String(text||initialLocation||"").trim();
+  const mapSource=String(initialMapLink||"").trim();
+
+  // Exact coordinates injected by Excel are authoritative. Do not run a
+  // second text geocoder when the host already supplied a verified point.
+  if(hasInitialExactCoords){
+    openSearchResult({lat:initialLatFromExcel,lon:initialLngFromExcel,
+      display_name:locationText||("Excel coordinates • "+initialLatFromExcel.toFixed(8)+", "+initialLngFromExcel.toFixed(8)),
+      type:"excel-exact",source:initialCoordinateSource||"Excel exact coordinates",placeId:initialPlaceId});
+    $("searchInput").value=locationText||initialLatFromExcel.toFixed(8)+", "+initialLngFromExcel.toFixed(8);
+    setStatus("Exact Excel coordinates opened — no location guessed.");
+    return;
+  }
+
+  // C8 is authoritative. The VBA module may normalize a short
+  // Google Maps link to its final Google /maps URL before this HTML
+  // is opened. We therefore run the SAME resolver used by the
+  // manual SEARCH button instead of trusting a viewport @lat,lng.
+  if(mapSource){
+    $("searchInput").value=mapSource;
+
+    const directCoord=parseCoordinateQuery(mapSource);
+    if(directCoord){
+      openSearchResult(directCoord);
+      $("searchInput").value=locationText||mapSource;
+      setStatus("Exact C8 coordinates opened.");
+      return;
+    }
+
+    if(isGoogleMapsUrl(mapSource)){
+      const placeIdInSource=extractGooglePlaceIdFromUrl(mapSource);
+      const parsedSource=extractGoogleMapsLink(mapSource);
+      if(placeIdInSource && !Number.isFinite(parsedSource?.lat)){
+        // Current VBA writes a Google search URL containing query_place_id.
+        // Resolve that exact Place ID through Google Places when the injected
+        // restricted key is available; never replace it with a text-geocoder guess.
+        const exactPlace=await fetchGooglePlaceById(placeIdInSource,injectedGoogleApiKey);
+        if(exactPlace){
+          openSearchResult(exactPlace);
+          $("searchInput").value=locationText||exactPlace.display_name;
+          setStatus("Exact Google Place coordinates opened — no location guessed.");
+          return;
+        }
+        state.selectedPlaceId=placeIdInSource;
+        state.coordinateSource="Google Place ID; numeric coordinates unavailable";
+        $("searchInput").value=locationText||mapSource;
+        setStatus("Exact Google Place ID received, but its numeric latitude/longitude could not be loaded. No location was guessed.");
+        return;
+      }
+      try{
+        const handled=await handleGoogleMapsSearch(mapSource);
+        if(handled){
+          // Keep the human-readable C7 value visible.
+          $("searchInput").value=locationText||mapSource;
+          return;
+        }
+      }catch(e){
+        console.warn("C8 startup resolution failed:",e);
+      }
+    }
+
+    $("searchInput").value=mapSource;
+    setStatus("Google Maps location could not be resolved.");
+    return;
+  }
+
+  // No C8: C7 is the only source.
+  if(!locationText){
+    $("searchInput").value="";
+    setStatus("Enter a site location or Google Maps link.");
+    return;
+  }
+
+  $("searchInput").value=locationText;
+
+  const coord=parseCoordinateQuery(locationText);
+  if(coord){
+    openSearchResult(coord);
+    $("searchInput").value=locationText;
+    setStatus("Exact C7 coordinates opened.");
+    return;
+  }
+
+  if(isGoogleMapsUrl(locationText)){
+    try{
+      const handled=await handleGoogleMapsSearch(locationText);
+      if(handled){
+        $("searchInput").value=locationText;
+        return;
+      }
+    }catch(e){
+      console.warn("C7 Google Maps startup resolution failed:",e);
+    }
+  }
+
+  try{
+    await runSearch(locationText);
+    $("searchInput").value=locationText;
+    return;
+  }catch(e){
+    console.warn("C7 startup search failed:",e);
+  }
+
+  $("searchInput").value=locationText;
+  setStatus("Location search failed. Press SEARCH to try again.");
+}
+geocodeInitial(initialLocation);
+
+/* =====================================================================
+   SITE DRAWING
+   ===================================================================== */
+function makeSiteIcon(n,first){
+  return L.divIcon({className:"",html:'<div class="site-point'+(first?" first":"")+'">'+n+'</div>',
+    iconSize:[22,22],iconAnchor:[11,11]});
+}
+function createSiteMarker(latlng,i){
+  const m=L.marker(latlng,{icon:makeSiteIcon(i+1,i===0),draggable:true,zIndexOffset:1000}).addTo(state.map);
+  m.on("drag",()=>{state.points[i]={lat:m.getLatLng().lat,lng:m.getLatLng().lng};redrawSite();});
+  // The first point is the green closing handle. Leaflet markers stop map
+  // click propagation, so the close action must be attached to the marker.
+  m.on("click",e=>{
+    if(i===0&&state.mode==="draw-site"&&state.points.length>=3){
+      L.DomEvent.stop(e);
+      finishSite();
+    }
+  });
+  return m;
+}
+function removeSideLabels(){state.sideLabels.forEach(m=>state.map.removeLayer(m));state.sideLabels=[]}
+function midpoint(a,b){return{lat:(a.lat+b.lat)/2,lng:(a.lng+b.lng)/2}}
+function createSideLabel(a,b,t,cls){
+  const v=localXY(a,b);
+  let deg=Math.atan2(v[1],v[0])*180/Math.PI;
+  if(deg>90)deg-=180;if(deg<-90)deg+=180;
+  const html='<div class="side-label'+(cls?" "+cls:"")+'" style="transform:translate(-50%,-50%) rotate('+deg.toFixed(2)+'deg)">'+t+' m</div>';
+  return L.marker(midpoint(a,b),{
+    icon:L.divIcon({className:"",html,iconSize:null}),
+    interactive:false,zIndexOffset:500}).addTo(state.map);
+}
+function localXY(origin,p){
+  const R=6378137,cosLat=Math.cos(origin.lat*Math.PI/180);
+  return [(p.lng-origin.lng)*Math.PI/180*R*cosLat,(p.lat-origin.lat)*Math.PI/180*R];
+}
+function localLatLng(origin,x,y){
+  const R=6378137,cosLat=Math.cos(origin.lat*Math.PI/180);
+  return {lat:origin.lat+(y/R)*180/Math.PI,lng:origin.lng+(x/(R*cosLat))*180/Math.PI};
+}
+function clearMeasurementLayers(list){
+  (list||[]).forEach(layer=>{try{state.map.removeLayer(layer)}catch(e){}});
+  if(list)list.length=0;
+}
+function createLiveMeasureLabel(a,b,t,cls){
+  const v=localXY(a,b);
+  let deg=Math.atan2(v[1],v[0])*180/Math.PI;
+  if(deg>90)deg-=180;if(deg<-90)deg+=180;
+  const html='<div class="live-label'+(cls?" "+cls:"")+'" style="transform:translate(-50%,-50%) rotate('+deg.toFixed(2)+'deg)">'+t+' m</div>';
+  return L.marker(midpoint(a,b),{
+    icon:L.divIcon({className:"",html,iconSize:null}),
+    interactive:false,zIndexOffset:1400
+  }).addTo(state.map);
+}
+function cornerAngleDegrees(prev,cur,next){
+  const v1=localXY(cur,prev),v2=localXY(cur,next);
+  const l1=Math.hypot(v1[0],v1[1]),l2=Math.hypot(v2[0],v2[1]);
+  if(l1<0.001||l2<0.001)return 0;
+  const cos=Math.max(-1,Math.min(1,(v1[0]*v2[0]+v1[1]*v2[1])/(l1*l2)));
+  return Math.acos(cos)*180/Math.PI;
+}
+function addOrthogonalGuide(points,c,target){
+  if(!points||points.length<2||!target)return;
+  const refA=points.length>=3?points[points.length-3]:points[points.length-2];
+  const refB=points.length>=3?points[points.length-2]:points[points.length-1];
+  const a=localXY(refA,refB), q=localXY(refA,c);
+  const len=Math.hypot(a[0],a[1]);
+  if(len<0.01)return;
+  const ux=a[0]/len,uy=a[1]/len;
+  const t=(q[0]*ux+q[1]*uy);
+  const foot=localLatLng(refA,ux*t,uy*t);
+  target.push(L.polyline([[c.lat,c.lng],[foot.lat,foot.lng]],{
+    color:"#f1c40f",weight:2,dashArray:"4 4",opacity:.98,interactive:false
+  }).addTo(state.map));
+}
+function addPolygonMeasurements(points,target,cls,closed=true){
+  if(!points||points.length<3||!target)return;
+  const n=points.length;
+  const first=closed?0:1,last=closed?n-1:n-2;
+  for(let i=first;i<=last;i++){
+    const prev=points[(i+n-1)%n],cur=points[i],next=points[(i+1)%n];
+    if(!closed&&(!points[i-1]||!points[i+1]))continue;
+    const v1=localXY(cur,prev),v2=localXY(cur,next);
+    const l1=Math.hypot(v1[0],v1[1]),l2=Math.hypot(v2[0],v2[1]);
+    if(l1<0.01||l2<0.01)continue;
+    const a1=Math.atan2(v1[1],v1[0]),a2=Math.atan2(v2[1],v2[0]);
+    let diff=a2-a1;
+    while(diff>Math.PI)diff-=Math.PI*2;
+    while(diff<-Math.PI)diff+=Math.PI*2;
+    const angle=Math.abs(diff)*180/Math.PI;
+    const radius=Math.max(1.2,Math.min(6,Math.min(l1,l2)*.18));
+    const arc=[];
+    for(let step=0;step<=16;step++){
+      const th=a1+diff*(step/16);
+      arc.push(localLatLng(cur,Math.cos(th)*radius,Math.sin(th)*radius));
+    }
+    target.push(L.polyline(arc,{color:"#ef2633",weight:2,opacity:.98,interactive:false}).addTo(state.map));
+    const mid=a1+diff/2;
+    const labelPos=localLatLng(cur,Math.cos(mid)*radius*1.65,Math.sin(mid)*radius*1.65);
+    target.push(L.marker(labelPos,{
+      icon:L.divIcon({className:"",html:'<div class="angle-label" style="transform:translate(-50%,-50%)">'+angle.toFixed(2)+'°</div>',iconSize:null}),
+      interactive:false,zIndexOffset:1350
+    }).addTo(state.map));
+    if(Math.abs(angle-90)<=4){
+      const u1=[v1[0]/l1,v1[1]/l1],u2=[v2[0]/l2,v2[1]/l2],r=radius*.72;
+      const p1=localLatLng(cur,u1[0]*r,u1[1]*r);
+      const p2=localLatLng(cur,(u1[0]+u2[0])*r,(u1[1]+u2[1])*r);
+      const p3=localLatLng(cur,u2[0]*r,u2[1]*r);
+      target.push(L.polyline([p1,p2,p3],{color:"#f1c40f",weight:2,dashArray:"4 4",opacity:.98,interactive:false}).addTo(state.map));
+    }
+  }
+}
+function addRingSideMeasurements(points,target,cls,minMeters=5){
+  if(!points||points.length<2||!target)return;
+  for(let i=1;i<points.length;i++){
+    const d=GeometryEngine.distanceMeters(points[i-1],points[i]);
+    if(d>=minMeters)target.push(createSideLabel(points[i-1],points[i],fmt(d),cls));
+  }
+  if(points.length>=3){
+    const d=GeometryEngine.distanceMeters(points[points.length-1],points[0]);
+    if(d>=minMeters)target.push(createSideLabel(points[points.length-1],points[0],fmt(d),cls));
+  }
+}
+function clearLiveSegment(){
+  if(state.liveLine){state.map.removeLayer(state.liveLine);state.liveLine=null}
+  if(state.liveLabel){state.map.removeLayer(state.liveLabel);state.liveLabel=null}
+  if(state.siteFixedCross){state.map.removeLayer(state.siteFixedCross);state.siteFixedCross=null}
+  state.map.getContainer().classList.remove("fixed-site-endpoint-mode");
+  clearMeasurementLayers(state.liveMeasurementLayers);
+}
+function redrawSite(){
+  state.boundarySaved=false;
+  removeSideLabels();
+  clearMeasurementLayers(state.measurementLayers);
+  if(state.boundary){state.map.removeLayer(state.boundary);state.boundary=null}
+  if(state.points.length>=2){
+    const ll=state.points.map(p=>[p.lat,p.lng]);
+    if(state.closed&&state.points.length>=3){
+      state.boundary=L.polygon(ll,{color:"#075b8c",weight:3,opacity:.98,
+        fillColor:"#2b83ad",fillOpacity:.12,interactive:false}).addTo(state.map);
+    }else{
+      state.boundary=L.polyline(ll,{color:"#075b8c",weight:3,opacity:.98,interactive:false}).addTo(state.map);
+    }
+    for(let i=1;i<state.points.length;i++){
+      state.sideLabels.push(createSideLabel(state.points[i-1],state.points[i],
+        fmt(GeometryEngine.distanceMeters(state.points[i-1],state.points[i]))));
+    }
+    if(state.closed&&state.points.length>=3){
+      state.sideLabels.push(createSideLabel(state.points[state.points.length-1],state.points[0],
+        fmt(GeometryEngine.distanceMeters(state.points[state.points.length-1],state.points[0]))));
+      addPolygonMeasurements(state.points,state.measurementLayers,"site",state.closed);
+    }
+  }
+  updateSiteStats(); recomputeUsable();
+}
+function updateSiteStats(){
+  if(state.closed&&state.points.length>=3){
+    const obb=GeometryEngine.minAreaOBB(state.points);
+    const area=GeometryEngine.polygonArea(state.points);
+    const peri=GeometryEngine.perimeterOfRing(state.points);
+    $("siteLength").textContent=fmt(obb.length)+" m";
+    $("siteWidth").textContent=fmt(obb.width)+" m";
+    $("siteArea").textContent=fmt(area)+" m²";
+    $("sitePerimeter").textContent=fmt(peri)+" m";
+    $("siteObbAngle").textContent=fmt(obb.angleDeg,1)+" °";
+  }else{
+    ["siteLength","siteWidth","sitePerimeter"].forEach(id=>$(id).textContent="— m");
+    $("siteArea").textContent="— m²"; $("siteObbAngle").textContent="— °";
+  }
+  $("pointCount").textContent=String(state.points.length);
+  $("undoButton").disabled=state.points.length===0||state.closed;
+  $("clearButton").disabled=state.points.length===0;
+  $("saveButton").disabled=!state.closed;
+  $("downloadButton").disabled=!state.closed;
+  $("downloadButton").classList.toggle("needs-save",state.closed&&!state.boundarySaved);
+  $("usableSection").style.display=state.closed?"block":"none";
+}
+
+function setMode(mode){
+  clearLiveSegment(); clearObsLive();
+  state.mode=mode;
+  if(mode!=="draw-site")resetSiteDimensionInput();
+  const c=state.map.getContainer();
+  c.closest(".map-pane")?.classList.toggle("drawing-dimension-mode",mode==="draw-site");
+  setSiteDimensionHud();
+  c.classList.toggle("draw-precision",mode==="draw-site"||mode==="draw-obstacle");
+  $("drawButton").classList.toggle("active",mode==="draw-site");
+  if(mode==="draw-site"||mode==="draw-obstacle")state.map.doubleClickZoom.disable();
+  else state.map.doubleClickZoom.enable();
+
+  if(mode==="draw-site"){
+    setStatus("DRAW SITE — click corners; click green (first) point to close.");
+  }else if(mode==="draw-obstacle"){
+    const t=state.drawingObstacle?.type||"polygon";
+    const isPolygon=(t==="polygon"||t==="other");
+    const isRect=(t==="rectangle");
+    const isCircle=(t==="circle"||t==="cylinder"||t==="tree");
+    const isLine=(t==="walkway"||t==="safety_line"||t==="handrail"||t==="property_line");
+
+    $("obsUndoPoint").style.display=(isPolygon||isRect||isLine)?"inline-block":"none";
+    $("obsFinishDraw").style.display=(isPolygon||isLine)?"inline-block":"none";
+    $("obsDrawOnMap").style.display="none";
+    $("obsSaveManual").style.display="none";
+
+    if(isCircle) setStatus("Click the CENTER of the "+t+".");
+    else if(isRect) setStatus("Click TWO opposite corners of the rectangle.");
+    else if(isPolygon) setStatus("Click corners; click GREEN (first) point to close, or press FINISH.");
+    else if(isLine) setStatus("Click along the "+t.replace("_"," ")+"; press FINISH when done.");
+  }else{
+    $("obsUndoPoint").style.display="none";
+    $("obsFinishDraw").style.display="none";
+    $("obsDrawOnMap").style.display="inline-block";
+    $("obsSaveManual").style.display="inline-block";
+    setStatus(state.closed?"Site closed. Add obstacles or SAVE.":"Ready.");
+  }
+}
+
+function setSiteDimensionHud(){
+  const hud=$("siteDimensionHud"), value=$("siteDimensionValue");
+  if(!hud||!value)return;
+  if(state.siteFixedSegmentLength!=null){
+    value.textContent=fmt(state.siteFixedSegmentLength);
+    hud.innerHTML='LENGTH: <span id="siteDimensionValue" class="value">'+fmt(state.siteFixedSegmentLength)+'</span> m &nbsp;•&nbsp; LOCKED — move mouse, click to set point';
+  }else if(state.siteLengthInput){
+    value.textContent=state.siteLengthInput;
+    hud.innerHTML='LENGTH: <span id="siteDimensionValue" class="value">'+state.siteLengthInput+'</span> m &nbsp;•&nbsp; press ENTER to lock';
+  }else{
+    value.textContent='—';
+    hud.innerHTML='LENGTH: <span id="siteDimensionValue" class="value">—</span> m &nbsp;•&nbsp; type distance + ENTER to lock';
+  }
+}
+function resetSiteDimensionInput(){
+  state.siteLengthInput="";
+  state.siteFixedSegmentLength=null;
+  setSiteDimensionHud();
+}
+function getFixedSiteCursorPoint(last,cursor){
+  if(!last||!cursor||!(Number(state.siteFixedSegmentLength)>0))return cursor;
+  try{
+    const bearing=turf.bearing(turf.point([last.lng,last.lat]),turf.point([cursor.lng,cursor.lat]));
+    const dest=turf.destination(turf.point([last.lng,last.lat]),Number(state.siteFixedSegmentLength)/1000,bearing,{units:"kilometers"});
+    return {lat:dest.geometry.coordinates[1],lng:dest.geometry.coordinates[0]};
+  }catch(e){ return cursor; }
+}
+function lockSiteDimension(){
+  if(state.mode!=="draw-site"||state.closed||!state.points.length)return false;
+  const n=Number(state.siteLengthInput.replace(/,/g,""));
+  if(!Number.isFinite(n)||n<=0){setStatus("Enter a valid distance in metres, then press ENTER.");return false;}
+  state.siteFixedSegmentLength=n;
+  state.siteLengthInput="";
+  setSiteDimensionHud();
+  if(state.siteLastCursor){
+    // Immediately redraw the locked preview using the current mouse direction.
+    const last=state.points[state.points.length-1];
+    const c=getFixedSiteCursorPoint(last,state.siteLastCursor);
+    drawSiteLiveSegment(c);
+  }
+  setStatus("Distance locked at "+fmt(n)+" m. Move the mouse to choose direction; click to set point.");
+  return true;
+}
+function drawSiteLiveSegment(cursor){
+  if(state.mode!=="draw-site"||state.closed||!state.points.length)return;
+  const last=state.points[state.points.length-1];
+  const c=getFixedSiteCursorPoint(last,cursor);
+  clearLiveSegment();
+  const d=GeometryEngine.distanceMeters(last,c);
+  const prev=state.points.length>=2?state.points[state.points.length-2]:null;
+  const perp=prev&&Math.abs(cornerAngleDegrees(prev,last,c)-90)<=4;
+  state.liveLine=L.polyline([[last.lat,last.lng],[c.lat,c.lng]],{color:perp?"#f1c40f":"#0b78a5",weight:perp?3:2,opacity:.95,interactive:false}).addTo(state.map);
+  if(state.siteFixedSegmentLength!=null){
+    state.map.getContainer().classList.add("fixed-site-endpoint-mode");
+    state.siteFixedCross=L.marker([c.lat,c.lng],{icon:L.divIcon({className:"",html:"<div class=\"fixed-site-endpoint-cross\">+</div>",iconSize:[16,16],iconAnchor:[8,8]}),interactive:false,zIndexOffset:1400}).addTo(state.map);
+  }
+  state.liveLabel=createLiveMeasureLabel(last,c,fmt(d));
+  if(perp)addOrthogonalGuide(state.points,c,state.liveMeasurementLayers);
+  const preview=state.points.concat([{lat:c.lat,lng:c.lng}]);
+  if(preview.length>=3)addPolygonMeasurements(preview,state.liveMeasurementLayers,"site",false);
+}
+function handleSiteDimensionKey(e){
+  if(state.mode!=="draw-site"||state.closed||!state.points.length)return;
+  const active=document.activeElement;
+  if(active && (active.tagName==="INPUT"||active.tagName==="TEXTAREA"||active.isContentEditable))return;
+  if((e.key>="0"&&e.key<="9")||e.key==="."){
+    e.preventDefault();
+    if(e.key==="."&&state.siteLengthInput.includes("."))return;
+    state.siteLengthInput+=e.key;
+    state.siteFixedSegmentLength=null;
+    setSiteDimensionHud();
+    setStatus("Distance input: "+state.siteLengthInput+" m — press ENTER to lock the line length.");
+    return;
+  }
+  if(e.key==="Backspace"){
+    if(state.siteLengthInput){e.preventDefault();state.siteLengthInput=state.siteLengthInput.slice(0,-1);setSiteDimensionHud();}
+    return;
+  }
+  if(e.key==="Enter" && state.siteLengthInput){
+    e.preventDefault(); lockSiteDimension();
+  }
+  if(e.key==="Escape" && (state.siteLengthInput||state.siteFixedSegmentLength!=null)){
+    e.preventDefault(); resetSiteDimensionInput();
+    setStatus("Fixed distance cancelled. Freehand drawing restored.");
+  }
+}
+document.addEventListener("keydown",handleSiteDimensionKey);
+
+function addSitePoint(latlng){
+  if(state.closed)return;
+  let target={lat:latlng.lat,lng:latlng.lng};
+  if(state.points.length && state.siteFixedSegmentLength!=null){
+    target=getFixedSiteCursorPoint(state.points[state.points.length-1],target);
+  }
+  if(state.points.length){
+    const last=state.points[state.points.length-1];
+    if(GeometryEngine.distanceMeters(last,target)<0.3){
+      setStatus("Same point — move a bit."); return;
+    }
+  }
+  clearSearchMarker();
+  const i=state.points.length;
+  state.points.push({lat:target.lat,lng:target.lng});
+  state.markers.push(createSiteMarker(target,i));
+  redrawSite();
+  state.siteLastCursor=null;
+  resetSiteDimensionInput();
+  setStatus("Site point "+(i+1)+" added. Next line can be freehand or type a distance + ENTER to lock it.");
+}
+function finishSite(){
+  clearLiveSegment();
+  if(state.points.length<3){setStatus("Need at least 3 points.");return;}
+  state.closed=true; redrawSite(); setMode("pan");
+  setStatus("Site boundary closed. Length/Width/Area/Perimeter calculated.");
+}
+function undoSite(){
+  if(state.closed||!state.points.length)return;
+  const m=state.markers.pop(); if(m)state.map.removeLayer(m);
+  state.points.pop(); redrawSite();
+}
+function clearAllSite(){
+  clearLiveSegment(); clearSearchMarker();
+  state.markers.forEach(m=>state.map.removeLayer(m));
+  state.markers=[]; state.points=[];
+  removeSideLabels();
+  clearMeasurementLayers(state.measurementLayers);
+  if(state.boundary){state.map.removeLayer(state.boundary);state.boundary=null;}
+  state.closed=false;
+  state.boundarySaved=false;
+  state.siteHeight=null;
+  state.obstacles.forEach(o=>{removeObstacleLayers(o);o.height=null;});
+  state.obstacles=[]; renderObstacleList();
+  clearOverlays();
+  updateSiteStats(); setMode("pan");
+  setStatus("Cleared.");
+}
+
+$("drawButton").addEventListener("click",()=>setMode(state.mode==="draw-site"?"pan":"draw-site"));
+$("undoButton").addEventListener("click",undoSite);
+$("clearButton").addEventListener("click",clearAllSite);
+
+/* =====================================================================
+   OBSTACLE UI
+   ===================================================================== */
+$("obsNoBtn").addEventListener("click",()=>setObstaclePresent(false));
+$("obsYesBtn").addEventListener("click",()=>setObstaclePresent(true));
+
+function setObstaclePresent(yes){
+  state.obstaclePresent=yes;
+  $("obsYesBtn").classList.toggle("active",yes);
+  $("obsNoBtn").classList.toggle("active",!yes);
+  $("obstacleSection").style.display=yes?"block":"none";
+  if(!yes) hideObsForm();
+  renderObstacleList();
+  recomputeUsable();
+}
+
+function showObsForm(editingId){
+  state.editingObstacleId=editingId||null;
+  const form=$("obsForm"); form.classList.add("show");
+  $("obsFormTitle").textContent=editingId?"Edit Obstacle":"New Obstacle";
+
+  if(editingId){
+    const o=state.obstacles.find(x=>x.id===editingId);
+    if(o){
+      $("obsType").value=o.type;
+      $("obsClearance").value=o.clearance;
+      $("obsRemarks").value=o.remarks||"";
+      if(o.radius)$("obsRadius").value=o.radius;
+      if(o.manualLength)$("obsManualLength").value=o.manualLength;
+      if(o.manualWidth)$("obsManualWidth").value=o.manualWidth;
+    }
+  }else{
+    $("obsRemarks").value="";
+  }
+  onObsTypeChange();
+}
+function hideObsForm(){
+  $("obsForm").classList.remove("show");
+  state.editingObstacleId=null;
+  state.drawingObstacle=null;
+  clearObsPreview(); clearObsLive(); clearObsMarkers();
+  if(state.mode==="draw-obstacle")setMode("pan");
+}
+function onObsTypeChange(){
+  const t=$("obsType").value;
+  const isCirc=(t==="circle"||t==="cylinder"||t==="tree");
+  $("obsRadiusRow").style.display=isCirc?"flex":"none";
+  $("obsLengthRow").style.display=isCirc?"none":"flex";
+  $("obsWidthRow").style.display=isCirc?"none":"flex";
+}
+$("obsType").addEventListener("change",onObsTypeChange);
+$("addObstacleBtn").addEventListener("click",()=>showObsForm(null));
+$("obsCancelForm").addEventListener("click",hideObsForm);
+
+/* ---- MANUAL SAVE ---- */
+$("obsSaveManual").addEventListener("click",()=>{
+  if(!state.closed){setStatus("Draw and close the site boundary first.");return;}
+  const t=$("obsType").value;
+  const clearance=parseFloat($("obsClearance").value)||0;
+  const remarks=$("obsRemarks").value.trim();
+  const center=state.selectedLocation||state.map.getCenter();
+  let obstacle=null;
+  if(t==="circle"||t==="cylinder"||t==="tree"){
+    const r=parseFloat($("obsRadius").value)||1;
+    obstacle=buildCircleObstacle(center.lat,center.lng,r,t,clearance,remarks);
+  }else{
+    const L_m=parseFloat($("obsManualLength").value)||2;
+    const W_m=parseFloat($("obsManualWidth").value)||1;
+    obstacle=buildRectangleObstacleFromDims(center.lat,center.lng,L_m,W_m,t,clearance,remarks);
+  }
+  if(!obstacle){setStatus("Could not create.");return;}
+  finalizeObstacle(obstacle);
+});
+
+function buildCircleObstacle(lat,lng,r,type,clearance,remarks){
+  const feat=GeometryEngine.circleToTurfPolygon(lat,lng,r);
+  const coords=feat.geometry.coordinates[0].map(c=>({lat:c[1],lng:c[0]}));
+  return {
+    id:"OBS-"+Date.now()+"-"+Math.random().toString(36).slice(2,6),
+    type,geometry:"circle",coords,center:{lat,lng},radius:r,
+    area:Math.PI*r*r,perimeter:2*Math.PI*r,
+    length:2*r,width:2*r,clearance,remarks,
+    manualLength:null,manualWidth:null
+  };
+}
+function buildRectangleObstacleFromDims(cLat,cLng,L_m,W_m,type,clearance,remarks){
+  const R=6378137, cosLat=Math.cos(cLat*Math.PI/180);
+  const toLL=(x,y)=>[cLat+(y/R)*180/Math.PI, cLng+(x/(R*cosLat))*180/Math.PI];
+  const hx=L_m/2, hy=W_m/2;
+  const corners=[[-hx,-hy],[hx,-hy],[hx,hy],[-hx,hy]];
+  const coords=corners.map(([x,y])=>{const p=toLL(x,y);return{lat:p[0],lng:p[1]}});
+  return {
+    id:"OBS-"+Date.now()+"-"+Math.random().toString(36).slice(2,6),
+    type,geometry:"rectangle",coords,
+    area:L_m*W_m,perimeter:2*(L_m+W_m),
+    length:L_m,width:W_m,clearance,remarks,
+    manualLength:L_m,manualWidth:W_m,radius:null
+  };
+}
+
+/* ---- DRAW ON MAP ---- */
+$("obsDrawOnMap").addEventListener("click",()=>{
+  if(!state.closed){setStatus("Draw and close the site boundary first.");return;}
+  const t=$("obsType").value;
+  state.drawingObstacle={type:t,points:[],radius:parseFloat($("obsRadius").value)||1};
+  clearObsPreview(); clearObsLive(); clearObsMarkers();
+  setMode("draw-obstacle");
+});
+$("obsUndoPoint").addEventListener("click",undoObsPoint);
+$("obsFinishDraw").addEventListener("click",finishObstacleDrawing);
+
+function makeObsIcon(n,first){
+  return L.divIcon({className:"",html:'<div class="obs-point'+(first?" first":"")+'">'+n+'</div>',
+    iconSize:[20,20],iconAnchor:[10,10]});
+}
+function clearObsMarkers(){state.obsMarkers.forEach(m=>state.map.removeLayer(m));state.obsMarkers=[]}
+function clearObsSideLabels(){state.obsSideLabels.forEach(m=>state.map.removeLayer(m));state.obsSideLabels=[]}
+function clearObsLive(){
+  if(state.obsLiveLine){state.map.removeLayer(state.obsLiveLine);state.obsLiveLine=null}
+  if(state.obsLiveLabel){state.map.removeLayer(state.obsLiveLabel);state.obsLiveLabel=null}
+  if(state.obsLiveCircle){state.map.removeLayer(state.obsLiveCircle);state.obsLiveCircle=null}
+  clearMeasurementLayers(state.obsLiveMeasurementLayers);
+}
+function clearObsPreview(){
+  if(state.obsPreviewLayer){state.map.removeLayer(state.obsPreviewLayer);state.obsPreviewLayer=null}
+  clearObsSideLabels();
+  clearMeasurementLayers(state.obsMeasurementLayers);
+}
+
+function redrawObsPreview(){
+  clearObsPreview();
+  const d=state.drawingObstacle; if(!d)return;
+  const t=d.type;
+
+  if((t==="circle"||t==="cylinder"||t==="tree")&&d.points.length===1){
+    const c=d.points[0];
+    const feat=GeometryEngine.circleToTurfPolygon(c.lat,c.lng,d.radius);
+    const ll=feat.geometry.coordinates[0].map(x=>[x[1],x[0]]);
+    state.obsPreviewLayer=L.circle([c.lat,c.lng],{radius:d.radius,color:"#a04519",weight:2,
+      fillColor:"#c0663a",fillOpacity:.25,interactive:false}).addTo(state.map);
+    return;
+  }
+  if(t==="rectangle"&&d.points.length===2){
+    const [a,b]=d.points;
+    const ll=[[a.lat,a.lng],[a.lat,b.lng],[b.lat,b.lng],[b.lat,a.lng]];
+    state.obsPreviewLayer=L.rectangle([[a.lat,a.lng],[b.lat,b.lng]],{color:"#a04519",weight:2,
+      fillColor:"#c0663a",fillOpacity:.25,interactive:false}).addTo(state.map);
+    const corners=ll.map(x=>({lat:x[0],lng:x[1]}));
+    for(let i=0;i<4;i++){
+      const a1=corners[i], b1=corners[(i+1)%4];
+      const d1=GeometryEngine.distanceMeters(a1,b1);
+      if(d1>=5)state.obsSideLabels.push(createSideLabel(a1,b1,fmt(d1),"obs"));
+    }
+
+    return;
+  }
+  if(d.points.length>=2){
+    const ll=d.points.map(p=>[p.lat,p.lng]);
+    const isArea=(t==="polygon"||t==="other");
+    if(isArea&&d.points.length>=3){
+      state.obsPreviewLayer=L.polygon(ll,{color:"#a04519",weight:2,
+        fillColor:"#c0663a",fillOpacity:.20,interactive:false}).addTo(state.map);
+    }else{
+      state.obsPreviewLayer=L.polyline(ll,{color:"#a04519",weight:3,interactive:false}).addTo(state.map);
+    }
+    for(let i=1;i<d.points.length;i++){
+      const d1=GeometryEngine.distanceMeters(d.points[i-1],d.points[i]);
+      if(d1>=5)state.obsSideLabels.push(createSideLabel(d.points[i-1],d.points[i],fmt(d1),"obs"));
+    }
+    // Closing edge preview if polygon has 3+ points
+    if(isArea&&d.points.length>=3){
+      const d1=GeometryEngine.distanceMeters(d.points[d.points.length-1],d.points[0]);
+      if(d1>=5)state.obsSideLabels.push(createSideLabel(d.points[d.points.length-1],d.points[0],fmt(d1),"obs"));
+    }
+  }
+}
+
+function addObsMarkerPoint(latlng,i){
+  const m=L.marker(latlng,{icon:makeObsIcon(i+1,i===0),zIndexOffset:900}).addTo(state.map);
+  state.obsMarkers.push(m);
+}
+
+function addObsPoint(latlng){
+  const d=state.drawingObstacle; if(!d)return;
+  const t=d.type;
+
+  if(t==="circle"||t==="cylinder"||t==="tree"){
+    if(d.points.length===0){
+      // First click fixes the center. The next click sets the real radius.
+      d.points=[{lat:latlng.lat,lng:latlng.lng}];
+      addObsMarkerPoint(latlng,0);
+      setStatus("Center fixed. Move the cursor to set the radius, then click to finish.");
+      return;
+    }
+    const center=d.points[0];
+    const radius=GeometryEngine.distanceMeters(center,{lat:latlng.lat,lng:latlng.lng});
+    if(radius<0.2){setStatus("Move farther from the center to create a visible circle.");return;}
+    d.radius=radius;
+    const obstacle=buildCircleObstacle(center.lat,center.lng,radius,t,
+      parseFloat($("obsClearance").value)||0,$("obsRemarks").value.trim());
+    finalizeObstacle(obstacle); return;
+  }
+
+  if(t==="rectangle"){
+    d.points.push({lat:latlng.lat,lng:latlng.lng});
+    addObsMarkerPoint(latlng,d.points.length-1);
+    if(d.points.length===2){
+      const [a,b]=d.points;
+      const obstacle=buildRectangleObstacleFromCorners(a,b,t,
+        parseFloat($("obsClearance").value)||0,$("obsRemarks").value.trim());
+      finalizeObstacle(obstacle); return;
+    }
+    redrawObsPreview(); return;
+  }
+
+  // Polygon/polyline: check click-on-first-point-to-close (like site)
+  if((t==="polygon"||t==="other")&&d.points.length>=3){
+    const dist=GeometryEngine.distanceMeters({lat:latlng.lat,lng:latlng.lng},d.points[0]);
+    if(dist<=3){finishObstacleDrawing();return;}
+  }
+
+  d.points.push({lat:latlng.lat,lng:latlng.lng});
+  addObsMarkerPoint(latlng,d.points.length-1);
+  redrawObsPreview();
+}
+
+function undoObsPoint(){
+  const d=state.drawingObstacle; if(!d||!d.points.length)return;
+  d.points.pop();
+  const m=state.obsMarkers.pop(); if(m)state.map.removeLayer(m);
+  redrawObsPreview();
+  setStatus("Obstacle point removed. Continue drawing.");
+}
+
+function buildRectangleObstacleFromCorners(a,b,type,clearance,remarks){
+  const coords=[{lat:a.lat,lng:a.lng},{lat:a.lat,lng:b.lng},
+    {lat:b.lat,lng:b.lng},{lat:b.lat,lng:a.lng}];
+  const area=GeometryEngine.polygonArea(coords);
+  const peri=GeometryEngine.perimeterOfRing(coords);
+  const obb=GeometryEngine.minAreaOBB(coords);
+  return {
+    id:"OBS-"+Date.now()+"-"+Math.random().toString(36).slice(2,6),
+    type,geometry:"rectangle",coords,
+    area,perimeter:peri,length:obb.length,width:obb.width,
+    clearance,remarks,manualLength:null,manualWidth:null,radius:null
+  };
+}
+
+function finishObstacleDrawing(){
+  const d=state.drawingObstacle; if(!d)return;
+  const t=d.type;
+
+  if(t==="polygon"||t==="other"){
+    if(d.points.length<3){setStatus("Need at least 3 points for polygon.");return;}
+    const coords=d.points.slice();
+    const area=GeometryEngine.polygonArea(coords);
+    const peri=GeometryEngine.perimeterOfRing(coords);
+    const obb=GeometryEngine.minAreaOBB(coords);
+    finalizeObstacle({
+      id:"OBS-"+Date.now()+"-"+Math.random().toString(36).slice(2,6),
+      type:t,geometry:"polygon",coords,
+      area,perimeter:peri,length:obb.length,width:obb.width,
+      clearance:parseFloat($("obsClearance").value)||0,
+      remarks:$("obsRemarks").value.trim(),
+      manualLength:null,manualWidth:null,radius:null
+    });
+    return;
+  }
+
+  if(t==="walkway"){
+    if(d.points.length<2){setStatus("Need at least 2 points.");return;}
+    const coords=d.points.slice();
+    const lineLen=GeometryEngine.lengthOfPolyline(coords);
+    finalizeObstacle({
+      id:"OBS-"+Date.now()+"-"+Math.random().toString(36).slice(2,6),
+      type:t,geometry:"polyline",coords,
+      area:0,perimeter:lineLen,length:lineLen,width:0,
+      clearance:parseFloat($("obsClearance").value)||0.5,
+      remarks:$("obsRemarks").value.trim(),
+      manualLength:null,manualWidth:null,radius:null
+    });
+    return;
+  }
+
+  if(t==="safety_line"||t==="handrail"||t==="property_line"){
+    if(d.points.length<2){setStatus("Need at least 2 points.");return;}
+    const coords=d.points.slice();
+    const lineLen=GeometryEngine.lengthOfPolyline(coords);
+    finalizeObstacle({
+      id:"OBS-"+Date.now()+"-"+Math.random().toString(36).slice(2,6),
+      type:t,geometry:"polyline",coords,
+      area:0,perimeter:lineLen,length:lineLen,width:0,
+      clearance:parseFloat($("obsClearance").value)||0,
+      remarks:$("obsRemarks").value.trim(),
+      manualLength:null,manualWidth:null,radius:null
+    });
+  }
+}
+
+function finalizeObstacle(obstacle){
+  GeometryEngine.clearError();
+  const sitePoly=GeometryEngine.toTurfPolygon(state.points);
+  if(!sitePoly){setStatus(GeometryEngine.lastError()||"Close site boundary first.");return;}
+
+  let obsFeat=null;
+  if(obstacle.geometry==="polyline"){
+    try{obsFeat=turf.buffer(turf.lineString(obstacle.coords.map(p=>[p.lng,p.lat])),0.001/1000,{units:"kilometers"})}catch(e){setStatus("Line geometry could not be created.");return;}
+  }else if(obstacle.geometry==="circle"){
+    obsFeat=GeometryEngine.circleToTurfPolygon(obstacle.center.lat,obstacle.center.lng,obstacle.radius);
+  }else{
+    obsFeat=GeometryEngine.toTurfPolygon(obstacle.coords);
+  }
+  if(!obsFeat||GeometryEngine.hasError()){setStatus(GeometryEngine.lastError()||"Invalid obstacle geometry.");return;}
+  obstacle.feature=obsFeat;
+
+  if(obstacle.geometry!=="polyline"){
+    const inter=GeometryEngine.intersectFeatures(sitePoly,obsFeat);
+    if(GeometryEngine.hasError()){setStatus(GeometryEngine.lastError());hideObsForm();return;}
+    if(!inter){setStatus("Obstacle completely outside site — rejected.");hideObsForm();return;}
+    obstacle.feature=inter;
+    const clippedArea=GeometryEngine.featureArea(inter);
+    if(GeometryEngine.hasError()){setStatus(GeometryEngine.lastError());hideObsForm();return;}
+    if(clippedArea<obstacle.area*0.999){
+      const cp=GeometryEngine.allOuterPoints(inter);
+      if(cp.length>=3){
+        obstacle.coords=cp; obstacle.area=clippedArea;
+        obstacle.perimeter=GeometryEngine.perimeterOfRing(cp);
+        const obb=GeometryEngine.minAreaOBB(cp);
+        obstacle.length=obb.length; obstacle.width=obb.width;
+        obstacle.geometry="polygon"; obstacle.radius=null; obstacle.center=null;
+        setStatus("Obstacle clipped to site — only inside portion kept.");
+      }else{setStatus("Clipped obstacle has no drawable outer ring.");hideObsForm();return;}
+    }
+  }else{
+    try{
+      const line=turf.lineString(obstacle.coords.map(p=>[p.lng,p.lat]));
+      if(!turf.booleanIntersects(line,sitePoly)){setStatus("Line obstacle outside site — rejected.");hideObsForm();return;}
+    }catch(e){setStatus("Line intersection check failed.");hideObsForm();return;}
+  }
+
+  if(state.editingObstacleId){
+    const idx=state.obstacles.findIndex(x=>x.id===state.editingObstacleId);
+    if(idx>=0){
+      removeObstacleLayers(state.obstacles[idx]);
+      obstacle.id=state.editingObstacleId;
+      state.obstacles[idx]=obstacle;
+    }
+  }else{
+    state.obstacles.push(obstacle);
+  }
+  state.boundarySaved=false;
+  drawObstacleOnMap(obstacle);
+  hideObsForm();
+  renderObstacleList();
+  recomputeUsable();
+  setStatus("Obstacle saved: "+typeLabel(obstacle.type)+" ("+state.obstacles.length+" total).");
+}
+
+function drawObstacleOnMap(obstacle){
+  obstacle.mapLayers=obstacle.mapLayers||[];
+  const style={color:"#a04519",weight:2,fillColor:"#c0663a",fillOpacity:.35};
+  let layer;
+  if(obstacle.geometry==="polyline"){
+    layer=L.polyline(obstacle.coords.map(p=>[p.lat,p.lng]),{color:"#a04519",weight:3,opacity:.95});
+  }else if(obstacle.geometry==="circle"&&obstacle.center&&Number.isFinite(Number(obstacle.radius))){
+    layer=L.circle([obstacle.center.lat,obstacle.center.lng],Object.assign({},style,{radius:Number(obstacle.radius)}));
+  }else if(obstacle.feature){
+    const rings=GeometryEngine.featureToLeafletLatLngs(obstacle.feature);
+    layer=L.polygon(rings,style);
+  }else if(obstacle.geometry==="rectangle"&&obstacle.coords?.length>=2){
+    const lats=obstacle.coords.map(p=>p.lat),lngs=obstacle.coords.map(p=>p.lng);
+    layer=L.rectangle([[Math.min(...lats),Math.min(...lngs)],[Math.max(...lats),Math.max(...lngs)]],style);
+  }else{
+    layer=L.polygon(obstacle.coords.map(p=>[p.lat,p.lng]),style);
+  }
+  layer.addTo(state.map);
+  layer.on("click",()=>selectObstacle(obstacle.id));
+  obstacle.mapLayers.push(layer);
+  if(obstacle.geometry!=="circle")addRingSideMeasurements(obstacle.coords,obstacle.mapLayers,"obs",5);
+
+}
+function removeObstacleLayers(o){
+  (o.mapLayers||[]).forEach(l=>{try{state.map.removeLayer(l)}catch(e){}});
+  o.mapLayers=[];
+}
+function selectObstacle(id){
+  state.selectedObstacleId=state.selectedObstacleId===id?null:id;
+  // Highlight on map
+  state.obstacles.forEach(o=>{
+    (o.mapLayers||[]).forEach(l=>{
+      if(l.setStyle){
+        l.setStyle({weight:o.id===state.selectedObstacleId?4:2,
+          color:o.id===state.selectedObstacleId?"#5c2c0d":"#a04519"});
+      }
+    });
+  });
+  renderObstacleList();
+}
+function typeLabel(t){
+  return ({polygon:"Polygon",rectangle:"Rectangle",circle:"Circle",cylinder:"Cylinder",
+    walkway:"Walkway",safety_line:"Safety Line",handrail:"Handrail",
+    property_line:"Property Line",tree:"Tree",other:"Other"})[t]||t;
+}
+function obstacleBounds(o){
+  try{
+    if(o.feature){const b=turf.bbox(o.feature);return L.latLngBounds([[b[1],b[0]],[b[3],b[2]]]);}
+    return L.latLngBounds(o.coords.map(p=>[p.lat,p.lng]));
+  }catch(e){return null}
+}
+
+function renderObstacleList(){
+  const list=$("obstacleList"); list.innerHTML="";
+  if(!state.obstacles.length){
+    list.innerHTML='<div style="padding:10px;text-align:center;color:#8195a0;font-size:10px;font-style:italic">No obstacles added yet.</div>';
+    return;
+  }
+  state.obstacles.forEach((o,i)=>{
+    const ca=computeClearanceAreaFor(o); o.clearanceArea=ca;
+    const card=document.createElement("div");
+    card.className="obstacle-card"+(state.selectedObstacleId===o.id?" selected":"");
+    card.innerHTML=`
+      <div class="obs-header">
+        <div class="obs-title">Obstacle #${i+1}</div>
+        <div class="obs-type-badge">${escapeHtml(typeLabel(o.type))}</div>
+      </div>
+      <div class="obs-grid">
+        <span class="k">Area</span><span class="v">${fmt(o.area)} m²</span>
+        <span class="k">Perimeter</span><span class="v">${fmt(o.perimeter)} m</span>
+        <span class="k">Length</span><span class="v">${fmt(o.length)} m</span>
+        <span class="k">Width</span><span class="v">${fmt(o.width)} m</span>
+        <span class="k">Height</span><span class="v">${Number.isFinite(Number(o.height))?fmt(Number(o.height)):"—"} m</span>
+        <span class="k">Clearance</span><span class="v">${fmt(o.clearance)} m</span>
+        <span class="k">Exclusion</span><span class="v">${fmt(ca)} m²</span>
+        ${o.remarks?`<span class="k">Remarks</span><span class="v" style="font-weight:600">${escapeHtml(o.remarks)}</span>`:""}
+      </div>
+      <div class="obs-actions">
+        <button data-act="edit" data-id="${o.id}" class="small">EDIT</button>
+        <button data-act="redraw" data-id="${o.id}" class="small orange">REDRAW</button>
+        <button data-act="focus" data-id="${o.id}" class="small">FOCUS</button>
+        <button data-act="delete" data-id="${o.id}" class="small cancel">DEL</button>
+      </div>`;
+    list.appendChild(card);
+  });
+
+  list.querySelectorAll("button[data-act]").forEach(b=>{
+    b.addEventListener("click",e=>{
+      e.stopPropagation();
+      const id=b.getAttribute("data-id"), act=b.getAttribute("data-act");
+      const o=state.obstacles.find(x=>x.id===id); if(!o)return;
+      if(act==="edit"){showObsForm(id);}
+      else if(act==="delete"){
+        removeObstacleLayers(o);
+        state.obstacles=state.obstacles.filter(x=>x.id!==id);
+        state.boundarySaved=false;
+        renderObstacleList(); recomputeUsable();
+        setStatus("Obstacle deleted.");
+      }
+      else if(act==="focus"){
+        const b1=obstacleBounds(o); if(b1)state.map.fitBounds(b1,{padding:[40,40],maxZoom:20});
+        selectObstacle(id);
+      }
+      else if(act==="redraw"){
+        showObsForm(id);
+        $("obsType").value=o.type; onObsTypeChange();
+        state.drawingObstacle={type:o.type,points:[],radius:o.radius||parseFloat($("obsRadius").value)||1};
+        removeObstacleLayers(o);
+        setMode("draw-obstacle");
+      }
+    });
+  });
+  list.querySelectorAll(".obstacle-card").forEach((c,i)=>{
+    c.addEventListener("click",()=>selectObstacle(state.obstacles[i].id));
+  });
+}
+
+function obstacleTurfFeature(o){
+  if(o?.feature)return o.feature;
+  try{
+    if(o?.geometry==="polyline")return turf.buffer(turf.lineString(o.coords.map(p=>[p.lng,p.lat])),0.001/1000,{units:"kilometers"});
+    if(o?.geometry==="circle")return GeometryEngine.circleToTurfPolygon(o.center.lat,o.center.lng,o.radius);
+    return GeometryEngine.toTurfPolygon(o.coords);
+  }catch(e){GeometryEngine.setError("Obstacle geometry could not be created.");return null;}
+}
+function computeClearanceAreaFor(o){
+  try{
+    if(o.geometry==="polyline"){
+      const line=turf.lineString(o.coords.map(p=>[p.lng,p.lat]));
+      const buf=turf.buffer(line,Math.max(o.clearance,0.001)/1000,{units:"kilometers"});
+      return GeometryEngine.featureArea(buf);
+    }
+    const base=obstacleTurfFeature(o);
+    if(!base)return 0;
+    if(o.clearance<=0)return 0;
+    const buf=GeometryEngine.bufferFeature(base,o.clearance);
+    return Math.max(0,GeometryEngine.featureArea(buf)-GeometryEngine.featureArea(base));
+  }catch(e){GeometryEngine.setError("Clearance area calculation failed.");return 0}
+}
+
+/* =====================================================================
+   USABLE AREA
+   ===================================================================== */
+$("siteSetback").addEventListener("input",()=>{
+  state.siteSetback=parseFloat($("siteSetback").value)||0;
+  state.boundarySaved=false;
+  updateSiteStats();
+  recomputeUsable();
+});
+function clearOverlays(){
+  ["setbackLayer","clearanceLayer","usableLayer"].forEach(k=>{
+    if(state[k]){try{state.map.removeLayer(state[k])}catch(e){} state[k]=null;}
+  });
+}
+function resetUsableDisplay(){
+  ["uSite","uSetback","uObstacle","uClearance","uUsable"].forEach(id=>$(id).textContent="— m²");
+  $("uPct").textContent="— %";
+}
+function recomputeUsable(){
+  clearOverlays();
+  GeometryEngine.clearError();
+  if(!state.closed){resetUsableDisplay();return;}
+  const site=GeometryEngine.toTurfPolygon(state.points);
+  if(!site){resetUsableDisplay();setStatus(GeometryEngine.lastError()||"Invalid site boundary.");return;}
+  const siteArea=GeometryEngine.featureArea(site);
+
+  let usable=site, setbackArea=0;
+  if(state.siteSetback>0){
+    const inner=GeometryEngine.bufferFeature(site,-state.siteSetback);
+    if(inner){
+      usable=inner; setbackArea=siteArea-GeometryEngine.featureArea(inner);
+      try{
+        const ring=GeometryEngine.differenceFeatures(site,inner);
+        if(ring){
+          const ll=GeometryEngine.featureToLeafletLatLngs(ring);
+          if(ll.length){
+            state.setbackLayer=L.polygon(ll,
+              {color:"#a53131",weight:1,dashArray:"5 4",fillColor:"#d64343",fillOpacity:.15,interactive:false}).addTo(state.map);
+          }
+        }
+      }catch(e){}
+    }else{
+      if(GeometryEngine.hasError()){
+        resetUsableDisplay();setStatus(GeometryEngine.lastError());return;
+      }
+      usable=null; setbackArea=siteArea;
+    }
+  }
+
+  const bareArr=[], expArr=[];
+  (state.obstaclePresent?state.obstacles:[]).forEach(o=>{
+    const base=obstacleTurfFeature(o);
+    if(!base)return;
+    const bClip=GeometryEngine.intersectFeatures(base,site); if(bClip)bareArr.push(bClip);
+    let exp;
+    if(o.geometry==="polyline"){try{exp=turf.buffer(turf.lineString(o.coords.map(p=>[p.lng,p.lat])),Math.max(o.clearance,0.001)/1000,{units:"kilometers"})}catch(e){GeometryEngine.setError("Obstacle clearance buffer failed.");exp=null}}
+    else exp=o.clearance>0?GeometryEngine.bufferFeature(base,o.clearance):base;
+    const eClip=GeometryEngine.intersectFeatures(exp,site); if(eClip)expArr.push(eClip);
+  });
+  if(GeometryEngine.hasError()){resetUsableDisplay();setStatus(GeometryEngine.lastError());return;}
+  const uBare=GeometryEngine.unionFeatures(bareArr);
+  const uExp=GeometryEngine.unionFeatures(expArr);
+  if(GeometryEngine.hasError()){resetUsableDisplay();setStatus(GeometryEngine.lastError());return;}
+  const obstacleArea=GeometryEngine.featureArea(uBare);
+  const expArea=GeometryEngine.featureArea(uExp);
+  const clearanceOnly=Math.max(0,expArea-obstacleArea);
+
+  if(uExp){
+    const ll=GeometryEngine.featureToLeafletLatLngs(uExp);
+    if(ll.length){
+      state.clearanceLayer=L.polygon(ll,
+        {color:"#c88b1c",weight:1,dashArray:"4 3",fillColor:"#ffc13c",fillOpacity:.20,interactive:false}).addTo(state.map);
+    }
+  }
+
+  let uFinal=usable;
+  if(usable&&uExp){
+    uFinal=GeometryEngine.differenceFeatures(usable,uExp);
+    if(GeometryEngine.hasError()){resetUsableDisplay();setStatus(GeometryEngine.lastError());return;}
+  }
+  const usableArea=uFinal?GeometryEngine.featureArea(uFinal):0;
+
+  if(uFinal){
+    const ll=GeometryEngine.featureToLeafletLatLngs(uFinal);
+    if(ll.length)state.usableLayer=L.polygon(ll,{color:"#1e6b37",weight:2,fillColor:"#2ea358",fillOpacity:.30,interactive:false}).addTo(state.map);
+  }
+
+  $("uSite").textContent=fmt(siteArea)+" m²";
+  $("uSetback").textContent=fmt(setbackArea)+" m²";
+  $("uObstacle").textContent=fmt(obstacleArea)+" m²";
+  $("uClearance").textContent=fmt(clearanceOnly)+" m²";
+  $("uUsable").textContent=fmt(usableArea)+" m²";
+  $("uPct").textContent=siteArea>0?fmt((usableArea/siteArea)*100,1)+" %":"— %";
+}
+
+/* =====================================================================
+   MAP EVENTS
+   ===================================================================== */
+state.map.on("mousemove",e=>{
+  updateCoordinateHud(e.latlng);
+  if(state.mode==="draw-site"&&!state.closed&&state.points.length){
+    state.siteLastCursor={lat:e.latlng.lat,lng:e.latlng.lng};
+    drawSiteLiveSegment(state.siteLastCursor);
+  }
+  if(state.mode==="draw-obstacle"&&state.drawingObstacle){
+    const d=state.drawingObstacle, t=d.type;
+    clearObsLive();
+    if((t==="circle"||t==="cylinder"||t==="tree")&&d.points.length===1){
+      const center=d.points[0],cursor={lat:e.latlng.lat,lng:e.latlng.lng};
+      const radius=GeometryEngine.distanceMeters(center,cursor);
+      d.radius=radius;
+      state.obsLiveCircle=L.circle([center.lat,center.lng],{radius,color:"#a04519",weight:2,dashArray:"6 5",fillColor:"#c0663a",fillOpacity:.18,interactive:false}).addTo(state.map);
+      state.obsLiveLabel=createLiveMeasureLabel(center,cursor,"R "+fmt(radius),"obs");
+    }else if(t==="rectangle"&&d.points.length===1){
+      const a=d.points[0];
+      const ll=[[a.lat,a.lng],[a.lat,e.latlng.lng],[e.latlng.lat,e.latlng.lng],[e.latlng.lat,a.lng],[a.lat,a.lng]];
+      state.obsLiveLine=L.polyline(ll,{color:"#a04519",weight:2,interactive:false}).addTo(state.map);
+
+    }else if(d.points.length){
+      const last=d.points[d.points.length-1], c={lat:e.latlng.lat,lng:e.latlng.lng};
+      const dist=GeometryEngine.distanceMeters(last,c);
+      const prev=d.points.length>=2?d.points[d.points.length-2]:null;
+      const perp=prev&&Math.abs(cornerAngleDegrees(prev,last,c)-90)<=4;
+      state.obsLiveLine=L.polyline([[last.lat,last.lng],[c.lat,c.lng]],
+        {color:perp?"#f1c40f":"#a04519",weight:perp?3:2,interactive:false}).addTo(state.map);
+      state.obsLiveLabel=createLiveMeasureLabel(last,c,fmt(dist),"obs");
+      const preview=d.points.concat([{lat:c.lat,lng:c.lng}]);
+    }
+  }
+});
+state.map.on("mouseout",()=>{clearLiveSegment();clearObsLive();updateCoordinateHud(null)});
+
+state.map.on("click",e=>{
+  if(state.selectionMode){selectMapLocation(e.latlng);return;}
+  if(state.mode==="draw-site"&&!state.closed){
+    if(state.points.length>=3){
+      const d=GeometryEngine.distanceMeters({lat:e.latlng.lat,lng:e.latlng.lng},state.points[0]);
+      if(d<=5){finishSite();return;}
+    }
+    addSitePoint(e.latlng); return;
+  }
+  if(state.mode==="draw-obstacle"&&state.drawingObstacle){
+    addObsPoint(e.latlng);
+  }
+});
+state.map.on("dblclick",e=>{
+  if(state.mode==="draw-obstacle"&&state.drawingObstacle){
+    L.DomEvent.stop(e.originalEvent); finishObstacleDrawing();
+  }
+});
+
+window.addEventListener("keydown",e=>{
+  if(e.key==="Escape"){
+    if(state.mode==="draw-site"){setMode("pan");setStatus("Site drawing cancelled.");}
+    else if(state.mode==="draw-obstacle"){hideObsForm();setStatus("Obstacle drawing cancelled.");}
+  }
+  if(e.key==="Enter"&&state.mode==="draw-obstacle")finishObstacleDrawing();
+  if(e.key==="Delete"||e.key==="Backspace"){
+    if(state.mode==="draw-site")undoSite();
+    else if(state.mode==="draw-obstacle")undoObsPoint();
+  }
+});
+
+/* =====================================================================
+   BASIC 3D PREVIEW + 4K VECTOR PLAN
+   These are data-backed visual outputs. No terrain, building height,
+   satellite pixels, or engineering result is invented by this module.
+   ===================================================================== */
+function finitePoint(p){
+  return p&&Number.isFinite(Number(p.lat))&&Number.isFinite(Number(p.lng));
+}
+function threeDAnchor(){
+  const p=state.points[0]||state.selectedLocation||state.map.getCenter();
+  return {lat:Number(p.lat),lng:Number(p.lng)};
+}
+function localScenePoints(points,anchor){
+  return (points||[]).filter(finitePoint).map(p=>{
+    const xy=localXY(anchor,{lat:Number(p.lat),lng:Number(p.lng)});
+    return {x:xy[0],y:xy[1]};
+  });
+}
+function obstacleScenePoints(o,anchor){
+  let pts=o?.coords||[];
+  if(o?.feature){
+    const outer=GeometryEngine.allOuterPoints(o.feature);
+    if(outer.length)pts=outer;
+  }
+  return localScenePoints(pts,anchor);
+}
+function sceneBounds(sitePts,obstaclePts){
+  const all=[...(sitePts||[])];
+  (obstaclePts||[]).forEach(a=>all.push(...a));
+  if(!all.length)return {minX:-20,maxX:20,minY:-20,maxY:20};
+  const xs=all.map(p=>p.x),ys=all.map(p=>p.y);
+  let minX=Math.min(...xs),maxX=Math.max(...xs),minY=Math.min(...ys),maxY=Math.max(...ys);
+  if(maxX-minX<1){minX-=.5;maxX+=.5}
+  if(maxY-minY<1){minY-=.5;maxY+=.5}
+  return {minX,maxX,minY,maxY};
+}
+function setupHiDPICanvas(canvas,w,h){
+  const dpr=Math.min(2,window.devicePixelRatio||1);
+  canvas.width=Math.max(1,Math.round(w*dpr));
+  canvas.height=Math.max(1,Math.round(h*dpr));
+  canvas.style.width=w+"px";canvas.style.height=h+"px";
+  const ctx=canvas.getContext("2d");
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  return ctx;
+}
+function projectScenePoint(p,cam){
+  const yaw=cam.yaw, pitch=cam.pitch;
+  const along=p.x*Math.cos(yaw)-p.y*Math.sin(yaw);
+  const depth=p.x*Math.sin(yaw)+p.y*Math.cos(yaw);
+  return [cam.cx+along*cam.scale,cam.cy-depth*Math.cos(pitch)*cam.scale-p.z*cam.scale*.92];
+}
+function drawScenePath(ctx,points,cam,z){
+  const out=(points||[]).map(p=>projectScenePoint({x:p.x,y:p.y,z},cam));
+  if(!out.length)return out;
+  ctx.beginPath();ctx.moveTo(out[0][0],out[0][1]);
+  for(let i=1;i<out.length;i++)ctx.lineTo(out[i][0],out[i][1]);
+  ctx.closePath();
+  return out;
+}
+function drawExtrudedScenePolygon(ctx,points,height,cam,fill,stroke){
+  if(!points||points.length<3)return;
+  const ground=points.map(p=>projectScenePoint({x:p.x,y:p.y,z:0},cam));
+  const top=points.map(p=>projectScenePoint({x:p.x,y:p.y,z:height},cam));
+  for(let i=0;i<points.length;i++){
+    const j=(i+1)%points.length;
+    ctx.beginPath();ctx.moveTo(ground[i][0],ground[i][1]);ctx.lineTo(ground[j][0],ground[j][1]);
+    ctx.lineTo(top[j][0],top[j][1]);ctx.lineTo(top[i][0],top[i][1]);ctx.closePath();
+    ctx.fillStyle=fill;ctx.globalAlpha=.72;ctx.fill();ctx.globalAlpha=1;
+    ctx.strokeStyle=stroke;ctx.lineWidth=1;ctx.stroke();
+  }
+  ctx.beginPath();ctx.moveTo(top[0][0],top[0][1]);
+  for(let i=1;i<top.length;i++)ctx.lineTo(top[i][0],top[i][1]);
+  ctx.closePath();ctx.fillStyle=fill;ctx.globalAlpha=.94;ctx.fill();ctx.globalAlpha=1;
+  ctx.strokeStyle=stroke;ctx.lineWidth=1.8;ctx.stroke();
+}
+function drawSceneGrid(ctx,cam,bounds){
+  const span=Math.max(bounds.maxX-bounds.minX,bounds.maxY-bounds.minY,1);
+  const step=Math.pow(10,Math.floor(Math.log10(span/8)));
+  const nice=span/step>18?step*2:span/step<5?step/2:step;
+  ctx.save();ctx.strokeStyle="rgba(166,224,232,.12)";ctx.lineWidth=1;
+  for(let x=Math.floor(bounds.minX/nice)*nice;x<=bounds.maxX;x+=nice){
+    const a=projectScenePoint({x,y:bounds.minY,z:0},cam),b=projectScenePoint({x,y:bounds.maxY,z:0},cam);
+    ctx.beginPath();ctx.moveTo(a[0],a[1]);ctx.lineTo(b[0],b[1]);ctx.stroke();
+  }
+  for(let y=Math.floor(bounds.minY/nice)*nice;y<=bounds.maxY;y+=nice){
+    const a=projectScenePoint({x:bounds.minX,y,z:0},cam),b=projectScenePoint({x:bounds.maxX,y,z:0},cam);
+    ctx.beginPath();ctx.moveTo(a[0],a[1]);ctx.lineTo(b[0],b[1]);ctx.stroke();
+  }
+  ctx.restore();
+}
+function renderThreeD(){
+  const modal=$("threeDModal"),canvas=$("threeDCanvas");
+  if(!modal||!canvas||!modal.classList.contains("show"))return;
+  const r=canvas.getBoundingClientRect(),w=Math.max(280,r.width),h=Math.max(240,r.height);
+  const ctx=setupHiDPICanvas(canvas,w,h);
+  const anchor=threeDAnchor();
+  const sitePts=localScenePoints(state.points,anchor);
+  const obstaclePts=(state.obstacles||[]).map(o=>obstacleScenePoints(o,anchor));
+  const bounds=sceneBounds(sitePts,obstaclePts);
+  const span=Math.max(bounds.maxX-bounds.minX,bounds.maxY-bounds.minY,1);
+  const rotation=Number($("threeDRotation")?.value||35)*Math.PI/180;
+  const pitch=Number($("threeDPitch")?.value||52)*Math.PI/180;
+  const cam={cx:w/2,cy:h*.58,scale:Math.min((w-120)/span,(h-170)/(span*.92)),yaw:rotation,pitch};
+
+  const bg=ctx.createLinearGradient(0,0,0,h);bg.addColorStop(0,"#1d5360");bg.addColorStop(1,"#07141c");
+  ctx.fillStyle=bg;ctx.fillRect(0,0,w,h);
+  drawSceneGrid(ctx,cam,bounds);
+
+  if(sitePts.length>=3){
+    drawExtrudedScenePolygon(ctx,sitePts,.12,cam,"#19799a","#70ddf4");
+    const siteGround=drawScenePath(ctx,sitePts,cam,.13);
+    ctx.fillStyle="rgba(66,198,224,.18)";ctx.fill();
+    ctx.strokeStyle="#8fe8f6";ctx.lineWidth=2;ctx.stroke();
+  }else{
+    const c=projectScenePoint({x:0,y:0,z:0},cam);
+    ctx.beginPath();ctx.arc(c[0],c[1],8,0,Math.PI*2);ctx.fillStyle="#50d28a";ctx.fill();
+    ctx.strokeStyle="#fff";ctx.lineWidth=2;ctx.stroke();
+  }
+
+  (state.obstacles||[]).forEach((o,i)=>{
+    const pts=obstaclePts[i];if(!pts.length)return;
+    if(o.geometry==="polyline"){
+      const pp=pts.map(p=>projectScenePoint({x:p.x,y:p.y,z:0},cam));
+      ctx.beginPath();ctx.moveTo(pp[0][0],pp[0][1]);for(let j=1;j<pp.length;j++)ctx.lineTo(pp[j][0],pp[j][1]);
+      ctx.strokeStyle="#ff9a62";ctx.lineWidth=4;ctx.stroke();return;
+    }
+    const hasHeight=Number.isFinite(Number(o.height))&&Number(o.height)>0;
+    const height=hasHeight?Number(o.height):0;
+    if(hasHeight){
+      drawExtrudedScenePolygon(ctx,pts,height,cam,"#d66e45","#ffd0a8");
+    }else{
+      const pp=drawScenePath(ctx,pts,cam,.18);ctx.setLineDash([6,4]);
+      ctx.fillStyle="rgba(214,110,69,.20)";ctx.fill();ctx.strokeStyle="#ffbd91";ctx.lineWidth=2;ctx.stroke();ctx.setLineDash([]);
+    }
+    const center=pts.reduce((a,p)=>({x:a.x+p.x/pts.length,y:a.y+p.y/pts.length}),{x:0,y:0});
+    const cp=projectScenePoint({x:center.x,y:center.y,z:height+.25},cam);
+    ctx.fillStyle="#fff";ctx.font="700 11px Segoe UI,Arial";ctx.fillText("OBS "+(i+1)+(hasHeight?" • "+height+" m":" • height unavailable"),cp[0]+6,cp[1]);
+  });
+
+  ctx.fillStyle="rgba(255,255,255,.92)";ctx.font="800 13px Segoe UI,Arial";
+  ctx.fillText("N ↑",w-54,26);
+  ctx.fillStyle="rgba(207,235,241,.9)";ctx.font="600 10px Segoe UI,Arial";
+  ctx.fillText("Anchor: "+anchor.lat.toFixed(6)+", "+anchor.lng.toFixed(6),16,22);
+  ctx.fillText("Source: "+(state.coordinateSource||"map geometry"),16,38);
+
+  const unknown=(state.obstacles||[]).filter(o=>!Number.isFinite(Number(o.height))).length;
+  $("threeDDataStatus").textContent=sitePts.length>=3
+    ? (unknown?unknown+" obstacle height(s) unavailable — shown flat":"Site + obstacle heights available")
+    : "Draw and close the site for 3D geometry";
+}
+function openThreeDView(){
+  if(!state.closed&&!(state.selectedLocation||state.points.length)){
+    setStatus("Select a location or draw a site before opening 3D.");return;
+  }
+  $("threeDModal").classList.add("show");
+  renderThreeD();
+}
+function closeThreeDView(){$("threeDModal").classList.remove("show")}
+function resetThreeDView(){
+  $("threeDRotation").value=35;$("threeDPitch").value=52;renderThreeD();
+}
+function nicePlanStep(span){
+  const raw=Math.max(span/8,1),p=Math.pow(10,Math.floor(Math.log10(raw))),n=raw/p;
+  return (n>=5?5:n>=2?2:1)*p;
+}
+function planPoint(p,tf){return [tf.left+(p.x-tf.minX)*tf.scale,tf.top+(tf.maxY-p.y)*tf.scale]}
+function drawPlanPolygon(ctx,points,tf,fill,stroke,width=3){
+  if(!points||points.length<3)return;
+  const pp=points.map(p=>planPoint(p,tf));ctx.beginPath();ctx.moveTo(pp[0][0],pp[0][1]);
+  for(let i=1;i<pp.length;i++)ctx.lineTo(pp[i][0],pp[i][1]);ctx.closePath();
+  ctx.fillStyle=fill;ctx.fill();ctx.strokeStyle=stroke;ctx.lineWidth=width;ctx.stroke();
+}
+function drawPlanLabel(ctx,text,x,y,color="#183747"){
+  ctx.font="700 24px Segoe UI,Arial";ctx.fillStyle="rgba(255,255,255,.88)";ctx.fillRect(x-5,y-25,ctx.measureText(text).width+10,32);
+  ctx.fillStyle=color;ctx.fillText(text,x,y);
+}
+function export4KPlan(){
+  if(!state.closed||state.points.length<3){setStatus("Close the site boundary before exporting the 4K plan.");return;}
+  const W=3840,H=2160,canvas=document.createElement("canvas");canvas.width=W;canvas.height=H;
+  const ctx=canvas.getContext("2d");ctx.fillStyle="#f5f8fa";ctx.fillRect(0,0,W,H);
+  const anchor=state.points[0],sitePts=localScenePoints(state.points,anchor),obsPts=(state.obstacles||[]).map(o=>obstacleScenePoints(o,anchor));
+  const bounds=sceneBounds(sitePts,obsPts),spanX=bounds.maxX-bounds.minX,spanY=bounds.maxY-bounds.minY;
+  const left=260,top=300,right=280,bottom=250,scale=Math.min((W-left-right)/spanX,(H-top-bottom)/spanY);
+  const tf={minX:bounds.minX,maxY:bounds.maxY,left,top,scale};
+
+  ctx.fillStyle="#0b5277";ctx.fillRect(0,0,W,190);
+  ctx.fillStyle="#fff";ctx.font="800 52px Segoe UI,Arial";ctx.fillText("SOLAR EPC — 4K VECTOR SITE PLAN",70,82);
+  ctx.font="600 24px Segoe UI,Arial";ctx.fillText("Accurate drawn geometry • no satellite pixels invented",70,132);
+
+  const step=nicePlanStep(Math.max(spanX,spanY));ctx.strokeStyle="rgba(11,82,119,.12)";ctx.lineWidth=2;
+  for(let x=Math.floor(bounds.minX/step)*step;x<=bounds.maxX;x+=step){const a=planPoint({x,y:bounds.minY},tf),b=planPoint({x,y:bounds.maxY},tf);ctx.beginPath();ctx.moveTo(a[0],a[1]);ctx.lineTo(b[0],b[1]);ctx.stroke()}
+  for(let y=Math.floor(bounds.minY/step)*step;y<=bounds.maxY;y+=step){const a=planPoint({x:bounds.minX,y},tf),b=planPoint({x:bounds.maxX,y},tf);ctx.beginPath();ctx.moveTo(a[0],a[1]);ctx.lineTo(b[0],b[1]);ctx.stroke()}
+
+  drawPlanPolygon(ctx,sitePts,tf,"rgba(43,131,173,.18)","#075b8c",8);
+  sitePts.forEach((p,i)=>{const q=planPoint(p,tf);ctx.beginPath();ctx.arc(q[0],q[1],15,0,Math.PI*2);ctx.fillStyle=i===0?"#238a58":"#155e8d";ctx.fill();ctx.strokeStyle="#fff";ctx.lineWidth=4;ctx.stroke();ctx.fillStyle="#fff";ctx.font="800 16px Segoe UI,Arial";ctx.fillText(String(i+1),q[0]-5,q[1]+6)});
+
+  (state.obstacles||[]).forEach((o,i)=>{
+    const pts=obsPts[i];if(!pts.length)return;
+    if(o.geometry==="polyline"){
+      const pp=pts.map(p=>planPoint(p,tf));ctx.beginPath();ctx.moveTo(pp[0][0],pp[0][1]);for(let j=1;j<pp.length;j++)ctx.lineTo(pp[j][0],pp[j][1]);ctx.strokeStyle="#a04519";ctx.lineWidth=10;ctx.stroke();
+    }else{
+      drawPlanPolygon(ctx,pts,tf,"rgba(192,102,58,.32)","#a04519",6);
+      const c=pts.reduce((a,p)=>({x:a.x+p.x/pts.length,y:a.y+p.y/pts.length}),{x:0,y:0}),q=planPoint(c,tf);
+      drawPlanLabel(ctx,"OBS "+(i+1),q[0]+12,q[1],"#8f4818");
+    }
+  });
+
+  // Side dimensions on the boundary.
+  ctx.font="700 22px Segoe UI,Arial";ctx.fillStyle="#123f54";
+  for(let i=0;i<sitePts.length;i++){
+    const a=sitePts[i],b=sitePts[(i+1)%sitePts.length],q=planPoint({x:(a.x+b.x)/2,y:(a.y+b.y)/2},tf);
+    const geoA=state.points[i],geoB=state.points[(i+1)%state.points.length];
+    const d=GeometryEngine.distanceMeters(geoA,geoB);ctx.fillText(fmt(d)+" m",q[0]+8,q[1]-8);
+  }
+
+  // North arrow and summary block.
+  ctx.fillStyle="#183747";ctx.font="800 28px Segoe UI,Arial";ctx.fillText("N",W-170,270);
+  ctx.beginPath();ctx.moveTo(W-155,285);ctx.lineTo(W-135,350);ctx.lineTo(W-175,350);ctx.closePath();ctx.fillStyle="#0b5277";ctx.fill();
+  const area=GeometryEngine.polygonArea(state.points),peri=GeometryEngine.perimeterOfRing(state.points);
+  ctx.fillStyle="#fff";ctx.strokeStyle="#c9d8de";ctx.lineWidth=2;ctx.fillRect(250,1940,3340,150);ctx.strokeRect(250,1940,3340,150);
+  ctx.fillStyle="#183747";ctx.font="700 24px Segoe UI,Arial";
+  ctx.fillText("Location: "+(state.lastCleanLocation||"—"),290,1990);
+  ctx.fillText("Anchor: "+anchor.lat.toFixed(8)+", "+anchor.lng.toFixed(8),290,2030);
+  ctx.fillText("Area: "+fmt(area)+" m²    Perimeter: "+fmt(peri)+" m    Points: "+state.points.length,290,2070);
+  ctx.fillText("4K VECTOR PLAN • Satellite background is not embedded in this export",1880,2070);
+
+  const safe=(state.lastCleanLocation||"site").replace(/[^\w\-]+/g,"_").slice(0,40);
+  canvas.toBlob(blob=>{
+    if(!blob){setStatus("4K export could not be created.");return;}
+    const url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download="SolarEPC_4K_Vector_Plan_"+safe+"_"+Date.now()+".png";document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),5000);
+    setStatus("4K vector plan exported at 3840 × 2160.");
+  },"image/png");
+}
+$("threeDButton").addEventListener("click",openThreeDView);
+$("threeDClose").addEventListener("click",closeThreeDView);
+$("threeDReset").addEventListener("click",resetThreeDView);
+$("threeDRotation").addEventListener("input",renderThreeD);
+$("threeDPitch").addEventListener("input",renderThreeD);
+$("export4KButton").addEventListener("click",export4KPlan);
+$("threeDModal").addEventListener("click",e=>{if(e.target===$("threeDModal"))closeThreeDView()});
+window.addEventListener("resize",()=>{if($("threeDModal")?.classList.contains("show"))renderThreeD()});
+
+/* =====================================================================
+   SAVE + DOWNLOAD REPORT (HTML/print-ready)
+   ===================================================================== */
+let heightWizardItems=[],heightWizardIndex=0;
+function renderHeightWizardStep(){
+  const item=heightWizardItems[heightWizardIndex];
+  if(!item)return;
+  $("heightWizardStep").textContent="SAVE DETAILS • "+(heightWizardIndex+1)+" / "+heightWizardItems.length;
+  $("heightWizardTitle").textContent=item.kind==="site"?"Enter site height":"Enter height for Obstacle #"+item.index;
+  $("heightWizardInput").value=Number.isFinite(Number(item.value))?item.value:"";
+  $("heightWizardNext").textContent=heightWizardIndex===heightWizardItems.length-1?"SAVE":"NEXT";
+  setTimeout(()=>$("heightWizardInput").focus(),30);
+}
+function closeHeightWizard(){
+  $("heightWizard").classList.remove("show");
+  heightWizardItems=[];heightWizardIndex=0;
+}
+function openHeightWizard(){
+  if(!state.closed)return;
+  heightWizardItems=[{kind:"site",value:state.siteHeight}];
+  state.obstacles.forEach((o,i)=>heightWizardItems.push({kind:"obstacle",index:i+1,id:o.id,value:o.height}));
+  heightWizardIndex=0;
+  $("heightWizard").classList.add("show");
+  renderHeightWizardStep();
+}
+function acceptHeightWizardStep(){
+  const input=$("heightWizardInput"),value=Number(input.value);
+  if(!Number.isFinite(value)||value<0){input.focus();setStatus("Enter a valid height in metres before saving.");return;}
+  const item=heightWizardItems[heightWizardIndex];
+  if(item.kind==="site")state.siteHeight=value;
+  else{const o=state.obstacles.find(x=>x.id===item.id);if(o)o.height=value;}
+  heightWizardIndex++;
+  if(heightWizardIndex>=heightWizardItems.length){closeHeightWizard();commitSave();}
+  else renderHeightWizardStep();
+}
+$("heightWizardNext").addEventListener("click",acceptHeightWizardStep);
+$("heightWizardCancel").addEventListener("click",()=>{closeHeightWizard();setStatus("Save cancelled.");});
+$("heightWizardInput").addEventListener("keydown",e=>{
+  if(e.key==="Enter"){e.preventDefault();acceptHeightWizardStep();}
+  if(e.key==="Escape"){e.preventDefault();closeHeightWizard();setStatus("Save cancelled.");}
+});
+function commitSave(){
+  const p=buildPayload();
+  if(p.calculationError){setStatus("Calculation failed: "+p.calculationError);return;}
+  const msg={type:"SOLAR_EPC_SITE_BOUNDARY_SAVED",payload:p};
+  // WebView2 is the reliable Excel bridge. Browser iframe/opener messaging
+  // remains as a compatibility fallback for web-hosted integrations.
+  try{if(window.chrome&&window.chrome.webview)window.chrome.webview.postMessage(msg)}catch(e){}
+  try{if(window.parent&&window.parent!==window)window.parent.postMessage(msg,"*")}catch(e){}
+  try{if(window.opener&&!window.opener.closed)window.opener.postMessage(msg,"*")}catch(e){}
+  window.SOLAR_EPC_LAST_BOUNDARY=p;
+  state.boundarySaved=true;
+  updateSiteStats();
+  renderObstacleList();
+  setStatus("Boundary + "+p.obstacles.length+" obstacle(s) + heights saved.");
+}
+function buildPayload(){
+  GeometryEngine.clearError();
+  const obb=state.closed?GeometryEngine.minAreaOBB(state.points):{length:0,width:0,angleDeg:0};
+  const siteArea=state.closed?GeometryEngine.polygonArea(state.points):0;
+  const sitePerimeter=state.closed?GeometryEngine.perimeterOfRing(state.points):0;
+
+  let setbackArea=0,obstacleAreaUnion=0,clearanceArea=0,usableArea=0;
+  if(state.closed){
+    const site=GeometryEngine.toTurfPolygon(state.points);
+    let inner=state.siteSetback>0?GeometryEngine.bufferFeature(site,-state.siteSetback):site;
+    if(state.siteSetback>0&&inner)setbackArea=siteArea-GeometryEngine.featureArea(inner);
+    else if(state.siteSetback>0&&!inner)setbackArea=siteArea;
+
+    const bareArr=[],expArr=[];
+    (state.obstaclePresent?state.obstacles:[]).forEach(o=>{
+      const base=obstacleTurfFeature(o);
+      if(!base)return;
+      const bC=GeometryEngine.intersectFeatures(base,site); if(bC)bareArr.push(bC);
+      let exp;
+      if(o.geometry==="polyline"){try{exp=turf.buffer(turf.lineString(o.coords.map(p=>[p.lng,p.lat])),Math.max(o.clearance,0.001)/1000,{units:"kilometers"})}catch(e){GeometryEngine.setError("Obstacle clearance buffer failed.");exp=null}}
+      else exp=o.clearance>0?GeometryEngine.bufferFeature(base,o.clearance):base;
+      const eC=GeometryEngine.intersectFeatures(exp,site); if(eC)expArr.push(eC);
+    });
+    const uBare=GeometryEngine.unionFeatures(bareArr);
+    const uExp=GeometryEngine.unionFeatures(expArr);
+    obstacleAreaUnion=GeometryEngine.featureArea(uBare);
+    clearanceArea=Math.max(0,GeometryEngine.featureArea(uExp)-obstacleAreaUnion);
+    let uFinal=inner||site;
+    if(uFinal&&uExp)uFinal=GeometryEngine.differenceFeatures(uFinal,uExp);
+    usableArea=uFinal?GeometryEngine.featureArea(uFinal):0;
+  }
+
+  return {
+    type:"solar_epc_site_boundary",projectId,
+    calculationError:GeometryEngine.lastError()||null,
+    location:state.lastCleanLocation,
+    selectedLocation:state.selectedLocation?{
+      latitude:+Number(state.selectedLocation.lat).toFixed(8),
+      longitude:+Number(state.selectedLocation.lng).toFixed(8),
+      placeId:state.selectedPlaceId||null,
+      coordinateSource:state.coordinateSource||null
+    }:null,
+    placeId:state.selectedPlaceId||null,
+    coordinateSource:state.coordinateSource||null,
+    googleMapsUrl:googleMapsUrlForLocation(state.lastCleanLocation),
+    internalMapUrl:internalMapUrlForLocation(state.lastCleanLocation,state.selectedLocation?.lat,state.selectedLocation?.lng),
+    siteCoordinates:state.points.map((p,i)=>({point:i+1,latitude:+p.lat.toFixed(8),longitude:+p.lng.toFixed(8)})),
+    siteLength:+obb.length.toFixed(2),siteWidth:+obb.width.toFixed(2),
+    siteArea:+siteArea.toFixed(2),sitePerimeter:+sitePerimeter.toFixed(2),
+    siteObbAngle:+obb.angleDeg.toFixed(2),
+    length_m:+obb.length.toFixed(2),width_m:+obb.width.toFixed(2),
+    area_m2:+siteArea.toFixed(2),perimeter_m:+sitePerimeter.toFixed(2),
+    point_count:state.points.length,
+    obstaclePresent:!!state.obstaclePresent,
+    obstacles:(state.obstaclePresent?state.obstacles:[]).map((o,i)=>({
+      obstacleId:o.id,index:i+1,obstacleType:o.type,geometry:o.geometry,
+      coordinates:(o.feature?GeometryEngine.allOuterPoints(o.feature):o.coords).map(p=>({latitude:+p.lat.toFixed(8),longitude:+p.lng.toFixed(8)})), 
+      area:+o.area.toFixed(2),perimeter:+o.perimeter.toFixed(2),
+      length:+o.length.toFixed(2),width:+o.width.toFixed(2),
+      clearance:+o.clearance.toFixed(2),
+      clearanceArea:+(o.clearanceArea||computeClearanceAreaFor(o)).toFixed(2),
+      remarks:o.remarks||"",radius:o.radius?+o.radius.toFixed(3):null,
+      height:Number.isFinite(Number(o.height))?+Number(o.height).toFixed(2):null
+    })), 
+    totalObstacleArea:+obstacleAreaUnion.toFixed(2),
+    setbackArea:+setbackArea.toFixed(2),
+    clearanceArea:+clearanceArea.toFixed(2),
+    usableArea:+usableArea.toFixed(2),
+    siteSetback:+state.siteSetback.toFixed(2),
+    siteHeight:Number.isFinite(Number(state.siteHeight))?+Number(state.siteHeight).toFixed(2):null,
+    timestamp:new Date().toISOString()
+  };
+}
+
+$("saveButton").addEventListener("click",openHeightWizard);
+
+$("downloadButton").addEventListener("click",()=>{
+  if(!state.closed)return;
+  if(!state.boundarySaved){
+    const msg="Please click SAVE first. Enter the site/obstacle heights, then DOWNLOAD REPORT will be enabled.";
+    setStatus(msg);
+    alert(msg);
+    return;
+  }
+  const p=buildPayload();
+  if(p.calculationError){setStatus("Calculation failed: "+p.calculationError);return;}
+  const html=buildReportHTML(p);
+  const blob=new Blob([html],{type:"text/html;charset=utf-8"});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement("a");
+  const safe=(p.location||"site").replace(/[^\w\-]+/g,"_").slice(0,40);
+  a.href=url; a.download="SolarEPC_Report_"+safe+"_"+Date.now()+".html";
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(()=>URL.revokeObjectURL(url),3000);
+  setStatus("Report downloaded. Open the file and use Print → Save as PDF if needed.");
+});
+
+function buildReportHTML(p){
+  const date=new Date(p.timestamp).toLocaleString();
+  const obsRows=p.obstacles.map(o=>`
+    <tr>
+      <td>${o.index}</td><td>${escapeHtml(typeLabel(o.obstacleType))}</td>
+      <td>${o.height==null?"—":o.height}</td><td>${o.length}</td><td>${o.width}</td><td>${o.area}</td>
+      <td>${o.perimeter}</td><td>${o.clearance}</td><td>${o.clearanceArea}</td>
+      <td>${escapeHtml(o.remarks)}</td>
+    </tr>`).join("");
+  const coordRows=p.siteCoordinates.map(c=>`
+    <tr><td>${c.point}</td><td>${c.latitude}</td><td>${c.longitude}</td></tr>`).join("");
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Solar EPC Site Report</title>
+<style>
+body{font-family:"Segoe UI",Arial,sans-serif;margin:30px;color:#183747;background:#fff}
+h1{color:#0b5277;border-bottom:3px solid #0b5277;padding-bottom:8px;margin:0 0 6px}
+h2{color:#0b5277;margin:22px 0 8px;font-size:15px}
+.meta{color:#5c7079;font-size:11px;margin-bottom:14px}
+table{width:100%;border-collapse:collapse;font-size:11px;margin-bottom:12px}
+th,td{border:1px solid #d0dbe0;padding:6px 8px;text-align:left}
+th{background:#0b5277;color:#fff;font-weight:800}
+tr:nth-child(even) td{background:#f7fafc}
+.summary{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:10px 0}
+.card{border:1px solid #d0dbe0;border-left:4px solid #0b5277;padding:8px 12px;border-radius:5px;background:#f8fbfc}
+.card .l{font-size:9px;color:#71848d;font-weight:800;text-transform:uppercase;letter-spacing:.4px}
+.card .v{font-size:16px;font-weight:850;color:#123f54;margin-top:2px}
+.card.ok{border-left-color:#1e6b37}.card.ok .v{color:#1e6b37}
+.card.warn{border-left-color:#a55b0f}.card.warn .v{color:#a55b0f}
+.footer{margin-top:24px;padding-top:10px;border-top:1px solid #d0dbe0;font-size:10px;color:#71848d;text-align:center}
+@media print{body{margin:15mm}}
+</style></head><body>
+<h1>Solar EPC — Site Boundary & Obstacle Report</h1>
+<div class="meta">
+  <b>Project:</b> ${escapeHtml(p.projectId||"—")}<br>
+  <b>Location:</b> ${escapeHtml(p.location)}<br>
+  <b>Google Maps:</b> <a href="${p.googleMapsUrl}">${p.googleMapsUrl}</a><br>
+  <b>Generated:</b> ${date}
+</div>
+
+<h2>Site Dimensions</h2>
+<div class="summary">
+  <div class="card"><div class="l">Length (OBB)</div><div class="v">${p.siteLength} m</div></div>
+  <div class="card"><div class="l">Width (OBB)</div><div class="v">${p.siteWidth} m</div></div>
+  <div class="card"><div class="l">OBB Angle</div><div class="v">${p.siteObbAngle}°</div></div>
+  <div class="card ok"><div class="l">Site Area</div><div class="v">${p.siteArea} m²</div></div>
+  <div class="card"><div class="l">Perimeter</div><div class="v">${p.sitePerimeter} m</div></div>
+  <div class="card"><div class="l">Points</div><div class="v">${p.point_count}</div></div>
+  <div class="card"><div class="l">Site Height</div><div class="v">${p.siteHeight==null?"—":p.siteHeight+" m"}</div></div>
+</div>
+
+<h2>Site Coordinates</h2>
+<table><thead><tr><th>Point #</th><th>Latitude</th><th>Longitude</th></tr></thead>
+<tbody>${coordRows}</tbody></table>
+
+${p.obstaclePresent && p.obstacles.length ? `
+<h2>Obstacles (${p.obstacles.length})</h2>
+<table><thead><tr><th>#</th><th>Type</th><th>Height (m)</th><th>Length (m)</th><th>Width (m)</th>
+<th>Area (m²)</th><th>Perimeter (m)</th><th>Clearance (m)</th><th>Exclusion (m²)</th><th>Remarks</th></tr></thead>
+<tbody>${obsRows}</tbody></table>
+` : "<h2>Obstacles</h2><p style='font-size:11px;color:#71848d'>No obstacles.</p>"}
+
+<h2>Usable Area Calculation</h2>
+<div class="summary">
+  <div class="card"><div class="l">Site Area</div><div class="v">${p.siteArea} m²</div></div>
+  <div class="card warn"><div class="l">Setback (${p.siteSetback} m)</div><div class="v">−${p.setbackArea} m²</div></div>
+  <div class="card warn"><div class="l">Obstacle Area</div><div class="v">−${p.totalObstacleArea} m²</div></div>
+  <div class="card warn"><div class="l">Clearance</div><div class="v">−${p.clearanceArea} m²</div></div>
+  <div class="card ok"><div class="l">USABLE SOLAR AREA</div><div class="v">${p.usableArea} m²</div></div>
+  <div class="card ok"><div class="l">Utilization</div><div class="v">${p.siteArea>0?((p.usableArea/p.siteArea)*100).toFixed(1):0}%</div></div>
+</div>
+
+<div class="footer">Solar EPC — Site Geometry Report • Auto-generated ${date}</div>
+</body></html>`;
+}
+
+$("cancelButton").addEventListener("click",()=>{
+  try{
+    if(window.opener&&!window.opener.closed){
+      window.opener.postMessage({type:"SOLAR_EPC_SITE_MAP_CANCEL"},"*");
+      window.close(); return;
+    }
+  }catch(e){}
+  if(history.length>1)history.back();
+  else setStatus("You can close this window.");
+});
+
+setStatus("HD map ready. Search a location or click SELECT.");
+</script></body>
+</html>
