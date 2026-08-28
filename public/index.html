@@ -3440,9 +3440,60 @@ $("heightWizardInput").addEventListener("keydown",e=>{
   if(e.key==="Enter"){e.preventDefault();acceptHeightWizardStep();}
   if(e.key==="Escape"){e.preventDefault();closeHeightWizard();setStatus("Save cancelled.");}
 });
+function solarEPCBridgeField(value){
+  return String(value==null?"":value).replace(/[\t\r\n]/g," ");
+}
+
+function solarEPCDownloadSaveBridge(p){
+  // Local Excel bridge: no Firebase Storage / database required.
+  // The TSV is intentionally simple so VBA can consume it without a JSON library.
+  const lines=[];
+  lines.push("SOLAR_EPC_MAP_SAVE_V1");
+  lines.push([
+    "SITE",solarEPCBridgeField(p.projectId),solarEPCBridgeField(p.location),
+    p.selectedLocation?p.selectedLocation.latitude:"",
+    p.selectedLocation?p.selectedLocation.longitude:"",
+    solarEPCBridgeField(p.placeId),solarEPCBridgeField(p.coordinateSource),
+    solarEPCBridgeField(p.googleMapsUrl),solarEPCBridgeField(p.internalMapUrl),
+    p.siteLength,p.siteWidth,p.siteHeight==null?"":p.siteHeight,
+    p.siteArea,p.sitePerimeter,p.point_count,p.usableArea,p.setbackArea,
+    p.clearanceArea,p.siteSetback,p.siteObbAngle
+  ].join("\t"));
+
+  (p.obstacles||[]).forEach((o,i)=>{
+    const coords=(o.coordinates||[]).map(c=>Number(c.latitude).toFixed(8)+","+Number(c.longitude).toFixed(8)).join(";");
+    lines.push([
+      "OBSTACLE",solarEPCBridgeField(p.projectId),o.index||i+1,
+      solarEPCBridgeField(o.obstacleId),solarEPCBridgeField(o.obstacleType),
+      solarEPCBridgeField(o.geometry),o.length,o.width,
+      o.height==null?"":o.height,o.clearance,o.area,o.perimeter,
+      (o.coordinates||[]).length,o.clearanceArea,
+      solarEPCBridgeField(o.remarks),solarEPCBridgeField(coords)
+    ].join("\t"));
+  });
+
+  const blob=new Blob([lines.join("\r\n")],{type:"text/tab-separated-values;charset=utf-8"});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement("a");
+  a.href=url;
+  a.download="SolarEPC_MapSave.tsv";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(()=>URL.revokeObjectURL(url),5000);
+}
+
 function commitSave(){
   const p=buildPayload();
   if(p.calculationError){setStatus("Calculation failed: "+p.calculationError);return;}
+
+  // EXISTING SAVE ACTION: create the local Excel handoff file.
+  // Nothing in C7/C8, Firebase URL generation, or map calculations is changed.
+  try{solarEPCDownloadSaveBridge(p)}catch(e){
+    console.error("Solar EPC Excel save bridge failed",e);
+    setStatus("Map saved, but Excel handoff file could not be created.");
+  }
+
   const msg={type:"SOLAR_EPC_SITE_BOUNDARY_SAVED",payload:p};
   // WebView2 is the reliable Excel bridge. Browser iframe/opener messaging
   // remains as a compatibility fallback for web-hosted integrations.
@@ -3453,7 +3504,7 @@ function commitSave(){
   state.boundarySaved=true;
   updateSiteStats();
   renderObstacleList();
-  setStatus("Boundary + "+p.obstacles.length+" obstacle(s) + heights saved.");
+  setStatus("Boundary + "+p.obstacles.length+" obstacle(s) + heights saved. Excel data handoff created.");
 }
 function buildPayload(){
   GeometryEngine.clearError();
