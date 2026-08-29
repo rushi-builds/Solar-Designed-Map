@@ -3440,67 +3440,6 @@ $("heightWizardInput").addEventListener("keydown",e=>{
   if(e.key==="Enter"){e.preventDefault();acceptHeightWizardStep();}
   if(e.key==="Escape"){e.preventDefault();closeHeightWizard();setStatus("Save cancelled.");}
 });
-function buildExcelBridgeText(p){
-  // Compact, VBA-friendly plain-text mirror of the payload. This is the
-  // format DrawingData_ImportFromMapPayload (modDrawingDataEngine.bas)
-  // expects on the clipboard. Kept deliberately simple (pipe-delimited
-  // lines) instead of JSON so VBA does not need a JSON parser library.
-  const esc=s=>String(s==null?"":s).replace(/[\r\n|]+/g," ").trim();
-  const num=(v,d)=>Number.isFinite(Number(v))?Number(v).toFixed(d==null?2:d):"0.00";
-  const lines=["SOLAR_EPC_MAP_SAVE_V1"];
-  lines.push("TS|"+esc(p.timestamp));
-  lines.push("PROJECT|"+esc(p.projectId));
-  lines.push(["SITE",
-    num(p.siteLength),num(p.siteWidth),num(p.siteHeight||0),
-    num(p.siteArea),num(p.sitePerimeter),String(p.point_count||0),
-    esc(p.coordinateSource||p.placeId||""),
-    esc(p.location)
-  ].join("|"));
-  (p.obstacles||[]).forEach(o=>{
-    lines.push(["OBSTACLE",
-      String(o.index),esc(o.obstacleType),
-      num(o.length),num(o.width),num(o.height||0),num(o.clearance),
-      num(o.area),num(o.perimeter),String((o.coordinates||[]).length),
-      esc(o.obstacleId),esc(o.remarks)
-    ].join("|"));
-  });
-  lines.push("END");
-  return lines.join("\n");
-}
-function copyExcelBridgeText(text){
-  const value=String(text==null?"":text);
-  if(!value)return false;
-
-  // First try the synchronous legacy copy path. This works in ordinary
-  // Chrome windows opened from a local HTML file where navigator.clipboard
-  // may be unavailable because the page is not a secure origin.
-  try{
-    const ta=document.createElement("textarea");
-    ta.value=value;
-    ta.setAttribute("readonly","");
-    ta.style.position="fixed";
-    ta.style.left="-9999px";
-    ta.style.top="0";
-    ta.style.opacity="0";
-    document.body.appendChild(ta);
-    ta.focus();
-    ta.select();
-    ta.setSelectionRange(0,ta.value.length);
-    const copied=document.execCommand("copy");
-    document.body.removeChild(ta);
-    if(copied)return true;
-  }catch(e){}
-
-  // Modern clipboard API as a second path. The catch is intentionally
-  // attached to the Promise because writeText() failures are asynchronous.
-  try{
-    if(navigator.clipboard&&navigator.clipboard.writeText){
-      navigator.clipboard.writeText(value).catch(()=>{});
-    }
-  }catch(e){}
-
-  return false;
-}
 function commitSave(){
   const p=buildPayload();
   if(p.calculationError){setStatus("Calculation failed: "+p.calculationError);return;}
@@ -3511,19 +3450,10 @@ function commitSave(){
   try{if(window.parent&&window.parent!==window)window.parent.postMessage(msg,"*")}catch(e){}
   try{if(window.opener&&!window.opener.closed)window.opener.postMessage(msg,"*")}catch(e){}
   window.SOLAR_EPC_LAST_BOUNDARY=p;
-  // Clipboard bridge: the map currently opens in a plain Chrome window
-  // (no opener/parent/WebView2 relationship back to Excel), so this is
-  // what actually gets the saved data back to the workbook. Excel picks
-  // this up automatically from Workbook_Activate the moment the user
-  // switches back from the browser.
-  try{
-    const bridgeText=buildExcelBridgeText(p);
-    copyExcelBridgeText(bridgeText);
-  }catch(e){}
   state.boundarySaved=true;
   updateSiteStats();
   renderObstacleList();
-  setStatus("Boundary + "+p.obstacles.length+" obstacle(s) + heights saved. Switch back to Excel — DRAWING_DATA updates automatically.");
+  setStatus("Boundary + "+p.obstacles.length+" obstacle(s) + heights saved.");
 }
 function buildPayload(){
   GeometryEngine.clearError();
