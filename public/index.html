@@ -3440,60 +3440,70 @@ $("heightWizardInput").addEventListener("keydown",e=>{
   if(e.key==="Enter"){e.preventDefault();acceptHeightWizardStep();}
   if(e.key==="Escape"){e.preventDefault();closeHeightWizard();setStatus("Save cancelled.");}
 });
-function solarEPCBridgeField(value){
-  return String(value==null?"":value).replace(/[\t\r\n]/g," ");
-}
-
-function solarEPCDownloadSaveBridge(p){
-  // Local Excel bridge: no Firebase Storage / database required.
-  // The TSV is intentionally simple so VBA can consume it without a JSON library.
-  const lines=[];
-  lines.push("SOLAR_EPC_MAP_SAVE_V1");
-  lines.push([
-    "SITE",solarEPCBridgeField(p.projectId),solarEPCBridgeField(p.location),
-    p.selectedLocation?p.selectedLocation.latitude:"",
-    p.selectedLocation?p.selectedLocation.longitude:"",
-    solarEPCBridgeField(p.placeId),solarEPCBridgeField(p.coordinateSource),
-    solarEPCBridgeField(p.googleMapsUrl),solarEPCBridgeField(p.internalMapUrl),
-    p.siteLength,p.siteWidth,p.siteHeight==null?"":p.siteHeight,
-    p.siteArea,p.sitePerimeter,p.point_count,p.usableArea,p.setbackArea,
-    p.clearanceArea,p.siteSetback,p.siteObbAngle
-  ].join("\t"));
-
-  (p.obstacles||[]).forEach((o,i)=>{
-    const coords=(o.coordinates||[]).map(c=>Number(c.latitude).toFixed(8)+","+Number(c.longitude).toFixed(8)).join(";");
-    lines.push([
-      "OBSTACLE",solarEPCBridgeField(p.projectId),o.index||i+1,
-      solarEPCBridgeField(o.obstacleId),solarEPCBridgeField(o.obstacleType),
-      solarEPCBridgeField(o.geometry),o.length,o.width,
-      o.height==null?"":o.height,o.clearance,o.area,o.perimeter,
-      (o.coordinates||[]).length,o.clearanceArea,
-      solarEPCBridgeField(o.remarks),solarEPCBridgeField(coords)
-    ].join("\t"));
+function buildExcelBridgeText(p){
+  // Compact, VBA-friendly plain-text mirror of the payload. This is the
+  // format DrawingData_ImportFromMapPayload (modDrawingDataEngine.bas)
+  // expects on the clipboard. Kept deliberately simple (pipe-delimited
+  // lines) instead of JSON so VBA does not need a JSON parser library.
+  const esc=s=>String(s==null?"":s).replace(/[\r\n|]+/g," ").trim();
+  const num=(v,d)=>Number.isFinite(Number(v))?Number(v).toFixed(d==null?2:d):"0.00";
+  const lines=["SOLAR_EPC_MAP_SAVE_V1"];
+  lines.push("TS|"+esc(p.timestamp));
+  lines.push("PROJECT|"+esc(p.projectId));
+  lines.push(["SITE",
+    num(p.siteLength),num(p.siteWidth),num(p.siteHeight||0),
+    num(p.siteArea),num(p.sitePerimeter),String(p.point_count||0),
+    esc(p.coordinateSource||p.placeId||""),
+    esc(p.location)
+  ].join("|"));
+  (p.obstacles||[]).forEach(o=>{
+    lines.push(["OBSTACLE",
+      String(o.index),esc(o.obstacleType),
+      num(o.length),num(o.width),num(o.height||0),num(o.clearance),
+      num(o.area),num(o.perimeter),String((o.coordinates||[]).length),
+      esc(o.obstacleId),esc(o.remarks)
+    ].join("|"));
   });
-
-  const blob=new Blob([lines.join("\r\n")],{type:"text/tab-separated-values;charset=utf-8"});
-  const url=URL.createObjectURL(blob);
-  const a=document.createElement("a");
-  a.href=url;
-  a.download="SolarEPC_MapSave.tsv";
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  setTimeout(()=>URL.revokeObjectURL(url),5000);
+  lines.push("END");
+  return lines.join("\n");
 }
+function copyExcelBridgeText(text){
+  const value=String(text==null?"":text);
+  if(!value)return false;
 
+  // First try the synchronous legacy copy path. This works in ordinary
+  // Chrome windows opened from a local HTML file where navigator.clipboard
+  // may be unavailable because the page is not a secure origin.
+  try{
+    const ta=document.createElement("textarea");
+    ta.value=value;
+    ta.setAttribute("readonly","");
+    ta.style.position="fixed";
+    ta.style.left="-9999px";
+    ta.style.top="0";
+    ta.style.opacity="0";
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    ta.setSelectionRange(0,ta.value.length);
+    const copied=document.execCommand("copy");
+    document.body.removeChild(ta);
+    if(copied)return true;
+  }catch(e){}
+
+  // Modern clipboard API as a second path. The catch is intentionally
+  // attached to the Promise because writeText() failures are asynchronous.
+  try{
+    if(navigator.clipboard&&navigator.clipboard.writeText){
+      navigator.clipboard.writeText(value).catch(()=>{});
+    }
+  }catch(e){}
+
+  return false;
+}
 function commitSave(){
   const p=buildPayload();
   if(p.calculationError){setStatus("Calculation failed: "+p.calculationError);return;}
-
-  // EXISTING SAVE ACTION: create the local Excel handoff file.
-  // Nothing in C7/C8, Firebase URL generation, or map calculations is changed.
-  try{solarEPCDownloadSaveBridge(p)}catch(e){
-    console.error("Solar EPC Excel save bridge failed",e);
-    setStatus("Map saved, but Excel handoff file could not be created.");
-  }
-
   const msg={type:"SOLAR_EPC_SITE_BOUNDARY_SAVED",payload:p};
   // WebView2 is the reliable Excel bridge. Browser iframe/opener messaging
   // remains as a compatibility fallback for web-hosted integrations.
@@ -3501,10 +3511,19 @@ function commitSave(){
   try{if(window.parent&&window.parent!==window)window.parent.postMessage(msg,"*")}catch(e){}
   try{if(window.opener&&!window.opener.closed)window.opener.postMessage(msg,"*")}catch(e){}
   window.SOLAR_EPC_LAST_BOUNDARY=p;
+  // Clipboard bridge: the map currently opens in a plain Chrome window
+  // (no opener/parent/WebView2 relationship back to Excel), so this is
+  // what actually gets the saved data back to the workbook. Excel picks
+  // this up automatically from Workbook_Activate the moment the user
+  // switches back from the browser.
+  try{
+    const bridgeText=buildExcelBridgeText(p);
+    copyExcelBridgeText(bridgeText);
+  }catch(e){}
   state.boundarySaved=true;
   updateSiteStats();
   renderObstacleList();
-  setStatus("Boundary + "+p.obstacles.length+" obstacle(s) + heights saved. Excel data handoff created.");
+  setStatus("Boundary + "+p.obstacles.length+" obstacle(s) + heights saved. Switch back to Excel — DRAWING_DATA updates automatically.");
 }
 function buildPayload(){
   GeometryEngine.clearError();
