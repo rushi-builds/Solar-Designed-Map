@@ -770,6 +770,84 @@ const hasInitialExactCoords =
   Math.abs(initialLatFromExcel) <= 90 && Math.abs(initialLngFromExcel) <= 180;
 const projectId = params.get("projectId") || "";
 
+/* =====================================================================
+   EXCEL LOCAL BRIDGE
+   VBA should open the map with a URL fragment like:
+   #bridgePort=8765&bridgeToken=<one-time-token>
+   Fragments are readable by this page but are not sent to Firebase.
+   ===================================================================== */
+const bridgeParams=new URLSearchParams(window.location.hash.replace(/^#/,""));
+const rawBridgePort=Number(bridgeParams.get("bridgePort")||0);
+const bridgePort=Number.isInteger(rawBridgePort)&&rawBridgePort>=1024&&rawBridgePort<=65535
+  ?rawBridgePort:0;
+const bridgeToken=String(bridgeParams.get("bridgeToken")||"").trim();
+const bridgeConfigured=bridgePort>0&&bridgeToken.length>=8;
+
+function bridgeURL(path){return "http://127.0.0.1:"+bridgePort+path;}
+function createMessageId(){
+  try{if(crypto&&typeof crypto.randomUUID==="function")return crypto.randomUUID();}catch(e){}
+  return Date.now().toString(36)+"-"+Math.random().toString(36).slice(2)+"-"+Math.random().toString(36).slice(2);
+}
+async function checkExcelBridge(){
+  if(!bridgeConfigured)return false;
+  try{
+    const r=await fetch(bridgeURL("/health"),{method:"GET",cache:"no-store"});
+    if(!r.ok)return false;
+    const d=await r.json();
+    return d?.ok===true&&d?.service==="SolarEPCBridge";
+  }catch(e){return false;}
+}
+async function sendToExcelBridge(message){
+  if(!bridgeConfigured)throw new Error("Excel Bridge session is not configured.");
+  const r=await fetch(bridgeURL("/save"),{
+    method:"POST",
+    cache:"no-store",
+    headers:{
+      "Content-Type":"application/json",
+      "X-Solar-EPC-Token":bridgeToken
+    },
+    body:JSON.stringify(message)
+  });
+  let d=null;
+  try{d=await r.json();}catch(e){}
+  if(!r.ok||d?.ok!==true||d?.received!==true){
+    throw new Error(d?.error||("Excel Bridge returned HTTP "+r.status));
+  }
+  return d;
+}
+async function waitForExcelAcknowledgement(messageId,timeoutMs=30000){
+  const started=Date.now();
+  while(Date.now()-started<timeoutMs){
+    await new Promise(resolve=>setTimeout(resolve,500));
+    try{
+      const r=await fetch(bridgeURL("/latest"),{
+        method:"GET",cache:"no-store",
+        headers:{"X-Solar-EPC-Token":bridgeToken}
+      });
+      if(!r.ok)continue;
+      const d=await r.json();
+      if(d?.ok===true&&d?.hasData===false)return true;
+      if(d?.hasData===true&&d?.messageId&&d.messageId!==messageId){
+        throw new Error("A newer map SAVE replaced this pending message.");
+      }
+    }catch(e){
+      if(/newer map SAVE/.test(String(e?.message||e)))throw e;
+    }
+  }
+  return false;
+}
+async function copyBridgeFallback(text){
+  try{
+    if(navigator.clipboard?.writeText){await navigator.clipboard.writeText(text);return true;}
+  }catch(e){}
+  try{
+    const box=document.createElement("textarea");
+    box.value=text;box.readOnly=true;box.style.position="fixed";box.style.left="-9999px";
+    document.body.appendChild(box);box.focus();box.select();
+    const ok=document.execCommand("copy");box.remove();return !!ok;
+  }catch(e){return false;}
+}
+
 function $(id){return document.getElementById(id)}
 function setStatus(t){$("status").textContent=t||""}
 function fmt(v,d){d=d==null?2:d;return Number.isFinite(v)?v.toFixed(d):"—"}
@@ -3440,20 +3518,73 @@ $("heightWizardInput").addEventListener("keydown",e=>{
   if(e.key==="Enter"){e.preventDefault();acceptHeightWizardStep();}
   if(e.key==="Escape"){e.preventDefault();closeHeightWizard();setStatus("Save cancelled.");}
 });
-function commitSave(){
+function buildExcelBridgeText(p){
+  const esc=v=>String(v==null?"":v).replace(/[\r\n|]+/g," ").trim();
+  const num=(v,d=2)=>Number.isFinite(Number(v))?Number(v).toFixed(d):"0.00";
+  const lines=["SOLAR_EPC_MAP_SAVE_V1"];
+  lines.push("TS|"+esc(p.timestamp));
+  lines.push("PROJECT|"+esc(p.projectId));
+  lines.push(["SITE",
+    num(p.siteLength),num(p.siteWidth),num(p.siteHeight||0),
+    num(p.siteArea),num(p.sitePerimeter),String(p.point_count||0),
+    esc(p.coordinateSource||p.placeId||""),esc(p.location)
+  ].join("|"));
+  (p.obstacles||[]).forEach(o=>{
+    lines.push(["OBSTACLE",String(o.index),esc(o.obstacleType),
+      num(o.length),num(o.width),num(o.height||0),num(o.clearance),
+      num(o.area),num(o.perimeter),String((o.coordinates||[]).length),
+      esc(o.obstacleId),esc(o.remarks)
+    ].join("|"));
+  });
+  lines.push("END");
+  return lines.join("\n");
+}
+async function commitSave(){
   const p=buildPayload();
   if(p.calculationError){setStatus("Calculation failed: "+p.calculationError);return;}
-  const msg={type:"SOLAR_EPC_SITE_BOUNDARY_SAVED",payload:p};
-  // WebView2 is the reliable Excel bridge. Browser iframe/opener messaging
-  // remains as a compatibility fallback for web-hosted integrations.
+
+  const excelText=buildExcelBridgeText(p);
+  const messageId=createMessageId();
+  const msg={
+    type:"SOLAR_EPC_SITE_BOUNDARY_SAVED",
+    messageId,
+    projectId:p.projectId||"",
+    excelText,
+    payload:p
+  };
+
+  // Keep the existing embedded/WebView messaging path available.
   try{if(window.chrome&&window.chrome.webview)window.chrome.webview.postMessage(msg)}catch(e){}
   try{if(window.parent&&window.parent!==window)window.parent.postMessage(msg,"*")}catch(e){}
   try{if(window.opener&&!window.opener.closed)window.opener.postMessage(msg,"*")}catch(e){}
   window.SOLAR_EPC_LAST_BOUNDARY=p;
-  state.boundarySaved=true;
-  updateSiteStats();
-  renderObstacleList();
-  setStatus("Boundary + "+p.obstacles.length+" obstacle(s) + heights saved.");
+
+  try{
+    setStatus("Sending site and obstacle data to Excel Bridge…");
+    const bridgeReply=await sendToExcelBridge(msg);
+    setStatus("Data received by Excel Bridge. Waiting for DRAWING_DATA import…");
+
+    const acknowledged=await waitForExcelAcknowledgement(bridgeReply.messageId||messageId);
+    state.boundarySaved=true;
+    updateSiteStats();renderObstacleList();
+    if(acknowledged){
+      setStatus("Saved successfully to Excel DRAWING_DATA.");
+    }else{
+      setStatus("Bridge received the data, but Excel acknowledgement is still pending.");
+    }
+  }catch(error){
+    console.error("Excel Bridge SAVE failed:",error);
+    const copied=await copyBridgeFallback(excelText);
+    state.boundarySaved=copied;
+    updateSiteStats();renderObstacleList();
+    if(copied){
+      setStatus("Excel Bridge unavailable. Data copied—return to Excel to import.");
+    }else{
+      state.boundarySaved=false;
+      setStatus("Could not reach Excel Bridge. Keep Excel open and allow Local Network access.");
+      alert("Could not reach Excel Bridge. Keep the workbook open and allow Local Network access for this site.");
+    }
+  }
 }
 function buildPayload(){
   GeometryEngine.clearError();
@@ -3638,5 +3769,12 @@ $("cancelButton").addEventListener("click",()=>{
 });
 
 setStatus("HD map ready. Search a location or click SELECT.");
+setTimeout(async()=>{
+  if(!bridgeConfigured)return;
+  const connected=await checkExcelBridge();
+  setStatus(connected
+    ?"HD map ready • Excel Bridge connected."
+    :"HD map ready • Excel Bridge unavailable; SAVE will use fallback.");
+},500);
 </script></body>
 </html>
