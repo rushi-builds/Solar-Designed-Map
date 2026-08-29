@@ -3518,74 +3518,191 @@ $("heightWizardInput").addEventListener("keydown",e=>{
   if(e.key==="Enter"){e.preventDefault();acceptHeightWizardStep();}
   if(e.key==="Escape"){e.preventDefault();closeHeightWizard();setStatus("Save cancelled.");}
 });
-function buildExcelBridgeText(p){
-  const esc=v=>String(v==null?"":v).replace(/[\r\n|]+/g," ").trim();
-  const num=(v,d=2)=>Number.isFinite(Number(v))?Number(v).toFixed(d):"0.00";
-  const lines=["SOLAR_EPC_MAP_SAVE_V1"];
-  lines.push("TS|"+esc(p.timestamp));
-  lines.push("PROJECT|"+esc(p.projectId));
-  lines.push(["SITE",
-    num(p.siteLength),num(p.siteWidth),num(p.siteHeight||0),
-    num(p.siteArea),num(p.sitePerimeter),String(p.point_count||0),
-    esc(p.coordinateSource||p.placeId||""),esc(p.location)
+function bridgeCoordinateText(points, closeRing = false) {
+  const valid = (points || []).filter(c =>
+    Number.isFinite(Number(c?.latitude)) &&
+    Number.isFinite(Number(c?.longitude))
+  );
+
+  if (!valid.length) return "";
+
+  const coordinates = valid.map(c =>
+    Number(c.latitude).toFixed(8) + "," + Number(c.longitude).toFixed(8)
+  );
+
+  // Repeat the first vertex to explicitly close polygon geometry.
+  if (
+    closeRing &&
+    coordinates.length >= 3 &&
+    coordinates[0] !== coordinates[coordinates.length - 1]
+  ) {
+    coordinates.push(coordinates[0]);
+  }
+
+  return coordinates.join(";");
+}
+
+function buildExcelBridgeText(p, messageId) {
+  const esc = value =>
+    String(value == null ? "" : value)
+      .replace(/[\r\n|]+/g, " ")
+      .trim();
+
+  const num = (value, decimals = 2) =>
+    Number.isFinite(Number(value))
+      ? Number(value).toFixed(decimals)
+      : "0.00";
+
+  // Every MAP save gets a unique site Reference ID.
+  const siteReference = "SITE-MAP-" + String(messageId || Date.now());
+
+  // Save the exact drawn site vertices, with the first point repeated last.
+  const siteCoordinates = bridgeCoordinateText(p.siteCoordinates, true);
+
+  const siteRemarks = p.obstaclePresent
+    ? "Obstacle present: YES"
+    : "Obstacle present: NO";
+
+  const lines = ["SOLAR_EPC_MAP_SAVE_V1"];
+  lines.push("TS|" + esc(p.timestamp));
+  lines.push("PROJECT|" + esc(p.projectId));
+
+  // SITE|L|W|H|Area|Perimeter|Points|Reference|Coordinates|Remarks
+  lines.push([
+    "SITE",
+    num(p.siteLength),
+    num(p.siteWidth),
+    num(p.siteHeight || 0),
+    num(p.siteArea),
+    num(p.sitePerimeter),
+    String(p.point_count || 0),
+    esc(siteReference),
+    esc(siteCoordinates),
+    esc(siteRemarks)
   ].join("|"));
-  (p.obstacles||[]).forEach(o=>{
-    lines.push(["OBSTACLE",String(o.index),esc(o.obstacleType),
-      num(o.length),num(o.width),num(o.height||0),num(o.clearance),
-      num(o.area),num(o.perimeter),String((o.coordinates||[]).length),
-      esc(o.obstacleId),esc(o.remarks)
+
+  (p.obstacles || []).forEach(obstacle => {
+    const obstacleCoordinates = bridgeCoordinateText(
+      obstacle.coordinates,
+      obstacle.geometry !== "polyline"
+    );
+
+    const enteredRemarks = String(obstacle.remarks || "").trim();
+    const obstacleRemarks = enteredRemarks ||
+      ("Map obstacle: " + String(obstacle.obstacleType || "unknown"));
+
+    // OBSTACLE|No|Type|L|W|H|Clearance|Area|Perimeter|Points|Reference|Coordinates|Remarks
+    lines.push([
+      "OBSTACLE",
+      String(obstacle.index),
+      esc(obstacle.obstacleType),
+      num(obstacle.length),
+      num(obstacle.width),
+      num(obstacle.height || 0),
+      num(obstacle.clearance),
+      num(obstacle.area),
+      num(obstacle.perimeter),
+      String((obstacle.coordinates || []).length),
+      esc(obstacle.obstacleId),
+      esc(obstacleCoordinates),
+      esc(obstacleRemarks)
     ].join("|"));
   });
+
   lines.push("END");
   return lines.join("\n");
 }
-async function commitSave(){
-  const p=buildPayload();
-  if(p.calculationError){setStatus("Calculation failed: "+p.calculationError);return;}
 
-  const excelText=buildExcelBridgeText(p);
-  const messageId=createMessageId();
-  const msg={
-    type:"SOLAR_EPC_SITE_BOUNDARY_SAVED",
+async function commitSave() {
+  const p = buildPayload();
+
+  if (p.calculationError) {
+    setStatus("Calculation failed: " + p.calculationError);
+    return;
+  }
+
+  // Create this first because the same ID becomes the site Reference ID.
+  const messageId = createMessageId();
+  const excelText = buildExcelBridgeText(p, messageId);
+
+  const message = {
+    type: "SOLAR_EPC_SITE_BOUNDARY_SAVED",
     messageId,
-    projectId:p.projectId||"",
+    projectId: p.projectId || "",
     excelText,
-    payload:p
+    payload: p
   };
 
-  // Keep the existing embedded/WebView messaging path available.
-  try{if(window.chrome&&window.chrome.webview)window.chrome.webview.postMessage(msg)}catch(e){}
-  try{if(window.parent&&window.parent!==window)window.parent.postMessage(msg,"*")}catch(e){}
-  try{if(window.opener&&!window.opener.closed)window.opener.postMessage(msg,"*")}catch(e){}
-  window.SOLAR_EPC_LAST_BOUNDARY=p;
-
-  try{
-    setStatus("Sending site and obstacle data to Excel Bridge…");
-    const bridgeReply=await sendToExcelBridge(msg);
-    setStatus("Data received by Excel Bridge. Waiting for DRAWING_DATA import…");
-
-    const acknowledged=await waitForExcelAcknowledgement(bridgeReply.messageId||messageId);
-    state.boundarySaved=true;
-    updateSiteStats();renderObstacleList();
-    if(acknowledged){
-      setStatus("Saved successfully to Excel DRAWING_DATA.");
-    }else{
-      setStatus("Bridge received the data, but Excel acknowledgement is still pending.");
+  // Preserve WebView/parent/opener compatibility.
+  try {
+    if (window.chrome && window.chrome.webview) {
+      window.chrome.webview.postMessage(message);
     }
-  }catch(error){
-    console.error("Excel Bridge SAVE failed:",error);
-    const copied=await copyBridgeFallback(excelText);
-    state.boundarySaved=copied;
-    updateSiteStats();renderObstacleList();
-    if(copied){
-      setStatus("Excel Bridge unavailable. Data copied—return to Excel to import.");
-    }else{
-      state.boundarySaved=false;
-      setStatus("Could not reach Excel Bridge. Keep Excel open and allow Local Network access.");
-      alert("Could not reach Excel Bridge. Keep the workbook open and allow Local Network access for this site.");
+  } catch (error) {}
+
+  try {
+    if (window.parent && window.parent !== window) {
+      window.parent.postMessage(message, "*");
+    }
+  } catch (error) {}
+
+  try {
+    if (window.opener && !window.opener.closed) {
+      window.opener.postMessage(message, "*");
+    }
+  } catch (error) {}
+
+  window.SOLAR_EPC_LAST_BOUNDARY = p;
+
+  try {
+    setStatus("Sending site and obstacle data to Excel Bridge...");
+
+    const bridgeReply = await sendToExcelBridge(message);
+
+    setStatus(
+      "Data received by Excel Bridge. Waiting for DRAWING_DATA import..."
+    );
+
+    const acknowledged = await waitForExcelAcknowledgement(
+      bridgeReply.messageId || messageId
+    );
+
+    state.boundarySaved = true;
+    updateSiteStats();
+    renderObstacleList();
+
+    if (acknowledged) {
+      setStatus("Saved successfully to Excel DRAWING_DATA.");
+    } else {
+      setStatus(
+        "Bridge received the data, but Excel acknowledgement is still pending."
+      );
+    }
+  } catch (error) {
+    console.error("Excel Bridge SAVE failed:", error);
+
+    const copied = await copyBridgeFallback(excelText);
+    state.boundarySaved = copied;
+    updateSiteStats();
+    renderObstacleList();
+
+    if (copied) {
+      setStatus(
+        "Excel Bridge unavailable. Data copied—return to Excel to import."
+      );
+    } else {
+      state.boundarySaved = false;
+      setStatus(
+        "Could not reach Excel Bridge. Keep Excel open and allow Local Network access."
+      );
+      alert(
+        "Could not reach Excel Bridge.\n\n" +
+        "Keep the workbook open and allow Local Network access for this site."
+      );
     }
   }
 }
+
 function buildPayload(){
   GeometryEngine.clearError();
   const obb=state.closed?GeometryEngine.minAreaOBB(state.points):{length:0,width:0,angleDeg:0};
@@ -3776,5 +3893,5 @@ setTimeout(async()=>{
     ?"HD map ready • Excel Bridge connected."
     :"HD map ready • Excel Bridge unavailable; SAVE will use fallback.");
 },500);
-</script></body>
+</script><script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a32dbfd0ce5d8eeb',t:'MTc4ODAyOTUwOQ=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
