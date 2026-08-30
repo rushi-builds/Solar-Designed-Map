@@ -771,19 +771,17 @@ const hasInitialExactCoords =
 const projectId = params.get("projectId") || "";
 
 /* =====================================================================
-   EXCEL LOCAL BRIDGE
-   VBA should open the map with a URL fragment like:
-   #bridgePort=8765&bridgeToken=<one-time-token>
-   Fragments are readable by this page but are not sent to Firebase.
+   EXCEL CLOUD RELAY
+   Excel opens the map with short-lived values in the URL fragment:
+   #relayUrl=https%3A%2F%2F...workers.dev&relaySession=<temporary-token>
+   The fragment is readable by this page but is not sent to Firebase Hosting.
    ===================================================================== */
 const bridgeParams=new URLSearchParams(window.location.hash.replace(/^#/,""));
-const rawBridgePort=Number(bridgeParams.get("bridgePort")||0);
-const bridgePort=Number.isInteger(rawBridgePort)&&rawBridgePort>=1024&&rawBridgePort<=65535
-  ?rawBridgePort:0;
-const bridgeToken=String(bridgeParams.get("bridgeToken")||"").trim();
-const bridgeConfigured=bridgePort>0&&bridgeToken.length>=8;
+const relayUrl=String(bridgeParams.get("relayUrl")||"").replace(/\/+$/g,"");
+const bridgeToken=String(bridgeParams.get("relaySession")||"").trim();
+const bridgeConfigured=/^https:\/\//i.test(relayUrl)&&bridgeToken.length>=30;
 
-function bridgeURL(path){return "http://127.0.0.1:"+bridgePort+path;}
+function bridgeURL(path){return relayUrl+path;}
 function createMessageId(){
   try{if(crypto&&typeof crypto.randomUUID==="function")return crypto.randomUUID();}catch(e){}
   return Date.now().toString(36)+"-"+Math.random().toString(36).slice(2)+"-"+Math.random().toString(36).slice(2);
@@ -791,48 +789,43 @@ function createMessageId(){
 async function checkExcelBridge(){
   if(!bridgeConfigured)return false;
   try{
-    const r=await fetch(bridgeURL("/health"),{method:"GET",cache:"no-store"});
+    const r=await fetch(bridgeURL("/v1/health"),{method:"GET",cache:"no-store"});
     if(!r.ok)return false;
     const d=await r.json();
-    return d?.ok===true&&d?.service==="SolarEPCBridge";
+    return d?.ok===true&&d?.service==="SolarEPCCloudRelay";
   }catch(e){return false;}
 }
 async function sendToExcelBridge(message){
-  if(!bridgeConfigured)throw new Error("Excel Bridge session is not configured.");
-  const r=await fetch(bridgeURL("/save"),{
+  if(!bridgeConfigured)throw new Error("Excel cloud session is not configured.");
+  const r=await fetch(bridgeURL("/v1/save"),{
     method:"POST",
     cache:"no-store",
     headers:{
       "Content-Type":"application/json",
-      "X-Solar-EPC-Token":bridgeToken
+      "Authorization":"Bearer "+bridgeToken
     },
     body:JSON.stringify(message)
   });
   let d=null;
   try{d=await r.json();}catch(e){}
   if(!r.ok||d?.ok!==true||d?.received!==true){
-    throw new Error(d?.error||("Excel Bridge returned HTTP "+r.status));
+    throw new Error(d?.error||("Cloud Relay returned HTTP "+r.status));
   }
   return d;
 }
-async function waitForExcelAcknowledgement(messageId,timeoutMs=30000){
+async function waitForExcelAcknowledgement(messageId,timeoutMs=120000){
   const started=Date.now();
   while(Date.now()-started<timeoutMs){
-    await new Promise(resolve=>setTimeout(resolve,500));
+    await new Promise(resolve=>setTimeout(resolve,1500));
     try{
-      const r=await fetch(bridgeURL("/latest"),{
+      const r=await fetch(bridgeURL("/v1/status/"+encodeURIComponent(messageId)),{
         method:"GET",cache:"no-store",
-        headers:{"X-Solar-EPC-Token":bridgeToken}
+        headers:{"Authorization":"Bearer "+bridgeToken}
       });
       if(!r.ok)continue;
       const d=await r.json();
-      if(d?.ok===true&&d?.hasData===false)return true;
-      if(d?.hasData===true&&d?.messageId&&d.messageId!==messageId){
-        throw new Error("A newer map SAVE replaced this pending message.");
-      }
-    }catch(e){
-      if(/newer map SAVE/.test(String(e?.message||e)))throw e;
-    }
+      if(d?.ok===true&&d?.acknowledged===true)return true;
+    }catch(e){}
   }
   return false;
 }
@@ -3655,12 +3648,12 @@ async function commitSave() {
   window.SOLAR_EPC_LAST_BOUNDARY = p;
 
   try {
-    setStatus("Sending site and obstacle data to Excel Bridge...");
+    setStatus("Sending site and obstacle data to the secure cloud relay...");
 
     const bridgeReply = await sendToExcelBridge(message);
 
     setStatus(
-      "Data received by Excel Bridge. Waiting for DRAWING_DATA import..."
+      "Cloud relay received the data. Waiting for Excel DRAWING_DATA import..."
     );
 
     const acknowledged = await waitForExcelAcknowledgement(
@@ -3675,11 +3668,11 @@ async function commitSave() {
       setStatus("Saved successfully to Excel DRAWING_DATA.");
     } else {
       setStatus(
-        "Bridge received the data, but Excel acknowledgement is still pending."
+        "Cloud relay retained the data safely; Excel acknowledgement is still pending."
       );
     }
   } catch (error) {
-    console.error("Excel Bridge SAVE failed:", error);
+    console.error("Cloud Relay SAVE failed:", error);
 
     const copied = await copyBridgeFallback(excelText);
     state.boundarySaved = copied;
@@ -3890,8 +3883,8 @@ setTimeout(async()=>{
   if(!bridgeConfigured)return;
   const connected=await checkExcelBridge();
   setStatus(connected
-    ?"HD map ready • Excel Bridge connected."
-    :"HD map ready • Excel Bridge unavailable; SAVE will use fallback.");
+    ?"HD map ready • secure Excel cloud relay connected."
+    :"HD map ready • cloud relay unavailable; SAVE will use fallback.");
 },500);
-</script><script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a32dbfd0ce5d8eeb',t:'MTc4ODAyOTUwOQ=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+</script></body>
 </html>
