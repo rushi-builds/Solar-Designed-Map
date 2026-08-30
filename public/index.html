@@ -3656,7 +3656,7 @@ async function commitSave() {
     const bridgeReply = await sendToExcelBridge(message);
 
     setStatus(
-      "Cloud relay received the data. Waiting for Excel DRAWING_DATA import..."
+      "Saved securely to cloud. Return to Excel and click once to import immediately..."
     );
 
     const acknowledged = await waitForExcelAcknowledgement(
