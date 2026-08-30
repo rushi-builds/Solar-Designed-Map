@@ -832,6 +832,24 @@ async function waitForExcelAcknowledgement(messageId,timeoutMs=120000){
   }
   return false;
 }
+let relayHeartbeatTimer=0;
+async function sendRelayHeartbeat(){
+  if(!bridgeConfigured)return;
+  try{
+    const r=await fetch(bridgeURL("/v1/session/heartbeat"),{
+      method:"POST",cache:"no-store",
+      headers:{"Authorization":"Bearer "+bridgeToken}
+    });
+    if(!r.ok&&relayHeartbeatTimer){
+      clearInterval(relayHeartbeatTimer);relayHeartbeatTimer=0;
+    }
+  }catch(e){}
+}
+if(bridgeConfigured){
+  sendRelayHeartbeat();
+  relayHeartbeatTimer=setInterval(sendRelayHeartbeat,2000);
+}
+
 async function copyBridgeFallback(text){
   try{
     if(navigator.clipboard?.writeText){await navigator.clipboard.writeText(text);return true;}
@@ -3656,7 +3674,7 @@ async function commitSave() {
     const bridgeReply = await sendToExcelBridge(message);
 
     setStatus(
-      "Saved securely to cloud. Return to Excel and click once to import immediately..."
+      "Saved securely to cloud. Finalizing automatic Excel import..."
     );
 
     const acknowledged = await waitForExcelAcknowledgement(
@@ -3668,6 +3686,7 @@ async function commitSave() {
     renderObstacleList();
 
     if (acknowledged) {
+      if(relayHeartbeatTimer){clearInterval(relayHeartbeatTimer);relayHeartbeatTimer=0;}
       setStatus("Saved successfully to Excel DRAWING_DATA.");
     } else {
       setStatus(
@@ -3870,7 +3889,17 @@ ${p.obstaclePresent && p.obstacles.length ? `
 </body></html>`;
 }
 
-$("cancelButton").addEventListener("click",()=>{
+$("cancelButton").addEventListener("click",async()=>{
+  if(relayHeartbeatTimer){clearInterval(relayHeartbeatTimer);relayHeartbeatTimer=0;}
+  // Tell the cloud relay to release Excel's guaranteed watch loop.
+  if(bridgeConfigured){
+    try{
+      await fetch(bridgeURL("/v1/session/cancel"),{
+        method:"POST",cache:"no-store",
+        headers:{"Authorization":"Bearer "+bridgeToken}
+      });
+    }catch(e){}
+  }
   try{
     if(window.opener&&!window.opener.closed){
       window.opener.postMessage({type:"SOLAR_EPC_SITE_MAP_CANCEL"},"*");
@@ -3878,7 +3907,7 @@ $("cancelButton").addEventListener("click",()=>{
     }
   }catch(e){}
   if(history.length>1)history.back();
-  else setStatus("You can close this window.");
+  else setStatus("Map session cancelled. You can close this window.");
 });
 
 setStatus("HD map ready. Search a location or click SELECT.");
