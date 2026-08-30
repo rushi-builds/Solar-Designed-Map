@@ -833,21 +833,54 @@ async function waitForExcelAcknowledgement(messageId,timeoutMs=120000){
   return false;
 }
 let relayHeartbeatTimer=0;
+let relayActivityUntil=Date.now()+20000;
+let relayLastImmediatePulse=0;
+
 async function sendRelayHeartbeat(){
   if(!bridgeConfigured)return;
   try{
     const r=await fetch(bridgeURL("/v1/session/heartbeat"),{
       method:"POST",cache:"no-store",
-      headers:{"Authorization":"Bearer "+bridgeToken}
+      headers:{
+        "Authorization":"Bearer "+bridgeToken,
+        "Content-Type":"application/json"
+      },
+      body:JSON.stringify({active:Date.now()<relayActivityUntil})
     });
     if(!r.ok&&relayHeartbeatTimer){
       clearInterval(relayHeartbeatTimer);relayHeartbeatTimer=0;
     }
   }catch(e){}
 }
+
+function markRelayActivity(){
+  if(!bridgeConfigured)return;
+  const now=Date.now();
+  relayActivityUntil=now+20000;
+  // Debounce immediate activity signals; the regular heartbeat continues.
+  if(now-relayLastImmediatePulse>750){
+    relayLastImmediatePulse=now;
+    sendRelayHeartbeat();
+  }
+}
+
 if(bridgeConfigured){
+  document.addEventListener("pointerdown",markRelayActivity,true);
+  document.addEventListener("keydown",markRelayActivity,true);
+  document.addEventListener("wheel",markRelayActivity,{capture:true,passive:true});
   sendRelayHeartbeat();
   relayHeartbeatTimer=setInterval(sendRelayHeartbeat,2000);
+}
+
+async function setRelayIdleAfterSave(){
+  if(!bridgeConfigured)return;
+  relayActivityUntil=0;
+  try{
+    await fetch(bridgeURL("/v1/session/idle"),{
+      method:"POST",cache:"no-store",
+      headers:{"Authorization":"Bearer "+bridgeToken}
+    });
+  }catch(e){}
 }
 
 async function copyBridgeFallback(text){
@@ -3686,9 +3719,10 @@ async function commitSave() {
     renderObstacleList();
 
     if (acknowledged) {
-      // Keep the session heartbeat active: the user may clear the site,
-      // draw another site/obstacles and SAVE again in this same map window.
-      setStatus("Saved successfully to Excel DRAWING_DATA. Ready for another SAVE.");
+      // Stop fast watch immediately. A tiny idle sentinel remains so fresh
+      // drawing activity can wake Excel for another automatic SAVE.
+      await setRelayIdleAfterSave();
+      setStatus("Saved successfully to Excel DRAWING_DATA. Watcher idle; ready for another drawing.");
     } else {
       setStatus(
         "Cloud relay retained the data safely; Excel acknowledgement is still pending."
