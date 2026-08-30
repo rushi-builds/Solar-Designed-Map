@@ -3686,8 +3686,9 @@ async function commitSave() {
     renderObstacleList();
 
     if (acknowledged) {
-      if(relayHeartbeatTimer){clearInterval(relayHeartbeatTimer);relayHeartbeatTimer=0;}
-      setStatus("Saved successfully to Excel DRAWING_DATA.");
+      // Keep the session heartbeat active: the user may clear the site,
+      // draw another site/obstacles and SAVE again in this same map window.
+      setStatus("Saved successfully to Excel DRAWING_DATA. Ready for another SAVE.");
     } else {
       setStatus(
         "Cloud relay retained the data safely; Excel acknowledgement is still pending."
