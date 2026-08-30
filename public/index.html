@@ -816,7 +816,10 @@ async function sendToExcelBridge(message){
 async function waitForExcelAcknowledgement(messageId,timeoutMs=120000){
   const started=Date.now();
   while(Date.now()-started<timeoutMs){
-    await new Promise(resolve=>setTimeout(resolve,1500));
+    // Fast confirmation while Excel normally imports, then reduce cloud reads.
+    const elapsed=Date.now()-started;
+    const checkDelay=elapsed<15000?250:1000;
+    await new Promise(resolve=>setTimeout(resolve,checkDelay));
     try{
       const r=await fetch(bridgeURL("/v1/status/"+encodeURIComponent(messageId)),{
         method:"GET",cache:"no-store",
