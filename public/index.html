@@ -397,6 +397,9 @@ button.wide{width:100%}
 #map,#map2{will-change:transform}
 .site-dimension-hud{position:absolute;left:50%;top:58px;transform:translateX(-50%);z-index:1300;display:none;align-items:center;gap:6px;padding:6px 9px;border-radius:7px;background:rgba(10,31,40,.72);backdrop-filter:blur(5px);-webkit-backdrop-filter:blur(5px);color:#fff;font:700 11px/1.2 Segoe UI,Arial,sans-serif;box-shadow:0 2px 8px rgba(0,0,0,.22);pointer-events:none;white-space:nowrap}
 .map-pane.drawing-dimension-mode .site-dimension-hud{display:flex}
+.map-pane.drawing-dimension-mode .obstacle-dimension-hud{display:none}
+.map-pane.drawing-obstacle-dimension-mode .obstacle-dimension-hud{display:flex}
+.obstacle-dimension-hud{background:rgba(116,50,18,.82)}
 .site-dimension-hud .value{font-weight:800}
 
 .direction-compass-control{position:absolute;right:-5px;top:62px;z-index:1200;width:55px;height:55px}
@@ -509,6 +512,7 @@ button.wide{width:100%}
     </div>
 
     <div id="siteDimensionHud" class="site-dimension-hud" aria-live="polite">LENGTH: <span id="siteDimensionValue" class="value">—</span> m &nbsp;•&nbsp; type distance + ENTER to lock</div>
+    <div id="obstacleDimensionHud" class="site-dimension-hud obstacle-dimension-hud" aria-live="polite">LENGTH: <span id="obstacleDimensionValue" class="value">—</span> m &nbsp;•&nbsp; type distance + ENTER to lock</div>
 
     <div class="advanced-map-controls">
       <button id="selectLocationButton" class="map-tool" type="button" title="Click map to select exact site location">⌖ SELECT</button>
@@ -1058,7 +1062,8 @@ const state = {
   editingObstacleId:null,
   drawingObstacle:null,
   obsMarkers:[], obsSideLabels:[],
-  obsLiveLine:null, obsLiveLabel:null, obsLiveCircle:null,
+  obsLiveLine:null, obsLiveLabel:null, obsLiveCircle:null, obsFixedCross:null,
+  obsLengthInput:"", obsFixedSegmentLength:null, obsLastCursor:null,
   obsPreviewLayer:null, obsMeasurementLayers:[], obsLiveMeasurementLayers:[], selectedObstacleId:null,
 
   setbackLayer:null, clearanceLayer:null, usableLayer:null,
@@ -2445,9 +2450,12 @@ function setMode(mode){
   clearLiveSegment(); clearObsLive();
   state.mode=mode;
   if(mode!=="draw-site")resetSiteDimensionInput();
+  if(mode!=="draw-obstacle")resetObstacleDimensionInput();
   const c=state.map.getContainer();
   c.closest(".map-pane")?.classList.toggle("drawing-dimension-mode",mode==="draw-site");
+  c.closest(".map-pane")?.classList.toggle("drawing-obstacle-dimension-mode",mode==="draw-obstacle");
   setSiteDimensionHud();
+  setObstacleDimensionHud();
   c.classList.toggle("draw-precision",mode==="draw-site"||mode==="draw-obstacle");
   $("drawButton").classList.toggle("active",mode==="draw-site");
   if(mode==="draw-site"||mode==="draw-obstacle")state.map.doubleClickZoom.disable();
@@ -2567,6 +2575,83 @@ function handleSiteDimensionKey(e){
   }
 }
 document.addEventListener("keydown",handleSiteDimensionKey);
+
+/* Obstacle distance lock mirrors the SITE distance-lock interaction. */
+function setObstacleDimensionHud(){
+  const hud=$("obstacleDimensionHud"),value=$("obstacleDimensionValue");
+  if(!hud||!value)return;
+  if(state.obsFixedSegmentLength!=null){
+    value.textContent=fmt(state.obsFixedSegmentLength);
+    hud.innerHTML='LENGTH: <span id="obstacleDimensionValue" class="value">'+fmt(state.obsFixedSegmentLength)+'</span> m &nbsp;•&nbsp; LOCKED — move mouse, click to set point';
+  }else if(state.obsLengthInput){
+    value.textContent=state.obsLengthInput;
+    hud.innerHTML='LENGTH: <span id="obstacleDimensionValue" class="value">'+state.obsLengthInput+'</span> m &nbsp;•&nbsp; press ENTER to lock';
+  }else{
+    value.textContent='—';
+    hud.innerHTML='LENGTH: <span id="obstacleDimensionValue" class="value">—</span> m &nbsp;•&nbsp; type distance + ENTER to lock';
+  }
+}
+function resetObstacleDimensionInput(){
+  state.obsLengthInput="";
+  state.obsFixedSegmentLength=null;
+  state.obsLastCursor=null;
+  setObstacleDimensionHud();
+}
+function getFixedObstacleCursorPoint(last,cursor){
+  if(!last||!cursor||!(Number(state.obsFixedSegmentLength)>0))return cursor;
+  try{
+    const bearing=turf.bearing(turf.point([last.lng,last.lat]),turf.point([cursor.lng,cursor.lat]));
+    const dest=turf.destination(turf.point([last.lng,last.lat]),Number(state.obsFixedSegmentLength)/1000,bearing,{units:"kilometers"});
+    return {lat:dest.geometry.coordinates[1],lng:dest.geometry.coordinates[0]};
+  }catch(e){return cursor;}
+}
+function lockObstacleDimension(){
+  const d=state.drawingObstacle;
+  if(state.mode!=="draw-obstacle"||!d||!d.points.length)return false;
+  const n=Number(state.obsLengthInput.replace(/,/g,""));
+  if(!Number.isFinite(n)||n<=0){setStatus("Enter a valid obstacle distance in metres, then press ENTER.");return false;}
+  state.obsFixedSegmentLength=n;
+  state.obsLengthInput="";
+  setObstacleDimensionHud();
+  if(state.obsLastCursor){
+    state.map.fire("mousemove",{latlng:L.latLng(state.obsLastCursor.lat,state.obsLastCursor.lng)});
+  }
+  setStatus("Obstacle distance locked at "+fmt(n)+" m. Move the mouse to choose direction; click to set point.");
+  return true;
+}
+function handleObstacleDimensionKey(e){
+  const d=state.drawingObstacle;
+  if(state.mode!=="draw-obstacle"||!d||!d.points.length)return;
+  const active=document.activeElement;
+  if(active&&(active.tagName==="INPUT"||active.tagName==="TEXTAREA"||active.isContentEditable))return;
+  if((e.key>="0"&&e.key<="9")||e.key==="."){
+    e.preventDefault();e.stopPropagation();
+    if(e.key==="."&&state.obsLengthInput.includes("."))return;
+    state.obsLengthInput+=e.key;
+    state.obsFixedSegmentLength=null;
+    setObstacleDimensionHud();
+    setStatus("Obstacle distance input: "+state.obsLengthInput+" m — press ENTER to lock.");
+    return;
+  }
+  if(e.key==="Backspace"&&state.obsLengthInput){
+    e.preventDefault();e.stopPropagation();
+    state.obsLengthInput=state.obsLengthInput.slice(0,-1);
+    setObstacleDimensionHud();
+    return;
+  }
+  if(e.key==="Enter"&&state.obsLengthInput){
+    e.preventDefault();e.stopPropagation();
+    lockObstacleDimension();
+    return;
+  }
+  if(e.key==="Escape"&&(state.obsLengthInput||state.obsFixedSegmentLength!=null)){
+    e.preventDefault();e.stopPropagation();
+    resetObstacleDimensionInput();
+    clearObsLive();
+    setStatus("Fixed obstacle distance cancelled. Freehand drawing restored.");
+  }
+}
+document.addEventListener("keydown",handleObstacleDimensionKey);
 
 function addSitePoint(latlng){
   if(state.closed)return;
@@ -2726,6 +2811,7 @@ $("obsDrawOnMap").addEventListener("click",()=>{
   if(!state.closed){setStatus("Draw and close the site boundary first.");return;}
   const t=$("obsType").value;
   state.drawingObstacle={type:t,points:[],radius:parseFloat($("obsRadius").value)||1};
+  resetObstacleDimensionInput();
   clearObsPreview(); clearObsLive(); clearObsMarkers();
   setMode("draw-obstacle");
 });
@@ -2742,7 +2828,17 @@ function clearObsLive(){
   if(state.obsLiveLine){state.map.removeLayer(state.obsLiveLine);state.obsLiveLine=null}
   if(state.obsLiveLabel){state.map.removeLayer(state.obsLiveLabel);state.obsLiveLabel=null}
   if(state.obsLiveCircle){state.map.removeLayer(state.obsLiveCircle);state.obsLiveCircle=null}
+  if(state.obsFixedCross){state.map.removeLayer(state.obsFixedCross);state.obsFixedCross=null}
+  state.map.getContainer().classList.remove("fixed-site-endpoint-mode");
   clearMeasurementLayers(state.obsLiveMeasurementLayers);
+}
+function showObstacleFixedEndpoint(point){
+  if(!point||state.obsFixedSegmentLength==null)return;
+  state.map.getContainer().classList.add("fixed-site-endpoint-mode");
+  state.obsFixedCross=L.marker([point.lat,point.lng],{
+    icon:L.divIcon({className:"",html:"<div class=\"fixed-site-endpoint-cross\">+</div>",iconSize:[16,16],iconAnchor:[8,8]}),
+    interactive:false,zIndexOffset:1400
+  }).addTo(state.map);
 }
 function clearObsPreview(){
   if(state.obsPreviewLayer){state.map.removeLayer(state.obsPreviewLayer);state.obsPreviewLayer=null}
@@ -2804,53 +2900,67 @@ function addObsMarkerPoint(latlng,i){
 }
 
 function addObsPoint(latlng){
-  const d=state.drawingObstacle; if(!d)return;
+  const d=state.drawingObstacle;if(!d)return;
   const t=d.type;
+  const raw={lat:latlng.lat,lng:latlng.lng};
+
+  // Polygon close detection remains based on the user's actual click.
+  if((t==="polygon"||t==="other")&&d.points.length>=3){
+    const dist=GeometryEngine.distanceMeters(raw,d.points[0]);
+    if(dist<=3){finishObstacleDrawing();return;}
+  }
+
+  let target=raw;
+  if(d.points.length&&state.obsFixedSegmentLength!=null){
+    target=getFixedObstacleCursorPoint(d.points[d.points.length-1],raw);
+  }
 
   if(t==="circle"||t==="cylinder"||t==="tree"){
     if(d.points.length===0){
       // First click fixes the center. The next click sets the real radius.
-      d.points=[{lat:latlng.lat,lng:latlng.lng}];
-      addObsMarkerPoint(latlng,0);
-      setStatus("Center fixed. Move the cursor to set the radius, then click to finish.");
+      d.points=[target];
+      addObsMarkerPoint(target,0);
+      resetObstacleDimensionInput();
+      setStatus("Center fixed. Move freely or type the radius + ENTER to lock it, then click to finish.");
       return;
     }
     const center=d.points[0];
-    const radius=GeometryEngine.distanceMeters(center,{lat:latlng.lat,lng:latlng.lng});
+    const radius=GeometryEngine.distanceMeters(center,target);
     if(radius<0.2){setStatus("Move farther from the center to create a visible circle.");return;}
     d.radius=radius;
     const obstacle=buildCircleObstacle(center.lat,center.lng,radius,t,
       parseFloat($("obsClearance").value)||0,$("obsRemarks").value.trim());
-    finalizeObstacle(obstacle); return;
+    resetObstacleDimensionInput();
+    finalizeObstacle(obstacle);return;
   }
 
   if(t==="rectangle"){
-    d.points.push({lat:latlng.lat,lng:latlng.lng});
-    addObsMarkerPoint(latlng,d.points.length-1);
+    d.points.push(target);
+    addObsMarkerPoint(target,d.points.length-1);
+    resetObstacleDimensionInput();
     if(d.points.length===2){
       const [a,b]=d.points;
       const obstacle=buildRectangleObstacleFromCorners(a,b,t,
         parseFloat($("obsClearance").value)||0,$("obsRemarks").value.trim());
-      finalizeObstacle(obstacle); return;
+      finalizeObstacle(obstacle);return;
     }
-    redrawObsPreview(); return;
+    redrawObsPreview();
+    setStatus("First rectangle corner fixed. Move freely or type the next distance + ENTER to lock it.");
+    return;
   }
 
-  // Polygon/polyline: check click-on-first-point-to-close (like site)
-  if((t==="polygon"||t==="other")&&d.points.length>=3){
-    const dist=GeometryEngine.distanceMeters({lat:latlng.lat,lng:latlng.lng},d.points[0]);
-    if(dist<=3){finishObstacleDrawing();return;}
-  }
-
-  d.points.push({lat:latlng.lat,lng:latlng.lng});
-  addObsMarkerPoint(latlng,d.points.length-1);
+  d.points.push(target);
+  addObsMarkerPoint(target,d.points.length-1);
+  resetObstacleDimensionInput();
   redrawObsPreview();
+  setStatus("Obstacle point "+d.points.length+" added. Next line can be freehand or type a distance + ENTER to lock it.");
 }
 
 function undoObsPoint(){
   const d=state.drawingObstacle; if(!d||!d.points.length)return;
   d.points.pop();
   const m=state.obsMarkers.pop(); if(m)state.map.removeLayer(m);
+  resetObstacleDimensionInput();
   redrawObsPreview();
   setStatus("Obstacle point removed. Continue drawing.");
 }
@@ -3224,27 +3334,33 @@ state.map.on("mousemove",e=>{
     drawSiteLiveSegment(state.siteLastCursor);
   }
   if(state.mode==="draw-obstacle"&&state.drawingObstacle){
-    const d=state.drawingObstacle, t=d.type;
+    const d=state.drawingObstacle,t=d.type;
+    const rawCursor={lat:e.latlng.lat,lng:e.latlng.lng};
+    state.obsLastCursor=rawCursor;
     clearObsLive();
     if((t==="circle"||t==="cylinder"||t==="tree")&&d.points.length===1){
-      const center=d.points[0],cursor={lat:e.latlng.lat,lng:e.latlng.lng};
+      const center=d.points[0],cursor=getFixedObstacleCursorPoint(center,rawCursor);
       const radius=GeometryEngine.distanceMeters(center,cursor);
       d.radius=radius;
       state.obsLiveCircle=L.circle([center.lat,center.lng],{radius,color:"#a04519",weight:2,dashArray:"6 5",fillColor:"#c0663a",fillOpacity:.18,interactive:false}).addTo(state.map);
       state.obsLiveLabel=createLiveMeasureLabel(center,cursor,"R "+fmt(radius),"obs");
+      showObstacleFixedEndpoint(cursor);
     }else if(t==="rectangle"&&d.points.length===1){
-      const a=d.points[0];
-      const ll=[[a.lat,a.lng],[a.lat,e.latlng.lng],[e.latlng.lat,e.latlng.lng],[e.latlng.lat,a.lng],[a.lat,a.lng]];
+      const a=d.points[0],cursor=getFixedObstacleCursorPoint(a,rawCursor);
+      const ll=[[a.lat,a.lng],[a.lat,cursor.lng],[cursor.lat,cursor.lng],[cursor.lat,a.lng],[a.lat,a.lng]];
       state.obsLiveLine=L.polyline(ll,{color:"#a04519",weight:2,interactive:false}).addTo(state.map);
+      state.obsLiveLabel=createLiveMeasureLabel(a,cursor,fmt(GeometryEngine.distanceMeters(a,cursor)),"obs");
+      showObstacleFixedEndpoint(cursor);
 
     }else if(d.points.length){
-      const last=d.points[d.points.length-1], c={lat:e.latlng.lat,lng:e.latlng.lng};
+      const last=d.points[d.points.length-1],c=getFixedObstacleCursorPoint(last,rawCursor);
       const dist=GeometryEngine.distanceMeters(last,c);
       const prev=d.points.length>=2?d.points[d.points.length-2]:null;
       const perp=prev&&Math.abs(cornerAngleDegrees(prev,last,c)-90)<=4;
       state.obsLiveLine=L.polyline([[last.lat,last.lng],[c.lat,c.lng]],
         {color:perp?"#f1c40f":"#a04519",weight:perp?3:2,interactive:false}).addTo(state.map);
       state.obsLiveLabel=createLiveMeasureLabel(last,c,fmt(dist),"obs");
+      showObstacleFixedEndpoint(c);
       const preview=d.points.concat([{lat:c.lat,lng:c.lng}]);
     }
   }
