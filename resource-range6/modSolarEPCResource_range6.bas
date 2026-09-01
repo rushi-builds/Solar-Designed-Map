@@ -1,7 +1,7 @@
 Option Explicit
 
 '==========================================================================
-' SOLAR EPC - NASA POWER HOURLY RESOURCE MODULE v1.9.1 (RANGE12 + LOCATION-TOLERANT)
+' SOLAR EPC - NASA POWER HOURLY RESOURCE MODULE v1.9.2 (RANGE12 + LOCATION AUTO-FILL)
 '
 ' - Reads only the SITE row in DRAWING_DATA.autoLWHTbl.
 ' - Never reads tblDrawingData (obstacles) for the resource centroid.
@@ -11,6 +11,18 @@ Option Explicit
 '   validates and stores every hourly record, and returns a project summary.
 ' - T2M minimum/maximum are derived from validated hourly T2M because NASA's
 '   Hourly API rejects T2M_MIN and T2M_MAX.
+'
+' v1.9.2 CHANGE (Location auto-fill):
+' - RESOURCE_DB ka descriptive "Location" column ab automatically fill hota hai
+'   exact centroid coordinates se: free reverse-geocoding (OSM Nominatim,
+'   fallback BigDataCloud, dono bina API key) -> "Town, District" format
+'   (e.g. "Mahabaleshwar, Satara", "Phaltan, Satara", "Baramati, Pune").
+' - Sirf BLANK cells fill hote hain; manually typed Location kabhi overwrite
+'   nahi hota. Coordinates/weather values/status kuch change nahi hote.
+' - Network/service fail ho toh Location blank rehta hai (koi error nahi,
+'   data import block nahi hota).
+' - New macro: SolarEPC_ResourceFillLocations -> existing rows ki blank
+'   Location cells ek saath fill kar deta hai.
 '
 ' v1.9.1 CHANGE (RESOURCE_DB Location column):
 ' - RESOURCE_DB may now include an additional descriptive "Location" column.
@@ -69,6 +81,9 @@ Private mFastRangeMode As Boolean
 Private mFastRangeFallback As Boolean
 Private mFastResponse(1 To 6) As String
 Private mFastRangeMonthsUsed As Long
+' v1.9.2: last reverse-geocoded coordinate cache (same coords -> same label).
+Private mLastLocKey As String
+Private mLastLocLabel As String
 
 'One-time SYSTEM configuration. Dates are not added to customer INPUT fields.
 'Nothing is saved unless both dates are explicitly entered and validated.
@@ -406,6 +421,59 @@ Public Sub SolarEPC_ResourceShowLastError()
     Else
         MsgBox mLastResourceError, vbExclamation, "Solar EPC Resource Last Error"
     End If
+End Sub
+
+'v1.9.2: fills the descriptive Location column for existing RESOURCE_DB rows
+'whose Location is still blank (nearest town/district via free reverse geocoding).
+'No NASA/Worker call, no coordinates/values/status change, manual edits kept.
+Public Sub SolarEPC_ResourceFillLocations()
+    Dim ws As Worksheet
+    Dim Tbl As ListObject
+    Dim R As Long
+    Dim cLoc As Long, cLat As Long, cLon As Long
+    Dim RowRange As Range
+    Dim Filled As Long
+    Dim LatitudeText As String, LongitudeText As String
+
+    On Error GoTo Failed
+    Set ws = ThisWorkbook.Worksheets(RESOURCE_SHEET)
+    Set Tbl = ResourceFindHeaderTable(ws)
+    If Tbl Is Nothing Then
+        MsgBox "RESOURCE_DB table nahi mila ya required column missing hai.", _
+               vbExclamation, "Solar EPC Resource"
+        Exit Sub
+    End If
+    cLoc = ResourceColumn(Tbl, "Location")
+    cLat = ResourceColumn(Tbl, "Latitude (" & ChrW(176) & ")")
+    cLon = ResourceColumn(Tbl, "Longitude (" & ChrW(176) & ")")
+    If cLoc = 0 Or cLat = 0 Or cLon = 0 Then
+        MsgBox "RESOURCE_DB me Location, Latitude aur Longitude columns required hain.", _
+               vbExclamation, "Solar EPC Resource"
+        Exit Sub
+    End If
+
+    For R = 1 To Tbl.ListRows.Count
+        Set RowRange = Tbl.ListRows(R).Range
+        If Len(Trim$(CStr(RowRange.Cells(1, cLoc).Value2))) = 0 Then
+            LatitudeText = Trim$(CStr(RowRange.Cells(1, cLat).Value2))
+            LongitudeText = Trim$(CStr(RowRange.Cells(1, cLon).Value2))
+            If Len(LatitudeText) > 0 And Len(LongitudeText) > 0 Then
+                ResourceFillLocationCell Tbl, RowRange, LatitudeText, LongitudeText
+                If Len(Trim$(CStr(RowRange.Cells(1, cLoc).Value2))) > 0 Then
+                    Filled = Filled + 1
+                    'OSM policy: max ~1 request/second between lookups.
+                    If R < Tbl.ListRows.Count Then Application.Wait Now + TimeSerial(0, 0, 1)
+                End If
+            End If
+        End If
+    Next R
+
+    MsgBox "Location fill complete: " & CStr(Filled) & " row(s) filled. " & _
+           "(Sirf blank cells bhare gaye; manually typed location change nahi hota.)", _
+           vbInformation, "Solar EPC Resource"
+    Exit Sub
+Failed:
+    MsgBox "Location fill failed: " & Err.Description, vbExclamation, "Solar EPC Resource"
 End Sub
 
 Private Sub ResourceSetLastError(ByVal ErrorText As String)
@@ -960,6 +1028,141 @@ Failed:
     ResourceRequestClient = vbNullString
 End Function
 
+'v1.9.2: generic read-only JSON GET for LOCATION LABEL ONLY (reverse geocoding).
+'Never touches resource data. Tries WinHttp, then MSXML2.
+Private Function ResourceHttpGetJson(ByVal URLText As String) As String
+    Dim HTTP As Object
+    On Error GoTo TryFallback
+    Set HTTP = CreateObject("WinHttp.WinHttpRequest.5.1")
+    HTTP.Open "GET", URLText, False
+    HTTP.SetTimeouts 6000, 6000, 15000, 15000
+    HTTP.SetRequestHeader "User-Agent", "Solar-EPC-Resource/1.0 (Excel workbook location label)"
+    HTTP.SetRequestHeader "Accept", "application/json"
+    HTTP.Send
+    If HTTP.Status = 200 Then
+        ResourceHttpGetJson = HTTP.ResponseText
+        Exit Function
+    End If
+TryFallback:
+    On Error GoTo Failed
+    Set HTTP = CreateObject("MSXML2.ServerXMLHTTP.6.0")
+    HTTP.Open "GET", URLText, False
+    HTTP.setTimeouts 6000, 6000, 15000, 15000
+    HTTP.setRequestHeader "User-Agent", "Solar-EPC-Resource/1.0 (Excel workbook location label)"
+    HTTP.setRequestHeader "Accept", "application/json"
+    HTTP.send
+    If HTTP.Status = 200 Then ResourceHttpGetJson = HTTP.ResponseText
+    Exit Function
+Failed:
+    ResourceHttpGetJson = vbNullString
+End Function
+
+'v1.9.2: compose "Town/Village, District" from reverse-geocoded components.
+Private Function ResourceLocationCompose(ByVal Primary As String, ByVal Secondary As String) As String
+    Dim P As String, S2 As String
+    P = Trim$(Primary)
+    S2 = Trim$(Secondary)
+    If Len(P) = 0 Then Exit Function
+    If UCase$(Right$(P, 7)) = ", INDIA" Then P = Left$(P, Len(P) - 7)
+    If UCase$(Right$(S2, 7)) = ", INDIA" Then S2 = Left$(S2, Len(S2) - 7)
+    If Len(S2) > 0 Then
+        ResourceLocationCompose = P & ", " & S2
+    Else
+        ResourceLocationCompose = P
+    End If
+End Function
+
+'v1.9.2: nearest readable location from exact centroid (e.g. "Phaltan, Satara").
+'Primary: OSM Nominatim (free, no key); fallback: BigDataCloud (free, no key).
+'Result is descriptive ONLY - identity stays centroid_lat/centroid_lon.
+Private Function ResourceLocationLabel(ByVal LatitudeText As String, ByVal LongitudeText As String) As String
+    Dim Lat As Double, Lon As Double
+    Dim UrlText As String, CacheKey As String, JSONText As String
+    Dim Primary As String, Secondary As String
+    Dim Parts As Variant
+    Dim DisplayText As String
+
+    On Error GoTo Failed
+    If Not IsNumeric(LatitudeText) Or Not IsNumeric(LongitudeText) Then Exit Function
+    Lat = CDbl(LatitudeText)
+    Lon = CDbl(LongitudeText)
+    If Lat < -90 Or Lat > 90 Or Lon < -180 Or Lon > 180 Then Exit Function
+
+    CacheKey = ResourceDecimal(Lat, 6) & "," & ResourceDecimal(Lon, 6)
+    If CacheKey = mLastLocKey Then
+        ResourceLocationLabel = mLastLocLabel
+        Exit Function
+    End If
+
+    '1) OpenStreetMap Nominatim (free, no API key)
+    UrlText = "https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=" & _
+              ResourceDecimal(Lat, 6) & "&lon=" & ResourceDecimal(Lon, 6) & _
+              "&addressdetails=1&zoom=16&accept-language=en"
+    JSONText = ResourceHttpGetJson(UrlText)
+    If Len(JSONText) > 0 Then
+        Primary = ResourceJSONValue(JSONText, "town")
+        If Len(Primary) = 0 Then Primary = ResourceJSONValue(JSONText, "city")
+        If Len(Primary) = 0 Then Primary = ResourceJSONValue(JSONText, "village")
+        If Len(Primary) = 0 Then Primary = ResourceJSONValue(JSONText, "hamlet")
+        Secondary = ResourceJSONValue(JSONText, "state_district")
+        If Len(Secondary) = 0 Then Secondary = ResourceJSONValue(JSONText, "county")
+        If UCase$(Right$(Secondary, 9)) = " DISTRICT" Then Secondary = Left$(Secondary, Len(Secondary) - 9)
+        If Len(Primary) = 0 Then
+            DisplayText = ResourceJSONValue(JSONText, "display_name")
+            If Len(DisplayText) > 0 Then
+                Parts = Split(DisplayText, ", ")
+                If UBound(Parts) >= 0 Then Primary = Trim$(CStr(Parts(0)))
+                If UBound(Parts) >= 1 Then Secondary = Trim$(CStr(Parts(1)))
+            End If
+        End If
+        If Len(Primary) > 0 Then
+            ResourceLocationLabel = ResourceLocationCompose(Primary, Secondary)
+            GoTo StoreCache
+        End If
+    End If
+
+    '2) BigDataCloud free client reverse-geocode (no key) fallback
+    UrlText = "https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=" & _
+              ResourceDecimal(Lat, 6) & "&longitude=" & ResourceDecimal(Lon, 6) & _
+              "&localityLanguage=en"
+    JSONText = ResourceHttpGetJson(UrlText)
+    If Len(JSONText) > 0 Then
+        Primary = ResourceJSONValue(JSONText, "locality")
+        If Len(Primary) = 0 Then Primary = ResourceJSONValue(JSONText, "city")
+        Secondary = ResourceJSONValue(JSONText, "principalSubdivision")
+        If Len(Primary) > 0 Then
+            ResourceLocationLabel = ResourceLocationCompose(Primary, Secondary)
+        End If
+    End If
+
+StoreCache:
+    mLastLocKey = CacheKey
+    mLastLocLabel = ResourceLocationLabel
+    Exit Function
+Failed:
+    ResourceLocationLabel = vbNullString
+    mLastLocKey = vbNullString
+    mLastLocLabel = vbNullString
+End Function
+
+'v1.9.2: fill blank Location cell for one row (never overwrites manual entries).
+Private Sub ResourceFillLocationCell(ByVal Tbl As ListObject, ByVal Target As Range, _
+    ByVal LatitudeText As String, ByVal LongitudeText As String)
+    Dim cLoc As Long
+    Dim Cell As Range
+    Dim LabelText As String
+    On Error GoTo Failed
+    cLoc = ResourceColumn(Tbl, "Location")
+    If cLoc = 0 Then Exit Sub
+    Set Cell = Target.Cells(1, cLoc)
+    If Len(Trim$(CStr(Cell.Value2))) > 0 Then Exit Sub
+    If Len(Trim$(LatitudeText)) = 0 Or Len(Trim$(LongitudeText)) = 0 Then Exit Sub
+    LabelText = ResourceLocationLabel(LatitudeText, LongitudeText)
+    If Len(LabelText) > 0 Then Cell.Value2 = LabelText
+    Exit Sub
+Failed:
+End Sub
+
 Private Function ResourceLoadConfiguration() As Boolean
     Dim ws As Worksheet
     On Error GoTo Failed
@@ -1063,6 +1266,8 @@ Private Sub ResourceWriteToDatabase(ByVal D As Object)
     If Target Is Nothing Then Exit Sub
     ResourceWriteTableField Tbl, Target, "Sr.No", CStr(ResourceSerialForTable(Tbl, Target))
     ResourceWriteTableField Tbl, Target, "Project ID", ProjectID
+    'v1.9.2: descriptive Location auto-fill (blank cells only, never overwrite).
+    ResourceFillLocationCell Tbl, Target, ResourceValue(D, "latitude"), ResourceValue(D, "longitude")
     ResourceWriteTableField Tbl, Target, "Latitude (" & ChrW(176) & ")", ResourceValue(D, "latitude"), True
     ResourceWriteTableField Tbl, Target, "Longitude (" & ChrW(176) & ")", ResourceValue(D, "longitude"), True
     ResourceWriteTableField Tbl, Target, "Source", ResourceValue(D, "source")

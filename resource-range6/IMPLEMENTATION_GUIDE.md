@@ -128,7 +128,19 @@ RESOURCE_DB me ab optional descriptive **Location** column ho sakta hai. VBA v1.
 - Required columns ko **NAME se** match karta hai (Project ID, Latitude (°), Longitude (°), ...) — column count/order ab matter nahi karta
 - Extra columns (Location) allowed; **Location kabhi overwrite nahi hota**
 - Agar required column missing hai → silently fail ki jagah `_CLOUD_CFG` B10/B11 me error dikhta hai
-- **Isliye:** VBA module re-import karo (jo download kiya hai usme v1.9.1 hai) aur `SolarEPC_ResourceRetryLatestSite` ya resource flow dobara chalao
+
+## v1.9.2: Location AUTO-FILL (nearest town/district)
+Location column ab **exact centroid coordinates se automatically fill** hota hai:
+- Free reverse-geocoding: **OSM Nominatim** (primary) → **BigDataCloud** (fallback) — dono bina API key
+- Format: `"Town/Village, District"` → jaise `Phaltan, Satara`, `Mahabaleshwar, Satara`, `Baramati, Pune`
+- **Sirf blank cells** fill hote hain — manually typed Location kabhi overwrite NAHI hota
+- Coordinates / NASA values / Data Status / cache identity — **kuch change nahi** (Location sirf descriptive hai; identity centroid hi rahti hai)
+- Network/service fail → Location blank rehta hai (import block nahi hota)
+- **Android/Excel me kya karna hai:**
+  1. VBA re-import karo (`modSolarEPCResource_k12.bas` — v1.9.2)
+  2. Naye site import karte hi Location auto-fill ho jayega
+  3. **Existing rows** ke liye macro chalao: `SolarEPC_ResourceFillLocations` → saari blank Location ek saath fill ho jayengi (1 sec/row OSM policy)
+- Note: OSM ka nearest label best-effort hai; agar exact village naam chahiye toh manually likho — system usko kabhi nahi badlega
 
 ## Verified (real dataset, read-only forensic)
 - CHECK #1: 43,824 records × 10 params; missing sirf `ALLSKY_SRF_ALB` = 20,853; invalid/duplicates/unit = 0
