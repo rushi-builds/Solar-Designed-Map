@@ -63,7 +63,7 @@
 2. Check `_CLOUD_CFG.B12` → must be `RANGE12`.
    - If `RANGE12_FAIL` → some range failed → VBA correctly fell back to months; open Worker Logs and check `process-range` errors.
    - If `MONTH` → fallback is active (old speed).
-3. Check `_CLOUD_CFG.B13` → `processMs` from the range request.
+3. Check `_CLOUD_CFG.B13` → wall-ms of the range request (fetch + validate + D1 write; NOT CPU — real cpu_ms shows in Cloudflare invocation logs as exceededCpu or cpu_ms).
    - **If CPU ms ≤ ~8 → K=12 is safe on Free. Keep it.**
    - **If CPU ms is near/over 10** → set `RESOURCE_RANGE_MONTHS=6` (bulletproof K=6, back to 14s).
 4. Open Worker Logs: you should see exactly **5** `process-range` calls for the 5-year period (10 if `RESOURCE_RANGE_MONTHS=6`). Look at `cpu_ms` / `exceededCpu` per invocation.

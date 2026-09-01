@@ -792,7 +792,7 @@ Private Sub ResourceWriteDiagnostic(ByVal ModeText As String, ByVal CpuMs As Lon
     If Not ws Is Nothing Then
         ws.Range("A12").Value2 = "RESOURCE PROCESSING MODE"
         ws.Range(RESOURCE_MODE_CONFIG_CELL).Value2 = ModeText
-        ws.Range("A13").Value2 = "RANGE CPU MS (LAST)"
+        ws.Range("A13").Value2 = "RANGE PROCESS MS (LAST)"
         ws.Range(RESOURCE_CPU_CONFIG_CELL).Value2 = CpuMs
     End If
     Debug.Print Format$(Now, "yyyy-mm-dd hh:nn:ss"), "RESOURCE MODE:", ModeText, "CPU(ms):", CpuMs
