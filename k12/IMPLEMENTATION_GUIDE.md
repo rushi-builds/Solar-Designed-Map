@@ -92,3 +92,31 @@
 - **K=12 equivalence test:** 12-month range split vs month-by-month → all 12 months **rows, states, counts identical** (8,784 records, missing + invalid values).
 - Grouping: 60 months → 5 contiguous 12-month runs (1 wave); holes handled as separate runs.
 - D1 statements per range call = 25 (limit 50). Payload ~1.2–1.8 MB (guard 8 MB). Free CPU is measured via `processMs` before trusting K=12 long-term.
+
+---
+
+# v1.9 UPDATE: Night-time Albedo = N/A (Data Status ab VALID hota hai)
+
+## Problem (aapke live site pe dekha)
+- `Data Status = REVIEW`, `missing=20853`, `invalid=0`, `duplicates=0`
+- Kya missing thi? **~21,000 night-time hours ka `ALLSKY_SRF_ALB`** — NASA sun horizon ke neeche ho toh albedo ke liye `-999.0` deta hai (verified: Pune 1 Jan 2025, DWN=0 hours 00 & 13–23 = albedo -999; baaki 9 params 100% complete)
+- **Yeh real data gap NAHI hai** — raat me albedo physically exist nahi karta. Kisi bhi source (Open-Meteo/NSRDB/PVGIS/CAMS/climatology) se fill karne se **do alag models mix** honge, source identity tootegi, aur numbers galat ho sakte. Isliye **fill nahi kiya** — classification sahi ki.
+
+## Fix
+- Rule: jaise hi `ALLSKY_SFC_SW_DWN[timestamp] === 0` (raat) aur albedo fill hai → **night-albedo = N/A** (count alag `nightAlbedoCount` me), **missingCount / reviewCount me nahi**
+- Albado hour **storage me phir bhi null** (value change nahi, zero nahi) — sirf report classification badli
+- Same rule month path + range path dono me lagta hai
+- Remarks me dikhega: `night-albedo N/A=<count>`; Validation line me bhi
+
+## Result
+- Missing sirf **real gaps** ginata hai → agar sirf night-albedo tha → **Data Status = VALID** ✅
+- GHI/DNI/DHI, T2M, wind — **sab same calculation, kuch change nahi** (night albedo pehle bhi mean me nahi jaata tha)
+
+## Deploy
+1. `worker_k12.js` replace karo (health → `1.9-nightalbedo`)
+2. VBA module same rehta hai (koi change nahi)
+3. Purana site re-run karo (ya D1 se old request delete karke naya start) → `Data Status = VALID`, `missing=0`, remarks me `night-albedo N/A=~21912`
+
+## Verified
+- 5-year test: 43,824 records, missing=0, invalid=0, nightAlbedo=21,912 → **VALID** ✅
+- Equivalence: month path vs range path rows/states 100% same ✅

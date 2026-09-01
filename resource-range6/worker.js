@@ -23,7 +23,7 @@ async function route(request, env) {
   }
   if (method === "OPTIONS") return empty(204, request);
   if (method === "GET" && (path === "/" || path === "/v1/health")) {
-    return json({ ok: true, service: "SolarEPCCloudRelay", version: "1.8-resource-range6" }, 200, request);
+    return json({ ok: true, service: "SolarEPCCloudRelay", version: "1.9-nightalbedo" }, 200, request);
   }
 
   if (method === "POST" && path === "/v1/session/open") {
@@ -263,8 +263,16 @@ function empty(status, request) {
 }
 
 // ============================================================================
-// SOLAR EPC NASA POWER HOURLY RESOURCE MODULE v1.8 (range6)
+// SOLAR EPC NASA POWER HOURLY RESOURCE MODULE v1.9 (range12 + night albedo)
 // Additive Worker/D1 module. Existing SAVE/session/ACK behavior is unchanged.
+//
+// NEW in v1.9:
+//  - NASA returns -999.0 for ALLSKY_SRF_ALB during nighttime (sun below the
+//    horizon). Those hours are physically not-applicable, NOT data gaps. They
+//    are now classified as nightAlbedoCount (N/A) and excluded from missingCount
+//    and reviewCount -> a site with only night-albedo fills now gets VALID.
+//    Stored hourly values are unchanged: albedo remains null, never zero.
+//  - Same classification is applied to both /process-month and /process-range.
 //
 // NEW in v1.8:
 //  - /v1/resource/process-range fetches up to RESOURCE_RANGE_MONTHS (default 12)
@@ -645,7 +653,7 @@ function validateAndNormalizeNasaMonth(nasa, range, requestedLat, requestedLon) 
   const expectedTimes = expectedHourlyKeys(range.start, range.end);
   const expectedSet = new Set(expectedTimes);
   let duplicateCount = expectedTimes.length - expectedSet.size;
-  let missingCount = 0, invalidCount = 0;
+  let missingCount = 0, invalidCount = 0, nightAlbedoCount = 0;
   const rows = [];
   const state = newResourceSummaryState();
   const daily = {};
@@ -658,9 +666,18 @@ function validateAndNormalizeNasaMonth(nasa, range, requestedLat, requestedLon) 
       let value = obj[timestamp];
       const fill = Number(header.fill_value);
       if (value === undefined || value === null || Number(value) === fill || !Number.isFinite(Number(value))) {
-        value = null;
-        missingCount++;
-        state.metrics[p].missing++;
+        // NASA fills ALLSKY_SRF_ALB with -999.0 when the sun is below the
+        // horizon. That hour is physically not-applicable, not missing data:
+        // still stored as null (never zero) but excluded from missing/review.
+        if (p === "ALLSKY_SRF_ALB" && Number(data.ALLSKY_SFC_SW_DWN?.[timestamp]) === 0) {
+          nightAlbedoCount++;
+          state.nightAlbedoCount++;
+          value = null;
+        } else {
+          value = null;
+          missingCount++;
+          state.metrics[p].missing++;
+        }
       } else {
         value = Number(value);
         if (!resourceValueValid(p, value)) {
@@ -712,7 +729,7 @@ function validateAndNormalizeNasaMonth(nasa, range, requestedLat, requestedLon) 
   state.reviewCount = missingCount + invalidCount + duplicateCount + unitMismatchCount;
   return {
     rows, units, state, missingCount, invalidCount, duplicateCount,
-    reviewCount: state.reviewCount,
+    nightAlbedoCount, reviewCount: state.reviewCount,
     metadata: {
       title: String(header.title || ""), apiName: String(header.api.name),
       apiVersion: String(header.api.version), sources: header.sources,
@@ -751,7 +768,7 @@ function newResourceSummaryState() {
     },
     windSin: 0, windCos: 0, windDirectionCount: 0,
     missingCount: 0, invalidCount: 0, duplicateCount: 0,
-    unitMismatchCount: 0, reviewCount: 0
+    unitMismatchCount: 0, reviewCount: 0, nightAlbedoCount: 0
   };
 }
 
@@ -788,6 +805,7 @@ function mergeMonthState(total, month) {
   total.duplicateCount += part.duplicateCount;
   total.unitMismatchCount += part.unitMismatchCount;
   total.reviewCount += part.reviewCount;
+  total.nightAlbedoCount += Number(part.nightAlbedoCount || 0);
   return total;
 }
 
@@ -815,6 +833,7 @@ function finalizeResourceSummary(row, state, units, metadata) {
     precipitation: mean("PRECTOTCORR"), albedo: mean("ALLSKY_SRF_ALB"),
     missingCount: state.missingCount, invalidCount: state.invalidCount,
     duplicateCount: state.duplicateCount, unitMismatchCount: state.unitMismatchCount,
+    nightAlbedoCount: state.nightAlbedoCount || 0,
     validHourlyT2MCount: state.metrics.T2M.count,
     completeIrradianceDays: state.dailyIrradiance.ALLSKY_SFC_SW_DWN.count,
     incompleteIrradianceDays: state.dailyIrradiance.ALLSKY_SFC_SW_DWN.incomplete,
@@ -832,7 +851,8 @@ function resourceSummaryText(row, s, units, metadata) {
     "Wind direction = circular mean. Other weather fields = arithmetic means of valid hourly NASA values.",
     `Precipitation uses NASA returned unit ${units.PRECTOTCORR || "unavailable"}; missing values were excluded, never changed to zero.`,
     "GTI / POA Irradiance remains DERIVED and is not populated from GHI.",
-    `Validation: missing=${s.missingCount}, invalid=${s.invalidCount}, duplicates=${s.duplicateCount}, unit mismatches=${s.unitMismatchCount}.`
+    `ALLSKY_SRF_ALB: NASA returns fill values during nighttime (sun below horizon); those ${s.nightAlbedoCount || 0} hours are classified not-applicable, excluded from the mean, stored as null and never changed to zero.`,
+    `Validation: missing=${s.missingCount}, invalid=${s.invalidCount}, duplicates=${s.duplicateCount}, unit mismatches=${s.unitMismatchCount}, night-albedo N/A=${s.nightAlbedoCount || 0}.`
   ].join(" ");
   const fields = {
     schema: "SOLAR_EPC_RESOURCE_SUMMARY_V1", request_id: row.request_id,
@@ -1281,7 +1301,8 @@ async function resourceProcessRange(request, env, workbook) {
     processMs, rangeMonths: maxRangeMonths,
     validation: {
       missing: validated.totalMissing, invalid: validated.totalInvalid,
-      duplicates: validated.totalDuplicate, review: validated.anyReview
+      duplicates: validated.totalDuplicate, nightAlbedo: validated.totalNightAlbedo,
+      review: validated.anyReview
     }
   }, 200, request);
 }
@@ -1389,7 +1410,7 @@ function validateAndNormalizeNasaRange(nasa, range, requestedLat, requestedLon) 
         rows: [],
         state: newResourceSummaryState(),
         daily: { ALLSKY_SFC_SW_DWN: {}, ALLSKY_SFC_SW_DNI: {}, ALLSKY_SFC_SW_DIFF: {} },
-        missing: 0, invalid: 0
+        missing: 0, invalid: 0, nightAlbedo: 0
       };
       monthKeys.push(m);
     }
@@ -1403,9 +1424,17 @@ function validateAndNormalizeNasaRange(nasa, range, requestedLat, requestedLon) 
       let value = obj[timestamp];
       const fill = Number(header.fill_value);
       if (value === undefined || value === null || Number(value) === fill || !Number.isFinite(Number(value))) {
-        value = null;
-        bucket.missing++;
-        bucket.state.metrics[p].missing++;
+        // Night-time albedo (sun below horizon) = not-applicable, same rule
+        // as the month path; stored null, never zero, not counted as missing.
+        if (p === "ALLSKY_SRF_ALB" && Number(data.ALLSKY_SFC_SW_DWN?.[timestamp]) === 0) {
+          value = null;
+          bucket.nightAlbedo++;
+          bucket.state.nightAlbedoCount++;
+        } else {
+          value = null;
+          bucket.missing++;
+          bucket.state.metrics[p].missing++;
+        }
       } else {
         value = Number(value);
         if (!resourceValueValid(p, value)) {
@@ -1428,7 +1457,7 @@ function validateAndNormalizeNasaRange(nasa, range, requestedLat, requestedLon) 
   }
 
   const parts = [];
-  let totalRecords = 0, totalMissing = 0, totalInvalid = 0, totalDuplicate = 0, anyReview = false;
+  let totalRecords = 0, totalMissing = 0, totalInvalid = 0, totalDuplicate = 0, totalNightAlbedo = 0, anyReview = false;
   for (const month of monthKeys) {
     const bucket = buckets[month];
     for (const p of Object.keys(bucket.daily)) {
@@ -1457,12 +1486,14 @@ function validateAndNormalizeNasaRange(nasa, range, requestedLat, requestedLon) 
       invalidCount: bucket.invalid,
       duplicateCount,
       unitMismatchCount,
-      reviewCount
+      reviewCount,
+      nightAlbedoCount: bucket.nightAlbedo
     });
     totalRecords += bucket.rows.length;
     totalMissing += bucket.missing;
     totalInvalid += bucket.invalid;
     totalDuplicate += duplicateCount;
+    totalNightAlbedo += bucket.nightAlbedo;
     if (reviewCount > 0) anyReview = true;
   }
 
@@ -1477,7 +1508,7 @@ function validateAndNormalizeNasaRange(nasa, range, requestedLat, requestedLon) 
       returnedGeometry: nasa.geometry,
       messages: Array.isArray(nasa.messages) ? nasa.messages : []
     },
-    totalRecords, totalMissing, totalInvalid, totalDuplicate, anyReview
+    totalRecords, totalMissing, totalInvalid, totalDuplicate, totalNightAlbedo, anyReview
   };
 }
 
@@ -1539,6 +1570,7 @@ function mergeResourceSummaryStates(total, part) {
   total.duplicateCount += Number(part.duplicateCount || 0);
   total.unitMismatchCount += Number(part.unitMismatchCount || 0);
   total.reviewCount += Number(part.reviewCount || 0);
+  total.nightAlbedoCount += Number(part.nightAlbedoCount || 0);
   return total;
 }
 
