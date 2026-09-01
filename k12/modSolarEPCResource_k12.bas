@@ -1,7 +1,7 @@
 Option Explicit
 
 '==========================================================================
-' SOLAR EPC - NASA POWER HOURLY RESOURCE MODULE v1.8 (RANGE6)
+' SOLAR EPC - NASA POWER HOURLY RESOURCE MODULE v1.9.1 (RANGE12 + LOCATION-TOLERANT)
 '
 ' - Reads only the SITE row in DRAWING_DATA.autoLWHTbl.
 ' - Never reads tblDrawingData (obstacles) for the resource centroid.
@@ -11,6 +11,14 @@ Option Explicit
 '   validates and stores every hourly record, and returns a project summary.
 ' - T2M minimum/maximum are derived from validated hourly T2M because NASA's
 '   Hourly API rejects T2M_MIN and T2M_MAX.
+'
+' v1.9.1 CHANGE (RESOURCE_DB Location column):
+' - RESOURCE_DB may now include an additional descriptive "Location" column.
+'   Required columns are matched BY NAME (Project ID, Latitude (°), Longitude (°),
+'   ...). Extra descriptive columns such as Location are ALLOWED and are never
+'   overwritten. Column order and total count are no longer enforced.
+' - If a required column is missing, a visible error is written to _CLOUD_CFG
+'   B10/B11 instead of failing silently.
 '
 ' v1.8 CHANGE (K=6/K=12 ranges):
 ' - /v1/resource/plan now returns "ranges" (e.g. 202101-202106). VBA prefers
@@ -1106,21 +1114,38 @@ End Function
 
 Private Function ResourceFindHeaderTable(ByVal ws As Worksheet) As ListObject
     Dim Tbl As ListObject
-    Dim Headers As Variant
+    Dim Required As Variant
     Dim i As Long
+    Dim Missing As String
 
     'Use only the existing RESOURCE_DB Excel Table by its confirmed name.
     'Never create, convert, rename or substitute another table/range.
     Set Tbl = ResourceFindWorkbookTable(RESOURCE_DB_TABLE)
-    If Tbl Is Nothing Then Exit Function
+    If Tbl Is Nothing Then
+        ResourceSetLastError "RESOURCE IMPORT: Excel Table '" & RESOURCE_DB_TABLE & "' was not found in this workbook."
+        Exit Function
+    End If
     If Not Tbl.Parent Is ws Then Exit Function
 
-    Headers = ResourceHeaders()
-    If Tbl.ListColumns.Count <> UBound(Headers) + 1 Then Exit Function
-    For i = LBound(Headers) To UBound(Headers)
-        If StrComp(CStr(Tbl.ListColumns(i + 1).Name), _
-                   CStr(Headers(i)), vbBinaryCompare) <> 0 Then Exit Function
+    'MATCH BY NAME ONLY. RESOURCE_DB may include extra descriptive columns
+    '(e.g. Location). Column count/order are NOT enforced; required columns are
+    'located by header name, written by name, and Location is never overwritten.
+    Required = ResourceHeaders()
+    For i = LBound(Required) To UBound(Required)
+        If ResourceColumn(Tbl, CStr(Required(i))) = 0 Then
+            If Len(Missing) = 0 Then
+                Missing = CStr(Required(i))
+            Else
+                Missing = Missing & ", " & CStr(Required(i))
+            End If
+        End If
     Next i
+    If Len(Missing) > 0 Then
+        ResourceSetLastError "RESOURCE IMPORT: RESOURCE_DB is missing required column(s): " & _
+            Missing & ". Required columns are matched by name; extra descriptive columns (e.g. Location) are allowed."
+        Exit Function
+    End If
+
     Set ResourceFindHeaderTable = Tbl
 End Function
 

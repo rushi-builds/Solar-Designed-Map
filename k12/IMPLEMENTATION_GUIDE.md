@@ -123,6 +123,13 @@ Old request (v1.8 me ingest) ka `summary_*` metadata abhi bhi night hours ko mis
 - Exact commands: `k12/REVALIDATION_RUNBOOK.md`
 - Expected: `data_status=VALID`, `missing=0`, `night-albedo N/A=20853` (actual D1 count; 21,912 synthetic hai — evidence nahi)
 
+## RESOURCE_DB me Location column (v1.9.1 VBA)
+RESOURCE_DB me ab optional descriptive **Location** column ho sakta hai. VBA v1.9.1:
+- Required columns ko **NAME se** match karta hai (Project ID, Latitude (°), Longitude (°), ...) — column count/order ab matter nahi karta
+- Extra columns (Location) allowed; **Location kabhi overwrite nahi hota**
+- Agar required column missing hai → silently fail ki jagah `_CLOUD_CFG` B10/B11 me error dikhta hai
+- **Isliye:** VBA module re-import karo (jo download kiya hai usme v1.9.1 hai) aur `SolarEPC_ResourceRetryLatestSite` ya resource flow dobara chalao
+
 ## Verified (real dataset, read-only forensic)
 - CHECK #1: 43,824 records × 10 params; missing sirf `ALLSKY_SRF_ALB` = 20,853; invalid/duplicates/unit = 0
 - CHECK #2 (stored rows replay): ALB null = 20,853 → DWN=0 = 20,853, DWN>0 = 0, DWN unavailable = 0 → reconciliation OK
