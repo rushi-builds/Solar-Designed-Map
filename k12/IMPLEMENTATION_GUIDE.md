@@ -113,10 +113,18 @@
 - GHI/DNI/DHI, T2M, wind — **sab same calculation, kuch change nahi** (night albedo pehle bhi mean me nahi jaata tha)
 
 ## Deploy
-1. `worker_k12.js` replace karo (health → `1.9-nightalbedo`)
+1. `worker_k12.js` replace karo (health → `1.9-nightalbedo`); D1 binding `DB` aur env vars waise hi rehne do
 2. VBA module same rehta hai (koi change nahi)
-3. Purana site re-run karo (ya D1 se old request delete karke naya start) → `Data Status = VALID`, `missing=0`, remarks me `night-albedo N/A=~21912`
+3. **Naye sites** → new ingest automatically N/A classify karta hai → sirf night-albedo fills ho toh `Data Status = VALID`
 
-## Verified
-- 5-year test: 43,824 records, missing=0, invalid=0, nightAlbedo=21,912 → **VALID** ✅
+## Purane request ko re-validate karna (delete / re-run NAHI)
+Old request (v1.8 me ingest) ka `summary_*` metadata abhi bhi night hours ko missing ginata hai. Uska `resource_chunks` (hourly values) **touch nahi hota** — sirf classification metadata re-derive hota hai, request_id aur saare stored hours preserved:
+- Export: `resource_chunks` (request_id, chunk_start, parameter_order_json, data_json) + `resource_requests` (full row) → `revalidate_night_albedo.mjs` (dry-run; hard-abort agar koi ALB null DWN>0/DWN-unavailable ho) → generated SQL apply (`wrangler d1 execute --file`).
+- Exact commands: `k12/REVALIDATION_RUNBOOK.md`
+- Expected: `data_status=VALID`, `missing=0`, `night-albedo N/A=20853` (actual D1 count; 21,912 synthetic hai — evidence nahi)
+
+## Verified (real dataset, read-only forensic)
+- CHECK #1: 43,824 records × 10 params; missing sirf `ALLSKY_SRF_ALB` = 20,853; invalid/duplicates/unit = 0
+- CHECK #2 (stored rows replay): ALB null = 20,853 → DWN=0 = 20,853, DWN>0 = 0, DWN unavailable = 0 → reconciliation OK
+- Night length seasonal hai (winter 12h/day, summer 10h/day — UTC 00 & 13 summer me daylight) → 21,912 fixed-hour assumption galat tha
 - Equivalence: month path vs range path rows/states 100% same ✅
