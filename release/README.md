@@ -114,11 +114,20 @@ Sirf **blank** cells bharenge.
 | Rahegaon | `Rahegaon, Vaijapur, Chhatrapati Sambhajinagar` |
 | Pachod (county = "Paithan taluka") | `Pachod, Paithan, Chhatrapati Sambhajinagar` |
 | Baramati (town == taluka HQ) | `Baramati, Pune` |
-| Phaltan coords (OSM me gaon nahi) | `MSEB Colony, Phaltan, Satara` |
+| Tumhara site 17.965924, 74.469773 (B5 key ke bina) | `Phaltan, Satara` |
 
-Last wala case me `MSEB Colony` isliye aata hai kyunki **OSM me wahan koi
-gaon mapped hi nahi** — ye sabse specific cheez hai jo OSM ko mili. Asli
-`Sonwadi Bk.` ke liye **B5 me Google key daalo.**
+**Tumhare site `17.965924, 74.469773` ka asli gaon `Sonwadi Bk.` hai** —
+tumhare Google Maps screenshot se confirm
+(`XF89+9W6 Sonwadi Bk., Maharashtra`).
+
+Par **B5 me Google key daale bina** ye `Phaltan, Satara` hi dega, kyunki OSM
+me Sonwadi Bk. hai hi nahi (8 km me sirf Vidni, Saskal, Vinchurni, Nirugudi,
+Pimprad hain).
+
+B5 me key daalne ke baad:
+```
+Sonwadi Bk., Phaltan, Satara
+```
 
 ---
 
