@@ -1261,8 +1261,9 @@ Failed:
     ResourceGoogleLocationLabel = vbNullString
 End Function
 
-'v1.9.4: "EXACT GAON, TALUKA" for the exact centroid (e.g. "Rahegaon,
-'Vaijapur", "Pachod, Paithan"). District and State are NOT included.
+'v1.9.5: "EXACT AREA, TALUKA, DISTRICT" for the exact centroid
+'(e.g. "Rahegaon, Vaijapur, Chhatrapati Sambhajinagar",
+'"Sonwadi Bk., Phaltan, Satara"). STATE is NOT included.
 'Tiers: 0) Google (only if _CLOUD_CFG!B5 has a key - best Indian
 'revenue-village coverage) -> 1) OSM Nominatim (free, no key) ->
 '2) BigDataCloud (free, no key).
