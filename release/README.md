@@ -138,17 +138,43 @@ Sirf `.bas` files change hui hain (3 copies, sab byte-identical).
 
 ---
 
-## 7. ⚠️ Google output live verify nahi hua
+## 7. ✅ Google CONFIRMED — Sonwadi Bk. milta hai
 
-Maine **parser** ko test kiya hai realistic Google response structure par —
-wo `Sonwadi Bk` + `Phaltan` + `Satara` sahi nikal raha hai. Par **live Google
-API se verify nahi kiya** — mere sandbox se `maps.googleapis.com` reachable
-nahi hai aur mere paas key bhi nahi.
+17-09-2026 ko tumne khud Google Maps ka screenshot bheja, usme clearly likha
+tha:
 
-Isliye B5 me key daalne ke baad **pehle ek site run karke check kar lena.**
-Agar Google kuch ajeeb de ya `REQUEST_DENIED` aaye, to module automatically
-Nominatim par fall back ho jata hai — koi error nahi aayega. Pasand na aaye
-to B5 khali kar do → turant purana behavior.
+```
+17°57'57.3"N 74°28'11.2"E   =   17.965924, 74.469773
+XF89+9W6 Sonwadi Bk., Maharashtra
+```
+
+Plus code `XF89+9W6` BigDataCloud wale `7J9PXF89+9W` se match karta hai —
+**same point.** Matlab is coordinate ka asli gaon **Sonwadi Bk.** hai, aur
+Google ko wo pata hai.
+
+### Teeno providers ka comparison (same coordinate)
+
+| Source | Result |
+|---|---|
+| OpenStreetMap / Nominatim | ❌ `Phaltan, Satara` — 8 km me sirf Vidni, Saskal, Vinchurni, Nirugudi, Pimprad. **Sonwadi nahi.** |
+| BigDataCloud | ❌ `Phaltan, Satara` |
+| **Google** | ✅ **`Sonwadi Bk.`** |
+
+**Isliye Google tier zaroori hai** — OSM me ye data hai hi nahi, chahe koi
+bhi logic lagao.
+
+B5 me key daalne ke baad expected output:
+```
+Sonwadi Bk., Phaltan, Satara
+```
+
+> Note: maine parser ko realistic response structure par test kiya tha
+> (pehle), aur ab tumhare screenshot se **data availability bhi confirm** ho
+> gayi. Sirf itna ki maine `maps.googleapis.com` ko live call nahi kiya
+> (mere sandbox se reachable nahi, key bhi nahi) — isliye pehli run mein ek
+> baar output zaroor check kar lena. Agar Google `REQUEST_DENIED` de to
+> module automatically Nominatim par fall back ho jata hai, koi error nahi
+> aayega.
 
 ---
 
