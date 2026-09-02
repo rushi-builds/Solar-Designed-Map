@@ -1,7 +1,7 @@
 Option Explicit
 
 '==========================================================================
-' SOLAR EPC - NASA POWER HOURLY RESOURCE MODULE v1.9.3 (RANGE12 + VILLAGE-LEVEL LOCATION)
+' SOLAR EPC - NASA POWER HOURLY RESOURCE MODULE v1.9.4 (RANGE12 + EXACT VILLAGE, TALUKA)
 '
 ' - Reads only the SITE row in DRAWING_DATA.autoLWHTbl.
 ' - Never reads tblDrawingData (obstacles) for the resource centroid.
@@ -12,6 +12,20 @@ Option Explicit
 ' - T2M minimum/maximum are derived from validated hourly T2M because NASA's
 '   Hourly API rejects T2M_MIN and T2M_MAX.
 '
+' v1.9.4 CHANGE (Location: EXACT VILLAGE, TALUKA only):
+' - Format ab sirf "Gaon, Taluka" hai - District aur State nahi chahiye.
+'     Gaon  priority (exact village): village -> hamlet -> suburb ->
+'                                     locality -> neighbourhood -> town -> city
+'     Taluka: county (India me county = taluka)
+'   Example: "Rahegaon, Vaijapur" / "Pachod, Paithan".
+'   Taluka nahi mila to sirf gaon ka naam (kuch invent nahi hota).
+' - OPTIONAL Google tier (sabse important): _CLOUD_CFG!B5 me Google Geocoding
+'   API key daalo to sabse pehle Google reverse-geocode try hoga. Google ke
+'   paas Indian REVENUE-village coverage hai (Sonwadi Bk. jaise naam), jo
+'   OpenStreetMap me maujood hi nahi. Key khali rahe to kuch change nahi -
+'   purana Nominatim -> BigDataCloud flow chalta rahega.
+'   Google ka "locality" = exact gaon, "administrative_area_level_3" = taluka.
+
 ' v1.9.3 CHANGE (Location: Village -> Taluka -> District):
 ' - Location ab "Town, District" nahi balki most specific locality use karta hai:
 '     Locality  priority: village -> hamlet -> suburb -> locality ->
@@ -1138,34 +1152,91 @@ Private Function ResourceLocalityName(ByVal JSONText As String) As String
     Next I
 End Function
 
-'v1.9.3: up to two ADMINISTRATIVE levels ("Taluka, District") actually returned.
-'Priority: county/taluka -> district -> state_district -> state.
-'Names already used as the locality are skipped, and duplicates are collapsed,
-'so a town that is also a taluka headquarters is only named once.
-Private Function ResourceAdminNames(ByVal JSONText As String, ByVal Locality As String) As String
-    Dim Keys As Variant
-    Dim I As Long, V As String
-    Dim A1 As String, A2 As String
-    Keys = Array("county", "district", "state_district", "state")
-    For I = LBound(Keys) To UBound(Keys)
-        V = ResourceAdminClean(ResourceJSONValue(JSONText, CStr(Keys(I))))
-        If Len(V) > 0 Then
-            If Not ResourceSameName(V, Locality) Then
-                If Len(A1) = 0 Then
-                    A1 = V
-                ElseIf Not ResourceSameName(V, A1) Then
-                    If Len(A2) = 0 Then A2 = V Else Exit For
-                End If
-            End If
-        End If
-    Next I
-    ResourceAdminNames = ResourceLocationCompose(A1, A2)
+'v1.9.4: TALUKA only. District and State are deliberately NOT included -
+'the label is meant to be "Gaon, Taluka" and nothing more.
+'In India Nominatim returns the taluka as "county" ("Phaltan",
+'"Paithan taluka"). Returns "" when there is no taluka, so the label
+'becomes just the locality. A taluka is NEVER invented.
+Private Function ResourceTalukaName(ByVal JSONText As String, ByVal Locality As String) As String
+    Dim V As String
+    V = ResourceAdminClean(ResourceJSONValue(JSONText, "county"))
+    If Len(V) = 0 Then Exit Function
+    If ResourceSameName(V, Locality) Then Exit Function   'town is its own taluka HQ
+    ResourceTalukaName = V
 End Function
 
-'v1.9.3: most specific real location for the exact centroid, built as
-'"Village/Locality, Taluka, District" (e.g. "Rahegaon, Vaijapur, Chhatrapati
-'Sambhajinagar"). Levels the geocoder does not return are simply skipped.
-'Primary: OSM Nominatim (free, no key); fallback: BigDataCloud (free, no key).
+'v1.9.4: read an optional _CLOUD_CFG cell. Never errors if the sheet or the
+'cell is missing, so an unset key simply disables the optional tier.
+Private Function ResourceConfigCell(ByVal CellAddress As String) As String
+    Dim ws As Worksheet
+    On Error GoTo Failed
+    Set ws = ThisWorkbook.Worksheets(CONFIG_SHEET)
+    ResourceConfigCell = Trim$(CStr(ws.Range(CellAddress).Value2))
+    Exit Function
+Failed:
+    ResourceConfigCell = vbNullString
+End Function
+
+'v1.9.4: read one Google address_component by its type, e.g.
+'  "locality"                     -> exact village / town
+'  "administrative_area_level_3"  -> taluka (India)
+'Google emits {"long_name":"..","short_name":"..","types":[..]} per component.
+Private Function ResourceGoogleAddressPart(ByVal JSONText As String, ByVal TypeName As String) As String
+    Dim Re As Object, Matches As Object, M As Object
+    On Error GoTo Failed
+    Set Re = CreateObject("VBScript.RegExp")
+    Re.Global = True
+    Re.IgnoreCase = True
+    Re.Pattern = "\{\s*""long_name""\s*:\s*""([^""]*)""\s*,\s*""short_name""\s*:\s*""[^""]*""\s*," & _
+                 "\s*""types""\s*:\s*\[([^\]]*)\]"
+    If Re.Test(JSONText) Then
+        Set Matches = Re.Execute(JSONText)
+        For Each M In Matches
+            If InStr(1, M.SubMatches(1), """" & TypeName & """", vbTextCompare) > 0 Then
+                ResourceGoogleAddressPart = Trim$(M.SubMatches(0))
+                Exit Function
+            End If
+        Next M
+    End If
+    Exit Function
+Failed:
+    ResourceGoogleAddressPart = vbNullString
+End Function
+
+'v1.9.4: OPTIONAL Google reverse-geocode tier - best shot at the EXACT Indian
+'revenue village (OSM simply does not carry names like "Sonwadi Bk.").
+'Active ONLY when a key sits in _CLOUD_CFG!B5. With no key this returns ""
+'and the Nominatim / BigDataCloud tiers run exactly as before.
+Private Function ResourceGoogleLocationLabel(ByVal Lat As Double, ByVal Lon As Double) As String
+    Dim Key As String, UrlText As String, JSONText As String
+    Dim Locality As String, Taluka As String
+    On Error GoTo Failed
+    Key = ResourceConfigCell("B5")
+    If Len(Key) = 0 Then Exit Function
+    UrlText = "https://maps.googleapis.com/maps/api/geocode/json?latlng=" & _
+              ResourceDecimal(Lat, 8) & "," & ResourceDecimal(Lon, 8) & _
+              "&language=en&key=" & Key
+    JSONText = ResourceHttpGetJson(UrlText)
+    If Len(JSONText) = 0 Then Exit Function
+    If InStr(1, JSONText, """status""", vbBinaryCompare) = 0 Then Exit Function
+    If InStr(1, JSONText, """OK""", vbBinaryCompare) = 0 Then Exit Function
+    Locality = ResourceGoogleAddressPart(JSONText, "locality")
+    If Len(Locality) = 0 Then Locality = ResourceGoogleAddressPart(JSONText, "sublocality")
+    If Len(Locality) = 0 Then Locality = ResourceGoogleAddressPart(JSONText, "neighborhood")
+    Taluka = ResourceGoogleAddressPart(JSONText, "administrative_area_level_3")
+    If Len(Locality) > 0 Then
+        ResourceGoogleLocationLabel = ResourceLocationCompose(Locality, ResourceAdminClean(Taluka))
+    End If
+    Exit Function
+Failed:
+    ResourceGoogleLocationLabel = vbNullString
+End Function
+
+'v1.9.4: "EXACT GAON, TALUKA" for the exact centroid (e.g. "Rahegaon,
+'Vaijapur", "Pachod, Paithan"). District and State are NOT included.
+'Tiers: 0) Google (only if _CLOUD_CFG!B5 has a key - best Indian
+'revenue-village coverage) -> 1) OSM Nominatim (free, no key) ->
+'2) BigDataCloud (free, no key).
 'Only the exact centroid lat/lon is reverse-geocoded - there is no
 'nearest-town search. Result is descriptive ONLY; identity stays
 'centroid_lat/centroid_lon.
@@ -1188,6 +1259,10 @@ Private Function ResourceLocationLabel(ByVal LatitudeText As String, ByVal Longi
         Exit Function
     End If
 
+    '0) OPTIONAL Google tier - only fires when _CLOUD_CFG!B5 holds a key.
+    ResourceLocationLabel = ResourceGoogleLocationLabel(Lat, Lon)
+    If Len(ResourceLocationLabel) > 0 Then GoTo StoreCache
+
     '1) OpenStreetMap Nominatim (free, no API key)
     '   zoom=18 asks for the most detailed address block - village / hamlet /
     '   suburb / neighbourhood are only populated at the higher zoom levels.
@@ -1197,7 +1272,7 @@ Private Function ResourceLocationLabel(ByVal LatitudeText As String, ByVal Longi
     JSONText = ResourceHttpGetJson(UrlText)
     If Len(JSONText) > 0 Then
         Primary = ResourceLocalityName(JSONText)
-        Secondary = ResourceAdminNames(JSONText, Primary)
+        Secondary = ResourceTalukaName(JSONText, Primary)
         If Len(Primary) = 0 Then
             'Last resort only. display_name is still geocoder output (never
             'invented) and its first element is the most specific name the
@@ -1215,7 +1290,9 @@ Private Function ResourceLocationLabel(ByVal LatitudeText As String, ByVal Longi
         End If
     End If
 
-    '2) BigDataCloud free client reverse-geocode (no key) fallback
+    '2) BigDataCloud free client reverse-geocode (no key) fallback.
+    '   This provider exposes no taluka at top level, so only the locality is
+    '   used - state is deliberately not appended.
     UrlText = "https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=" & _
               ResourceDecimal(Lat, 6) & "&longitude=" & ResourceDecimal(Lon, 6) & _
               "&localityLanguage=en"
@@ -1223,10 +1300,7 @@ Private Function ResourceLocationLabel(ByVal LatitudeText As String, ByVal Longi
     If Len(JSONText) > 0 Then
         Primary = ResourceJSONValue(JSONText, "locality")
         If Len(Primary) = 0 Then Primary = ResourceJSONValue(JSONText, "city")
-        Secondary = ResourceJSONValue(JSONText, "principalSubdivision")
-        If Len(Primary) > 0 Then
-            ResourceLocationLabel = ResourceLocationCompose(Primary, Secondary)
-        End If
+        If Len(Primary) > 0 Then ResourceLocationLabel = Primary
     End If
 
 StoreCache:

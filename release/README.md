@@ -1,151 +1,165 @@
-# Solar EPC Resource — v1.9.3
+# Solar EPC Resource — v1.9.4
 
 **Date:** 2026-09-02
-**Commit:** `fdf0de7`
+**Commit:** (see below)
 **Branch:** `arena/01a06261-solar-designed-map`
 
 ---
 
-## 1. Is folder me kya hai
+## 1. Format badal gaya — ab sirf `Gaon, Taluka`
+
+| | Format | Example |
+|---|---|---|
+| v1.9.2 | `Town, District` | `Phaltan, Satara` |
+| v1.9.3 | `Gaon, Taluka, District/State` | `Rahegaon, Vaijapur, Chhatrapati Sambhajinagar` |
+| **v1.9.4** | **`Gaon, Taluka`** | **`Rahegaon, Vaijapur`** |
+
+**District aur State ab nahi aate.** Bilkul nahi.
+
+```
+Gaon   priority (exact village): village → hamlet → suburb →
+                                 locality → neighbourhood → town → city
+Taluka: county  (India me Nominatim ka county = taluka)
+```
+
+- Taluka nahi mila → sirf gaon ka naam (kuch invent nahi hota).
+- Gaon jo khud taluka HQ ho (jaise Baramati) → sirf ek baar: `Baramati`.
+
+---
+
+## 2. ⭐ Naya: Google tier — ASLI gaon ke liye (optional)
+
+**Problem:** OSM me Indian revenue-village ke naam hote hi nahi.
+`Sonwadi Bk.` Satara district me OSM me **exist hi nahi karta** (maine
+bounded search se verify kiya — result empty aaya). Isliye Nominatim use
+kabhi nahi de sakta.
+
+**Solution:** Google ke paas Indian revenue-village coverage hai. Ab ek
+optional Google tier sabse pehle try hota hai.
+
+### Setup (30 second)
+
+`_CLOUD_CFG` sheet me:
+
+| Cell | Value |
+|---|---|
+| **B5** | Apni **Google Geocoding API key** |
+
+> B5 pehle khali tha — isliye koi existing setting overwrite nahi hoti.
+
+**Key khali rakho to kuch bhi change nahi hota** — purana
+Nominatim → BigDataCloud flow chalta rahega. Zero risk.
+
+### Google tier kya karta hai
+
+| Google field | Matlab | Label me |
+|---|---|---|
+| `locality` | exact gaon | pehla part |
+| `administrative_area_level_3` | taluka | dusra part |
+| `administrative_area_level_2` | district | ❌ skip |
+| `administrative_area_level_1` | state | ❌ skip |
+
+Agar `locality` na mile to `sublocality` → `neighborhood` try hota hai.
+
+---
+
+## 3. Is folder me kya hai
 
 | File | Kya karna hai |
 |---|---|
-| `modSolarEPCResource_k12.bas` | **Ye import karo.** Updated VBA module (v1.9.3) |
+| `modSolarEPCResource_k12.bas` | **Ye import karo** |
 | `README.md` | Ye instructions |
 
 ---
 
-## 2. Kya change hua (v1.9.2 → v1.9.3)
+## 4. Excel me import kaise kare
 
-### Problem
-`RESOURCE_DB` ka **Location** column sirf `Town, District` tak ruk jata tha
-(jaise `Phaltan, Satara`). Village aur Taluka dono miss ho jate the.
-
-Do wajah thi:
-1. Priority ulti thi — `town → city → village → hamlet`. Town milte hi
-   village ignore ho jata tha.
-2. Sirf 2 level hi output hote the, isliye **Taluka** kabhi nahi aata tha.
-
-### Fix
-Ab Location **most specific locality** use karta hai:
-
-```
-Locality  priority : village → hamlet → suburb → locality →
-                    neighbourhood → town → city
-Admin     priority : county/taluka → district → state_district → state
-Output    format   : "Village, Taluka, District"
-```
-
-Saath me:
-- Nominatim `zoom` 16 → **18** (village/hamlet/suburb/neighbourhood sirf
-  high zoom par milte hain).
-- Admin suffix saaf: `"Phaltan taluka" → "Phaltan"`,
-  `"Satara district" → "Satara"`. **Locality ka naam kabhi alter nahi hota.**
-- Duplicate collapse: town jo apne taluka ka HQ ho, wo sirf ek baar.
-
-### Before / After (live Nominatim data se verify kiya)
-
-| Site | v1.9.2 (purana) | v1.9.3 (naya) |
-|---|---|---|
-| Rahegaon, Vaijapur | Rahegaon, Chhatrapati Sambhajinagar | **Rahegaon, Vaijapur, Chhatrapati Sambhajinagar** |
-| Pachod (county = "Paithan taluka") | Pachod, Chhatrapati Sambhajinagar | **Pachod, Paithan, Chhatrapati Sambhajinagar** |
-| Koi locality key nahi | Pune | **Kharadi, Pune** |
-
----
-
-## 3. Excel me import kaise kare
-
-1. Workbook kholo → **Alt+F11** (VB Editor).
-2. **Purana module delete karo** — `modSolarEPCResource_k12` (ya jo naam hai)
-   par right-click → **Remove**. ⚠️ Step 2 skip mat karna, neeche dekho.
-3. **File → Import File** → `modSolarEPCResource_k12.bas` select karo.
-4. **Ctrl+S** → workbook save karo.
-5. VB Editor me **Debug → Compile VBAProject** → koi error nahi aana chahiye.
+1. Workbook kholo → **Alt+F11**.
+2. **Purana module delete karo** (`modSolarEPCResource_k12` → right-click →
+   **Remove**). ⚠️ Skip mat karna.
+3. **File → Import File** → `modSolarEPCResource_k12.bas`.
+4. **Ctrl+S**.
+5. **Debug → Compile VBAProject** → error nahi aana chahiye.
 
 > ⚠️ **Duplicate module ka issue**
 > Is file me `Attribute VB_Name` nahi hai, isliye Excel module ka naam
-> **filename** se leta hai. Agar purane naam ka module pehle se maujood hoga,
-> to Excel naye ko `modSolarEPCResource_k121` jaisa naam dega — aur dono me
-> same `Public Sub` hone se **"Ambiguous name detected"** compile error aayega.
-> Isliye pehle purana module delete karo, phir import karo.
+> **filename** se leta hai. Purana module maujood hoga to Excel naye ko
+> `modSolarEPCResource_k121` naam dega → dono me same `Public Sub` hone se
+> **"Ambiguous name detected"** compile error. Pehle delete, phir import.
 
 ---
 
-## 4. Verify kaise kare
+## 5. Verify
 
-**Naya site (recommended):**
-1. Ek naya site run karo.
-2. `RESOURCE_DB` me **Location** column check karo.
-3. Ab usme `Village, Taluka, District` aana chahiye (jaise
-   `Rahegaon, Vaijapur, Chhatrapati Sambhajinagar`).
+**Naya site:** ek naya site run karo → `RESOURCE_DB` ka **Location** column
+dekho. `Gaon, Taluka` aana chahiye.
 
-**Purani rows ke liye (ek saath sab fill):**
-1. **Alt+F8** → `SolarEPC_ResourceFillLocations` → Run.
-2. Sirf **blank** Location cells bharenge — manually type kiya hua kuch
-   change nahi hoga.
+**Purani rows:** **Alt+F8** → `SolarEPC_ResourceFillLocations` → Run.
+Sirf **blank** cells bharenge.
+
+### Expected results (real Nominatim data, Google key ke bina)
+
+| Site | v1.9.4 output |
+|---|---|
+| Rahegaon, Vaijapur | `Rahegaon, Vaijapur` |
+| Pachod (county = "Paithan taluka") | `Pachod, Paithan` |
+| Baramati (town == taluka HQ) | `Baramati` |
+| Kharadi | `Kharadi, Pune` |
 
 ---
 
-## 5. Safety — kya change NAHI hua
+## 6. Safety — kya change NAHI hua
 
 | Cheez | Status |
 |---|---|
 | Exact centroid lat/lon | ✅ Wahi (koi nearest-town search nahi) |
 | Manually typed Location | ✅ Kabhi overwrite nahi hota |
 | Sirf blank cells fill | ✅ Wahi |
-| Network fail hone par | ✅ Location blank rehta hai, import block nahi hota |
-| NASA / resource / cache logic | ✅ Bilkul unchanged |
-| MAP / DRAWING_DATA / SAVE / ACK | ✅ Bilkul unchanged |
-| Worker (`worker_k12.js`) | ✅ Unchanged — is release me Worker nahi chuna gaya |
+| Network fail | ✅ Location blank, import block nahi hota |
+| NASA / resource / cache logic | ✅ Unchanged |
+| MAP / DRAWING_DATA / SAVE / ACK | ✅ Unchanged |
+| Worker (`worker_k12.js`) | ✅ Unchanged |
 
-Sirf 2 files change hui hain:
-- `k12/modSolarEPCResource_k12.bas`
-- `resource-range6/modSolarEPCResource_range6.bas` (dono byte-identical)
+Sirf `.bas` files change hui hain (3 copies, sab byte-identical).
 
 ---
 
-## 6. ⚠️ Known limitation — "Sonwadi Bk." nahi milega
+## 7. ⚠️ Important — Google output verify karna padega
 
-Test coordinate `17.990387, 74.435250` par **OSM me "Sonwadi Bk." hai hi nahi**:
+Maine **parser ko** test kiya hai realistic Google response structure par —
+wo sahi se `Sonwadi Bk` + `Phaltan` nikal raha hai:
 
-- Nominatim reverse (zoom 14/16/18) → `neighbourhood=MSEB Colony,
-  town=Phaltan, county=Phaltan, state_district=Satara`
-- "Sonwadi" search bounded around Phaltan → **empty**
-- India-wide "Sonwadi" sirf Akola / Chhatrapati Sambhajinagar / Nanded /
-  Hingoli me hai — Phaltan ke paas nahi
-- BigDataCloud (fallback provider) → bhi sirf Phaltan / Satara
+```
+locality                    → Sonwadi Bk
+administrative_area_level_3 → Phaltan
+FINAL LABEL                 → Sonwadi Bk, Phaltan   ✅
+```
 
-Isliye wo point ab **`MSEB Colony, Phaltan, Satara`** deta hai
-(neighbourhood → taluka → district). Ye pehle se zyada specific hai, par
-`Sonwadi Bk.` nahi — kyunki **wo data OSM me exist hi nahi karta.**
+Par **ye maine live Google API se verify nahi kiya** — mere sandbox se
+`maps.googleapis.com` reachable nahi hai, aur mere paas key bhi nahi hai.
 
-`Sonwadi Bk.` ek **revenue-village** naam hai (Bk. = Budruk). Ye Indian
-government/census records me hai, OpenStreetMap me nahi. Rule 7 ke mutabik
-kuch bhi **fabricate/ hard-code nahi kiya gaya.**
+Isliye B5 me key daalne ke baad **pehle ek site run karke check kar lena.**
+Agar Google kuch ajeeb de (ya `REQUEST_DENIED` aaye), to module automatically
+Nominatim par fall back ho jata hai — koi error nahi aayega.
 
-Agar asli revenue-village naam chahiye to ek aisa provider chahiye jiske paas
-Indian census/revenue coverage ho — **Google reverse geocoding** (sabse best
-India village coverage; map me pehle se Google key configured hai) ya
-**GeoNames**. Batao to next release me add kar deta hoon.
+Agar Google galat locality de to B5 khali kar do → turant purana behavior.
 
 ---
 
-## 7. Rollback
+## 8. Rollback
 
-Agar kuch gadbad lage:
-1. Purana module wapas import karo (`v1.9.2`) — is branch ke previous commit
-   `183a516` se mil jayega.
-2. Location sirf descriptive column hai — weather/resource data par **koi
-   asar nahi**. Column clear kar do to bhi sab chalega.
+1. Purana module import karo (v1.9.3 = commit `406658a` se pehle wala,
+   ya v1.9.2 = `183a516`).
+2. Ya B5 khali kar do → Google tier off.
+3. Location sirf descriptive column hai — weather/resource data par koi asar
+   nahi. Column clear kar do to bhi sab chalega.
 
 ---
 
-## 8. Dhyaan de (cleanup candidates)
+## 9. Cleanup candidates (abhi touch nahi kiya)
 
-- 🔶 `k12/` aur `resource-range6/` **duplicate folders** hain (guides identical,
-  worker/bas alag). Is release me dono `.bas` files ko byte-identical rakha
-  gaya hai taaki galti se purana import na ho — par inhe merge karna chahiye.
-- 🔶 `map_main.html` (root) aur `public/index.html` me **drift** hai (~9.5 KB).
-  Firebase `public/` serve karta hai, isliye **root file deployed source of
-  truth nahi hai.**
-- 🔶 Repo me koi README nahi hai (root par).
+- 🔶 `k12/` aur `resource-range6/` duplicate folders.
+- 🔶 `map_main.html` (root) vs `public/index.html` me ~9.5 KB drift.
+  Firebase `public/` serve karta hai — root file deployed source of truth
+  **nahi** hai.
+- 🔶 Repo root par koi README nahi hai.
