@@ -1,7 +1,7 @@
 # Solar EPC Resource — v1.9.4
 
 **Date:** 2026-09-02
-**Commit:** (see below)
+**Commit:** `e90a959`
 **Branch:** `arena/01a06261-solar-designed-map`
 
 ---
