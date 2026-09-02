@@ -117,9 +117,9 @@ Private Const RESOURCE_DB_TABLE As String = "resource_db"
 Private Const MAX_RESOURCE_FAILURES As Long = 3
 Private Const FAST_PARALLEL_REQUESTS As Long = 6
 Private Const FAST_REQUEST_TIMEOUT_SECONDS As Long = 90
+Private Const SETTINGS_SHEET As String = "SETTINGS"
 'v2.0: user-owned village list. Beats every online source because the user
 'knows the real revenue-village name, which no free geocoder carries.
-Private Const SETTINGS_SHEET As String = "SETTINGS"
 Private Const VILLAGE_SHEET As String = "VILLAGE_DB"
 Private Const VILLAGE_MAX_KM As Double = 5#
 
@@ -1218,7 +1218,8 @@ End Function
 
 'v1.9.7: read a cell from any sheet (case-insensitive sheet name). Never
 'errors if the sheet or the cell is missing - returns "" instead.
-'Used to pick up the Google key the workbook already stores on SETTINGS!B4.
+'Used to read the Geocoding API key (SETTINGS!B11) and the Google Maps key
+'(SETTINGS!B4) from the workbook's own SETTINGS sheet.
 Private Function ResourceSettingCell(ByVal SheetName As String, _
     ByVal CellAddress As String) As String
     Dim ws As Worksheet
