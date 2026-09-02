@@ -1,7 +1,7 @@
 Option Explicit
 
 '==========================================================================
-' SOLAR EPC - NASA POWER HOURLY RESOURCE MODULE v1.9.7 (AREA, TALUKA, DISTRICT + GOOGLE FROM SETTINGS!B4)
+' SOLAR EPC - NASA POWER HOURLY RESOURCE MODULE v2.0 (AREA, TALUKA, DISTRICT + VILLAGE_DB)
 '
 ' - Reads only the SITE row in DRAWING_DATA.autoLWHTbl.
 ' - Never reads tblDrawingData (obstacles) for the resource centroid.
@@ -12,6 +12,28 @@ Option Explicit
 ' - T2M minimum/maximum are derived from validated hourly T2M because NASA's
 '   Hourly API rejects T2M_MIN and T2M_MAX.
 '
+' v2.0 CHANGE (VILLAGE_DB - bina paisa, bina card, bina billing):
+' - Google ab billing maangta hai (Geocoding API ke liye card/UPI zaroori).
+'   Isliye ek NAYA tier sabse upar add kiya gaya: VILLAGE_DB.
+'   Ye TUMHARI apni sheet hai - tumhara gaon ka sachcha naam, jo koi bhi
+'   free geocoder nahi jaanta (Sonwadi Bk. jaise naam sirf Google ke paas
+'   hain, aur wo paid hai).
+' - VILLAGE_DB layout (row 1 = headers, data row 2 se):
+'       A = Village   B = Taluka   C = District   D = Latitude   E = Longitude
+'   Centroid se 5 km ke andar jo gaon sabse paas hai, wahi Location me likha
+'   jata hai. Internet/key/billing kuch zaroori nahi.
+' - Naye macros:
+'       SolarEPC_ResourceMakeVillageDb  -> VILLAGE_DB sheet banata hai
+'       SolarEPC_ResourceAddVillage     -> last site ke liye gaon ka naam
+'                                          poochh kar VILLAGE_DB me save karta
+'                                          hai (taluka/district khud bhar jaate
+'                                          hain) aur Location turant update hota
+'                                          hai
+' - Naya tier order:
+'       0) VILLAGE_DB  0b) Google  1) Nominatim  2) BigDataCloud
+' - Gaon ka lat/lon kaise pao: Google Maps par gaon ke beech me RIGHT-CLICK
+'   karo -> upar dikh rahe coordinates par click karo -> copy ho jate hain.
+
 ' v1.9.7 CHANGE (Google key ab SETTINGS!B4 se):
 ' - Pehle code _CLOUD_CFG!B5 se key padhta tha, par asli key workbook ke
 '   SETTINGS sheet me B4 par hai (A4 = "API KEY"). Isliye Google tier kabhi
@@ -132,6 +154,10 @@ Private Const RESOURCE_DB_TABLE As String = "resource_db"
 Private Const MAX_RESOURCE_FAILURES As Long = 3
 Private Const FAST_PARALLEL_REQUESTS As Long = 6
 Private Const FAST_REQUEST_TIMEOUT_SECONDS As Long = 90
+'v2.0: user-owned village list. Beats every online source because the user
+'knows the real revenue-village name, which no free geocoder carries.
+Private Const VILLAGE_SHEET As String = "VILLAGE_DB"
+Private Const VILLAGE_MAX_KM As Double = 5#
 
 Private mRelayURL As String
 Private mWorkbookID As String
@@ -1355,12 +1381,197 @@ Private Sub ResourceGoogleStatus(ByVal StatusText As String, ByVal DetailText As
     On Error GoTo 0
 End Sub
 
+'v2.0: distance in km between two WGS84 points (equirectangular approximation).
+'Over a few km this is accurate to well under 0.1%, which is far more than
+'enough for "which village is this site in".
+Private Function ResourceDistanceKm(ByVal Lat1 As Double, ByVal Lon1 As Double, _
+    ByVal Lat2 As Double, ByVal Lon2 As Double) As Double
+
+    Const PI As Double = 3.14159265358979
+    Dim X As Double, Y As Double
+    On Error GoTo Failed
+    X = (Lon2 - Lon1) * Cos((Lat1 + Lat2) * PI / 360#)
+    Y = Lat2 - Lat1
+    ResourceDistanceKm = Sqr(X * X + Y * Y) * 111.32
+    Exit Function
+Failed:
+    ResourceDistanceKm = 9999999#
+End Function
+
+'v2.0: THE MOST IMPORTANT TIER - the user's own VILLAGE_DB sheet.
+'Layout (row 1 = headers, data from row 2):
+'   A: Village   B: Taluka   C: District   D: Latitude   E: Longitude
+'The closest village within VILLAGE_MAX_KM of the centroid wins. This is the
+'only tier that reliably carries Indian revenue-village names such as
+'"Sonwadi Bk.", which every free geocoder lacks. It needs no key, no
+'billing and no internet.
+Private Function ResourceVillageDbLabel(ByVal Lat As Double, ByVal Lon As Double) As String
+    Dim ws As Worksheet
+    Dim R As Long, LastRow As Long
+    Dim Village As String, Taluka As String, District As String
+    Dim BestKm As Double, Km As Double
+    Dim BestVillage As String, BestAdmin As String
+
+    On Error GoTo Failed
+    Set ws = ThisWorkbook.Worksheets(VILLAGE_SHEET)
+    LastRow = ws.Cells(ws.Rows.Count, "A").End(xlUp).Row
+    If LastRow < 2 Then Exit Function
+
+    BestKm = VILLAGE_MAX_KM
+    For R = 2 To LastRow
+        Village = Trim$(CStr(ws.Cells(R, "A").Value2))
+        If Len(Village) > 0 Then
+            If IsNumeric(ws.Cells(R, "D").Value2) And IsNumeric(ws.Cells(R, "E").Value2) Then
+                Km = ResourceDistanceKm(Lat, Lon, _
+                    CDbl(ws.Cells(R, "D").Value2), CDbl(ws.Cells(R, "E").Value2))
+                If Km < BestKm Then
+                    BestKm = Km
+                    BestVillage = Village
+                    Taluka = ResourceAdminClean(Trim$(CStr(ws.Cells(R, "B").Value2)))
+                    District = ResourceAdminClean(Trim$(CStr(ws.Cells(R, "C").Value2)))
+                    BestAdmin = ResourceLocationCompose(Taluka, District)
+                End If
+            End If
+        End If
+    Next R
+
+    If Len(BestVillage) > 0 Then
+        ResourceVillageDbLabel = ResourceLocationCompose(BestVillage, BestAdmin)
+        On Error Resume Next
+        With ThisWorkbook.Worksheets(CONFIG_SHEET)
+            .Range("A16").Value2 = "VILLAGE DB MATCH"
+            .Range("B16").Value2 = BestVillage & " (" & Format$(BestKm, "0.00") & " km)"
+        End With
+        On Error GoTo 0
+        Debug.Print Format$(Now, "yyyy-mm-dd hh:nn:ss"), "VILLAGE DB:", _
+            BestVillage, Format$(BestKm, "0.00") & " km"
+    End If
+    Exit Function
+Failed:
+    ResourceVillageDbLabel = vbNullString
+End Function
+
+'v2.0: one-time setup. Creates the VILLAGE_DB sheet with its headers.
+Public Sub SolarEPC_ResourceMakeVillageDb()
+    Dim ws As Worksheet
+    On Error Resume Next
+    Set ws = ThisWorkbook.Worksheets(VILLAGE_SHEET)
+    On Error GoTo 0
+    If ws Is Nothing Then
+        Set ws = ThisWorkbook.Worksheets.Add( _
+            After:=ThisWorkbook.Worksheets(ThisWorkbook.Worksheets.Count))
+        ws.Name = VILLAGE_SHEET
+        ws.Range("A1:E1").Value = Array("Village", "Taluka", "District", "Latitude", "Longitude")
+        ws.Range("A1:E1").Font.Bold = True
+        ws.Columns("A:C").ColumnWidth = 24
+        ws.Columns("D:E").ColumnWidth = 14
+        MsgBox "VILLAGE_DB sheet ban gayi." & vbCrLf & vbCrLf & _
+            "Ab har row me bharo:" & vbCrLf & _
+            "  A = gaon ka naam      (e.g. Sonwadi Bk.)" & vbCrLf & _
+            "  B = taluka            (e.g. Phaltan)" & vbCrLf & _
+            "  C = district          (e.g. Satara)" & vbCrLf & _
+            "  D = latitude          (Google Maps me right-click -> copy)" & vbCrLf & _
+            "  E = longitude" & vbCrLf & vbCrLf & _
+            "Ek baar bharne ke baad, us gaon ke paas banne wala har site " & _
+            "automatic usi naam ko Location me likhega. Koi paisa nahi, koi key nahi.", _
+            vbInformation, "Solar EPC Resource"
+    Else
+        MsgBox "VILLAGE_DB sheet pehle se maujood hai. (Rows: " & _
+            CStr(ws.Cells(ws.Rows.Count, "A").End(xlUp).Row - 1) & ")", _
+            vbInformation, "Solar EPC Resource"
+    End If
+End Sub
+
+'v2.0: adds the last RESOURCE_DB site to VILLAGE_DB after asking for the
+'village name. Taluka/District come from the Location already resolved by
+'Nominatim, so only the village name has to be typed once.
+Public Sub SolarEPC_ResourceAddVillage()
+    Dim ws As Worksheet, vs As Worksheet, Tbl As ListObject
+    Dim R As Long, NR As Long
+    Dim cLoc As Long, cLat As Long, cLon As Long
+    Dim LatitudeText As String, LongitudeText As String
+    Dim Current As String, Parts As Variant
+    Dim Village As String, Taluka As String, District As String
+
+    On Error GoTo Failed
+    Set ws = ThisWorkbook.Worksheets(RESOURCE_SHEET)
+    Set Tbl = ResourceFindHeaderTable(ws)
+    If Tbl Is Nothing Then
+        MsgBox "RESOURCE_DB table nahi mila.", vbExclamation, "Solar EPC Resource"
+        Exit Sub
+    End If
+    cLoc = ResourceColumn(Tbl, "Location")
+    cLat = ResourceColumn(Tbl, "Latitude (" & ChrW(176) & ")")
+    cLon = ResourceColumn(Tbl, "Longitude (" & ChrW(176) & ")")
+    If cLoc = 0 Or cLat = 0 Or cLon = 0 Then
+        MsgBox "RESOURCE_DB me Location / Latitude / Longitude columns required hain.", _
+            vbExclamation, "Solar EPC Resource"
+        Exit Sub
+    End If
+
+    'Last row that actually carries a centroid.
+    R = 0
+    Dim I As Long
+    For I = Tbl.ListRows.Count To 1 Step -1
+        If Len(Trim$(CStr(Tbl.ListRows(I).Range.Cells(1, cLat).Value2))) > 0 Then
+            R = I
+            Exit For
+        End If
+    Next I
+    If R = 0 Then
+        MsgBox "RESOURCE_DB me koi row with latitude nahi mili.", vbExclamation, "Solar EPC Resource"
+        Exit Sub
+    End If
+
+    LatitudeText = Trim$(CStr(Tbl.ListRows(R).Range.Cells(1, cLat).Value2))
+    LongitudeText = Trim$(CStr(Tbl.ListRows(R).Range.Cells(1, cLon).Value2))
+    Current = Trim$(CStr(Tbl.ListRows(R).Range.Cells(1, cLoc).Value2))
+    Parts = Split(Current, ",")
+    If UBound(Parts) >= 1 Then
+        Taluka = Trim$(CStr(Parts(1)))
+        If UBound(Parts) >= 2 Then District = Trim$(CStr(Parts(2)))
+    End If
+    If Len(Taluka) = 0 And Len(District) = 0 And Len(Current) > 0 Then Taluka = Current
+
+    Village = Trim$(InputBox( _
+        "Is site ka gaon / area ka naam likho:" & vbCrLf & vbCrLf & _
+        "  Latitude : " & LatitudeText & vbCrLf & _
+        "  Longitude: " & LongitudeText & vbCrLf & _
+        "  Abhi mila: " & Current & vbCrLf & vbCrLf & _
+        "Ye naam VILLAGE_DB me save ho jayega aur aage har baar automatic aayega.", _
+        "Solar EPC - Gaon ka naam", vbNullString))
+    If Len(Village) = 0 Then Exit Sub
+
+    Set vs = ThisWorkbook.Worksheets(VILLAGE_SHEET)
+    NR = vs.Cells(vs.Rows.Count, "A").End(xlUp).Row + 1
+    If NR < 2 Then NR = 2
+    vs.Cells(NR, "A").Value2 = Village
+    vs.Cells(NR, "B").Value2 = Taluka
+    vs.Cells(NR, "C").Value2 = District
+    vs.Cells(NR, "D").Value2 = Val(LatitudeText)
+    vs.Cells(NR, "E").Value2 = Val(LongitudeText)
+
+    Tbl.ListRows(R).Range.Cells(1, cLoc).Value2 = _
+        ResourceLocationCompose(Village, ResourceLocationCompose(Taluka, District))
+    mLastLocKey = vbNullString
+    mLastLocLabel = vbNullString
+
+    MsgBox "VILLAGE_DB me save ho gaya:" & vbCrLf & vbCrLf & _
+        Village & IIf(Len(Taluka) > 0, ", " & Taluka, "") & _
+        IIf(Len(District) > 0, ", " & District, ""), _
+        vbInformation, "Solar EPC Resource"
+    Exit Sub
+Failed:
+    MsgBox "Gaon add nahi ho saka: " & Err.Description & vbCrLf & vbCrLf & _
+        "Pehle SolarEPC_ResourceMakeVillageDb chalao.", vbExclamation, "Solar EPC Resource"
+End Sub
+
 'v1.9.5: "EXACT AREA, TALUKA, DISTRICT" for the exact centroid
 '(e.g. "Rahegaon, Vaijapur, Chhatrapati Sambhajinagar",
 '"Sonwadi Bk., Phaltan, Satara"). STATE is NOT included.
-'Tiers: 0) Google (only if _CLOUD_CFG!B5 has a key - best Indian
-'revenue-village coverage) -> 1) OSM Nominatim (free, no key) ->
-'2) BigDataCloud (free, no key).
+'Tiers: 0) VILLAGE_DB (user's own sheet - free, offline, exact revenue
+'village) -> 0b) Google (only if a working key is found) ->
+'1) OSM Nominatim (free, no key) -> 2) BigDataCloud (free, no key).
 'Only the exact centroid lat/lon is reverse-geocoded - there is no
 'nearest-town search. Result is descriptive ONLY; identity stays
 'centroid_lat/centroid_lon.
@@ -1383,7 +1594,13 @@ Private Function ResourceLocationLabel(ByVal LatitudeText As String, ByVal Longi
         Exit Function
     End If
 
-    '0) OPTIONAL Google tier - only fires when _CLOUD_CFG!B5 holds a key.
+    '0) v2.0: the user's own VILLAGE_DB - nearest known village within 5 km.
+    '   Free, offline, and the only tier that carries real revenue-village
+    '   names. Beats every online geocoder on purpose.
+    ResourceLocationLabel = ResourceVillageDbLabel(Lat, Lon)
+    If Len(ResourceLocationLabel) > 0 Then GoTo StoreCache
+
+    '0b) OPTIONAL Google tier - only fires when a key is found and works.
     ResourceLocationLabel = ResourceGoogleLocationLabel(Lat, Lon)
     If Len(ResourceLocationLabel) > 0 Then GoTo StoreCache
 
