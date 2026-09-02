@@ -1,7 +1,7 @@
 Option Explicit
 
 '==========================================================================
-' SOLAR EPC - NASA POWER HOURLY RESOURCE MODULE v1.9.2 (RANGE12 + LOCATION AUTO-FILL)
+' SOLAR EPC - NASA POWER HOURLY RESOURCE MODULE v1.9.3 (RANGE12 + VILLAGE-LEVEL LOCATION)
 '
 ' - Reads only the SITE row in DRAWING_DATA.autoLWHTbl.
 ' - Never reads tblDrawingData (obstacles) for the resource centroid.
@@ -12,6 +12,23 @@ Option Explicit
 ' - T2M minimum/maximum are derived from validated hourly T2M because NASA's
 '   Hourly API rejects T2M_MIN and T2M_MAX.
 '
+' v1.9.3 CHANGE (Location: Village -> Taluka -> District):
+' - Location ab "Town, District" nahi balki most specific locality use karta hai:
+'     Locality  priority: village -> hamlet -> suburb -> locality ->
+'                         neighbourhood -> town -> city
+'     Admin     priority: county/taluka -> district -> state_district -> state
+'   Result format: "Village, Taluka, District" (e.g. "Rahegaon, Vaijapur,
+'   Chhatrapati Sambhajinagar"). Jo level geocoder return kare wahi lagta hai;
+'   jo available nahi hai wo skip ho jata hai (e.g. taluka nahi mila to
+'   "Village, District"). Koi naam kabhi invent nahi hota.
+' - "Phaltan taluka" / "Satara district" jaise generic admin suffix hata kar
+'   saaf naam likha jata hai ("Phaltan", "Satara").
+' - Duplicate names collapse ho jate hain (town "Phaltan" + county "Phaltan"
+'   = ek hi baar "Phaltan").
+' - Exact centroid lat/lon hi authoritative hai; nearest-town logic primary
+'   nahi hai. Baqi sab (blank-only, manual overwrite nahi, fail-safe blank)
+'   v1.9.2 jaisa hi hai.
+
 ' v1.9.2 CHANGE (Location auto-fill):
 ' - RESOURCE_DB ka descriptive "Location" column ab automatically fill hota hai
 '   exact centroid coordinates se: free reverse-geocoding (OSM Nominatim,
@@ -1057,24 +1074,101 @@ Failed:
     ResourceHttpGetJson = vbNullString
 End Function
 
-'v1.9.2: compose "Town/Village, District" from reverse-geocoded components.
-Private Function ResourceLocationCompose(ByVal Primary As String, ByVal Secondary As String) As String
-    Dim P As String, S2 As String
-    P = Trim$(Primary)
-    S2 = Trim$(Secondary)
-    If Len(P) = 0 Then Exit Function
-    If UCase$(Right$(P, 7)) = ", INDIA" Then P = Left$(P, Len(P) - 7)
-    If UCase$(Right$(S2, 7)) = ", INDIA" Then S2 = Left$(S2, Len(S2) - 7)
-    If Len(S2) > 0 Then
-        ResourceLocationCompose = P & ", " & S2
+'v1.9.3: join "Locality, Taluka, District" using ONLY the parts that exist.
+'Both arguments may already be multi-part ("Phaltan, Satara"); empties are
+'dropped so the label never shows a stray comma.
+Private Function ResourceLocationCompose(ByVal Locality As String, ByVal AdminText As String) As String
+    Dim L As String, A As String
+    L = Trim$(Locality)
+    A = Trim$(AdminText)
+    If Len(L) = 0 Then
+        ResourceLocationCompose = A
+    ElseIf Len(A) = 0 Then
+        ResourceLocationCompose = L
     Else
-        ResourceLocationCompose = P
+        ResourceLocationCompose = L & ", " & A
     End If
 End Function
 
-'v1.9.2: nearest readable location from exact centroid (e.g. "Phaltan, Satara").
+'v1.9.3: case-insensitive name comparison (used to collapse duplicates).
+Private Function ResourceSameName(ByVal A As String, ByVal B As String) As Boolean
+    ResourceSameName = (StrComp(Trim$(A), Trim$(B), vbTextCompare) = 0)
+End Function
+
+'v1.9.3: normalise one administrative name.
+'Drops a trailing ", India" and generic Indian administrative suffixes so that
+'"Phaltan taluka" -> "Phaltan" and "Satara district" -> "Satara".
+'Only administrative names are cleaned - the locality is always left verbatim.
+Private Function ResourceAdminClean(ByVal TextValue As String) As String
+    Dim S As String
+    Dim Suffixes As Variant
+    Dim I As Long, N As Long
+    S = Trim$(TextValue)
+    If Len(S) = 0 Then Exit Function
+    If UCase$(Right$(S, 7)) = ", INDIA" Then S = Trim$(Left$(S, Len(S) - 7))
+    Suffixes = Array(" taluka", " taluk", " tehsil", " tahsil", " subdivision", _
+                     " mandal", " block", " district")
+    For I = LBound(Suffixes) To UBound(Suffixes)
+        N = Len(CStr(Suffixes(I)))
+        If Len(S) > N Then
+            If UCase$(Right$(S, N)) = UCase$(CStr(Suffixes(I))) Then
+                S = Trim$(Left$(S, Len(S) - N))
+                Exit For
+            End If
+        End If
+    Next I
+    ResourceAdminClean = S
+End Function
+
+'v1.9.3: most specific LOCALITY actually returned by the reverse geocoder.
+'Priority: village -> hamlet -> suburb -> locality -> neighbourhood -> town -> city.
+'Returns "" when the geocoder exposes none of these, so the caller falls back to
+'the next available level. A locality is NEVER invented.
+Private Function ResourceLocalityName(ByVal JSONText As String) As String
+    Dim Keys As Variant
+    Dim I As Long, V As String
+    Keys = Array("village", "hamlet", "suburb", "locality", _
+                 "neighbourhood", "town", "city")
+    For I = LBound(Keys) To UBound(Keys)
+        V = Trim$(ResourceJSONValue(JSONText, CStr(Keys(I))))
+        If Len(V) > 0 Then
+            ResourceLocalityName = V
+            Exit Function
+        End If
+    Next I
+End Function
+
+'v1.9.3: up to two ADMINISTRATIVE levels ("Taluka, District") actually returned.
+'Priority: county/taluka -> district -> state_district -> state.
+'Names already used as the locality are skipped, and duplicates are collapsed,
+'so a town that is also a taluka headquarters is only named once.
+Private Function ResourceAdminNames(ByVal JSONText As String, ByVal Locality As String) As String
+    Dim Keys As Variant
+    Dim I As Long, V As String
+    Dim A1 As String, A2 As String
+    Keys = Array("county", "district", "state_district", "state")
+    For I = LBound(Keys) To UBound(Keys)
+        V = ResourceAdminClean(ResourceJSONValue(JSONText, CStr(Keys(I))))
+        If Len(V) > 0 Then
+            If Not ResourceSameName(V, Locality) Then
+                If Len(A1) = 0 Then
+                    A1 = V
+                ElseIf Not ResourceSameName(V, A1) Then
+                    If Len(A2) = 0 Then A2 = V Else Exit For
+                End If
+            End If
+        End If
+    Next I
+    ResourceAdminNames = ResourceLocationCompose(A1, A2)
+End Function
+
+'v1.9.3: most specific real location for the exact centroid, built as
+'"Village/Locality, Taluka, District" (e.g. "Rahegaon, Vaijapur, Chhatrapati
+'Sambhajinagar"). Levels the geocoder does not return are simply skipped.
 'Primary: OSM Nominatim (free, no key); fallback: BigDataCloud (free, no key).
-'Result is descriptive ONLY - identity stays centroid_lat/centroid_lon.
+'Only the exact centroid lat/lon is reverse-geocoded - there is no
+'nearest-town search. Result is descriptive ONLY; identity stays
+'centroid_lat/centroid_lon.
 Private Function ResourceLocationLabel(ByVal LatitudeText As String, ByVal LongitudeText As String) As String
     Dim Lat As Double, Lon As Double
     Dim UrlText As String, CacheKey As String, JSONText As String
@@ -1095,19 +1189,19 @@ Private Function ResourceLocationLabel(ByVal LatitudeText As String, ByVal Longi
     End If
 
     '1) OpenStreetMap Nominatim (free, no API key)
+    '   zoom=18 asks for the most detailed address block - village / hamlet /
+    '   suburb / neighbourhood are only populated at the higher zoom levels.
     UrlText = "https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=" & _
               ResourceDecimal(Lat, 6) & "&lon=" & ResourceDecimal(Lon, 6) & _
-              "&addressdetails=1&zoom=16&accept-language=en"
+              "&addressdetails=1&zoom=18&accept-language=en"
     JSONText = ResourceHttpGetJson(UrlText)
     If Len(JSONText) > 0 Then
-        Primary = ResourceJSONValue(JSONText, "town")
-        If Len(Primary) = 0 Then Primary = ResourceJSONValue(JSONText, "city")
-        If Len(Primary) = 0 Then Primary = ResourceJSONValue(JSONText, "village")
-        If Len(Primary) = 0 Then Primary = ResourceJSONValue(JSONText, "hamlet")
-        Secondary = ResourceJSONValue(JSONText, "state_district")
-        If Len(Secondary) = 0 Then Secondary = ResourceJSONValue(JSONText, "county")
-        If UCase$(Right$(Secondary, 9)) = " DISTRICT" Then Secondary = Left$(Secondary, Len(Secondary) - 9)
+        Primary = ResourceLocalityName(JSONText)
+        Secondary = ResourceAdminNames(JSONText, Primary)
         If Len(Primary) = 0 Then
+            'Last resort only. display_name is still geocoder output (never
+            'invented) and its first element is the most specific name the
+            'geocoder could resolve for this exact point.
             DisplayText = ResourceJSONValue(JSONText, "display_name")
             If Len(DisplayText) > 0 Then
                 Parts = Split(DisplayText, ", ")
