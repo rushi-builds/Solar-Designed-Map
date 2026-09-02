@@ -1,144 +1,107 @@
 Option Explicit
 
 '==========================================================================
-' SOLAR EPC - NASA POWER HOURLY RESOURCE MODULE v2.0 (AREA, TALUKA, DISTRICT + VILLAGE_DB)
+' SOLAR EPC - NASA POWER HOURLY RESOURCE MODULE
+' Version 2.1
 '
-' - Reads only the SITE row in DRAWING_DATA.autoLWHTbl.
-' - Never reads tblDrawingData (obstacles) for the resource centroid.
-' - Sends the complete SITE polygon to the authenticated Worker.
-' - The Worker validates the polygon, calculates its area-weighted centroid,
-'   downloads the explicitly configured resource period in hourly chunks,
-'   validates and stores every hourly record, and returns a project summary.
-' - T2M minimum/maximum are derived from validated hourly T2M because NASA's
-'   Hourly API rejects T2M_MIN and T2M_MAX.
+' PURPOSE
+'   Imports NASA POWER hourly solar and weather resource data for a site that
+'   was drawn on the map, validates it, and records a summary row in the
+'   RESOURCE_DB table.
 '
-' v2.0 CHANGE (VILLAGE_DB - bina paisa, bina card, bina billing):
-' - Google ab billing maangta hai (Geocoding API ke liye card/UPI zaroori).
-'   Isliye ek NAYA tier sabse upar add kiya gaya: VILLAGE_DB.
-'   Ye TUMHARI apni sheet hai - tumhara gaon ka sachcha naam, jo koi bhi
-'   free geocoder nahi jaanta (Sonwadi Bk. jaise naam sirf Google ke paas
-'   hain, aur wo paid hai).
-' - VILLAGE_DB layout (row 1 = headers, data row 2 se):
-'       A = Village   B = Taluka   C = District   D = Latitude   E = Longitude
-'   Centroid se 5 km ke andar jo gaon sabse paas hai, wahi Location me likha
-'   jata hai. Internet/key/billing kuch zaroori nahi.
-' - Naye macros:
-'       SolarEPC_ResourceMakeVillageDb  -> VILLAGE_DB sheet banata hai
-'       SolarEPC_ResourceAddVillage     -> last site ke liye gaon ka naam
-'                                          poochh kar VILLAGE_DB me save karta
-'                                          hai (taluka/district khud bhar jaate
-'                                          hain) aur Location turant update hota
-'                                          hai
-' - Naya tier order:
-'       0) VILLAGE_DB  0b) Google  1) Nominatim  2) BigDataCloud
-' - Gaon ka lat/lon kaise pao: Google Maps par gaon ke beech me RIGHT-CLICK
-'   karo -> upar dikh rahe coordinates par click karo -> copy ho jate hain.
-
-' v1.9.7 CHANGE (Google key ab SETTINGS!B4 se):
-' - Pehle code _CLOUD_CFG!B5 se key padhta tha, par asli key workbook ke
-'   SETTINGS sheet me B4 par hai (A4 = "API KEY"). Isliye Google tier kabhi
-'   chala hi nahi aur hamesha Nominatim fall back hota tha.
-' - Ab order hai:  SETTINGS!B4  ->  _CLOUD_CFG!B5 (optional override)
-'   Ab kisi ko key copy-paste karne ki zarurat nahi.
-' - Naya helper: ResourceSettingCell(SheetName, Cell) - kisi bhi sheet ka
-'   cell safe read karta hai; sheet/cell missing ho to "" deta hai.
-' - DHYAAN: agar key HTTP-referrer restricted hai (web map wali key) to
-'   Google REQUEST_DENIED dega, kyunki VBA se referrer nahi jata. Tab
-'   _CLOUD_CFG!B14 me "GOOGLE_REQUEST_DENIED" likha aayega.
-
-' v1.9.6 CHANGE (Google tier diagnostics):
-' - Google tier ab chupke se fail nahi hota. Har outcome _CLOUD_CFG me likha
-'   jata hai:  A14/B14 = STATUS,  A15/B15 = DETAIL.
-'   Possible status:
-'     NO_KEY              -> B5 khali hai, Google tier skip hua
-'     HTTP_FAIL           -> maps.googleapis.com se koi reply nahi aaya
-'     GOOGLE_REQUEST_DENIED -> key invalid / restricted / API enabled nahi
-'     GOOGLE_OVER_QUERY_LIMIT -> quota khatam
-'     GOOGLE_ZERO_RESULTS -> Google ko is point ka koi address nahi mila
-'     NO_LOCALITY         -> Google OK bola par locality field nahi diya
-'     OK                  -> Google se label mil gaya (B15 me wo label)
-' - Ek zaroori baat: map jo key use karta hai wo WEB-restricted hoti hai
-'   (HTTP referrer). VBA se call me koi referrer nahi jata, isliye aisi
-'   "demo" key se hamesha REQUEST_DENIED aayega. Google tier ke liye aisi
-'   key chahiye jisme HTTP referrer restriction NA ho.
-
-' v1.9.5 CHANGE (Location: EXACT AREA, TALUKA, DISTRICT):
-' - v1.9.4 me galti se DISTRICT hata diya gaya tha - wapas add ho gaya.
-'   Ab format hai:  "Exact Area, Taluka, District"
-'   (e.g. "Sonwadi Bk., Phaltan, Satara" / "Rahegaon, Vaijapur,
-'    Chhatrapati Sambhajinagar"). STATE abhi bhi nahi aata.
-' - Pehla part = centroid jahan draw hua, us exact area ka naam - gaon ho,
-'   hamlet ho, suburb ho ya colony, jo sabse specific mile wahi.
-'   Priority: village -> hamlet -> suburb -> locality ->
-'             neighbourhood -> town -> city
-' - Dusra part  = Taluka   (Nominatim "county": "Phaltan", "Paithan taluka")
-' - Teesra part = District (Nominatim "state_district": "Satara")
-' - Jo level nahi milta wo skip - kabhi kuch invent nahi hota.
-' - Google tier me bhi district add: administrative_area_level_2.
-
-' v1.9.4 CHANGE (Location: EXACT VILLAGE, TALUKA only):
-' - Format ab sirf "Gaon, Taluka" hai - District aur State nahi chahiye.
-'     Gaon  priority (exact village): village -> hamlet -> suburb ->
-'                                     locality -> neighbourhood -> town -> city
-'     Taluka: county (India me county = taluka)
-'   Example: "Rahegaon, Vaijapur" / "Pachod, Paithan".
-'   Taluka nahi mila to sirf gaon ka naam (kuch invent nahi hota).
-' - OPTIONAL Google tier (sabse important): _CLOUD_CFG!B5 me Google Geocoding
-'   API key daalo to sabse pehle Google reverse-geocode try hoga. Google ke
-'   paas Indian REVENUE-village coverage hai (Sonwadi Bk. jaise naam), jo
-'   OpenStreetMap me maujood hi nahi. Key khali rahe to kuch change nahi -
-'   purana Nominatim -> BigDataCloud flow chalta rahega.
-'   Google ka "locality" = exact gaon, "administrative_area_level_3" = taluka.
-
-' v1.9.3 CHANGE (Location: Village -> Taluka -> District):
-' - Location ab "Town, District" nahi balki most specific locality use karta hai:
-'     Locality  priority: village -> hamlet -> suburb -> locality ->
-'                         neighbourhood -> town -> city
-'     Admin     priority: county/taluka -> district -> state_district -> state
-'   Result format: "Village, Taluka, District" (e.g. "Rahegaon, Vaijapur,
-'   Chhatrapati Sambhajinagar"). Jo level geocoder return kare wahi lagta hai;
-'   jo available nahi hai wo skip ho jata hai (e.g. taluka nahi mila to
-'   "Village, District"). Koi naam kabhi invent nahi hota.
-' - "Phaltan taluka" / "Satara district" jaise generic admin suffix hata kar
-'   saaf naam likha jata hai ("Phaltan", "Satara").
-' - Duplicate names collapse ho jate hain (town "Phaltan" + county "Phaltan"
-'   = ek hi baar "Phaltan").
-' - Exact centroid lat/lon hi authoritative hai; nearest-town logic primary
-'   nahi hai. Baqi sab (blank-only, manual overwrite nahi, fail-safe blank)
-'   v1.9.2 jaisa hi hai.
-
-' v1.9.2 CHANGE (Location auto-fill):
-' - RESOURCE_DB ka descriptive "Location" column ab automatically fill hota hai
-'   exact centroid coordinates se: free reverse-geocoding (OSM Nominatim,
-'   fallback BigDataCloud, dono bina API key) -> "Town, District" format
-'   (e.g. "Mahabaleshwar, Satara", "Phaltan, Satara", "Baramati, Pune").
-' - Sirf BLANK cells fill hote hain; manually typed Location kabhi overwrite
-'   nahi hota. Coordinates/weather values/status kuch change nahi hote.
-' - Network/service fail ho toh Location blank rehta hai (koi error nahi,
-'   data import block nahi hota).
-' - New macro: SolarEPC_ResourceFillLocations -> existing rows ki blank
-'   Location cells ek saath fill kar deta hai.
+' SCOPE
+'   - Reads only the SITE row in DRAWING_DATA.autoLWHTbl. The obstacle table
+'     (tblDrawingData) is never used for the resource centroid.
+'   - Sends the complete SITE polygon to the authenticated Worker.
+'   - The Worker validates the polygon, computes its area-weighted centroid,
+'     downloads the configured resource period in hourly chunks, validates
+'     every record, and returns a project summary.
+'   - T2M minimum and maximum are derived from validated hourly T2M because
+'     the NASA POWER Hourly API rejects T2M_MIN and T2M_MAX.
+'==========================================================================
 '
-' v1.9.1 CHANGE (RESOURCE_DB Location column):
-' - RESOURCE_DB may now include an additional descriptive "Location" column.
-'   Required columns are matched BY NAME (Project ID, Latitude (°), Longitude (°),
-'   ...). Extra descriptive columns such as Location are ALLOWED and are never
-'   overwritten. Column order and total count are no longer enforced.
-' - If a required column is missing, a visible error is written to _CLOUD_CFG
-'   B10/B11 instead of failing silently.
+' LOCATION RESOLUTION
+'   The descriptive "Location" column of RESOURCE_DB is filled automatically
+'   from the exact centroid, in the format:
 '
-' v1.8 CHANGE (K=6/K=12 ranges):
-' - /v1/resource/plan now returns "ranges" (e.g. 202101-202106). VBA prefers
-'   ranges and POSTs each range to /v1/resource/process-range. One range =
-'   one NASA request covering up to RESOURCE_RANGE_MONTHS (Worker default 12)
-'   months => 60 months = 5 ranges = only 1 wave at FAST_PARALLEL_REQUESTS=6
-'   (was 10 waves). Mode + measured CPU ms are written to _CLOUD_CFG B12/B13.
-' - If ANY range request fails (network/CPU/NASA 422/timeout) VBA switches to
-'   the original month-by-month path (/v1/resource/process-month) for the
-'   remaining months and never leaves them missing. Worst case = old speed,
-'   never wrong data.
-' - Old month behavior is retained byte-for-byte: same validation, same
-'   monthly resource_chunks/summaries, same finalize + Excel import.
+'       "Exact Area, Taluka, District"
+'       e.g. "Sonwadi Bk., Phaltan, Satara"
+'            "Rahegaon, Vaijapur, Chhatrapati Sambhajinagar"
+'
+'   STATE is deliberately excluded. No level is ever invented: any level a
+'   resolver cannot supply is simply skipped.
+'
+'   Resolution order (first match wins):
+'
+'     0)  VILLAGE_DB        A sheet in this workbook that lists the villages
+'                           you work in. Free, offline, no key, no billing.
+'                           This is the only source that carries Indian
+'                           revenue village names such as "Sonwadi Bk.",
+'                           which every free geocoder lacks.
+'     0b) Google Geocoding  Reverse geocode through the Google Geocoding API.
+'                           Requires an API key (see CONFIGURATION).
+'     1)  OSM Nominatim     Free, no key required.
+'     2)  BigDataCloud      Free, no key required.
+'
+'   Only the exact centroid is reverse geocoded - there is no nearest-town
+'   search. The label is descriptive only; the authoritative identity of a
+'   row remains its centroid latitude and longitude.
+'==========================================================================
+'
+' CONFIGURATION
+'
+'   Geocoding API key (optional). Resolved in this order:
+'       1. SETTINGS!B11     dedicated Geocoding API key   (preferred)
+'       2. SETTINGS!B4      the workbook Google Maps key
+'       3. _CLOUD_CFG!B5    manual override
+'   When no key is present the Google tier is skipped and the free tiers run
+'   exactly as before.
+'
+'   VILLAGE_DB sheet (optional). Row 1 holds the headers, data starts at row 2:
+'       A = Village    B = Taluka    C = District
+'       D = Latitude   E = Longitude
+'   The nearest village within 5 km of the centroid wins. To obtain a
+'   village's coordinates: right-click it in Google Maps and click the
+'   coordinate pair that appears - it is copied to the clipboard.
+'
+'   Diagnostics are written to the hidden _CLOUD_CFG sheet:
+'       A10/B10  last resource-start error timestamp
+'       A11/B11  last resource-start error detail
+'       A12/B12  processing mode (RANGE12 / RANGE6 / MONTH)
+'       A13/B13  last range processing time (ms)
+'       A14/B14  Google geocode status
+'       A15/B15  Google geocode detail
+'       A16/B16  VILLAGE_DB match
+'       A17/B17  geocoding key source
+'==========================================================================
+'
+' PUBLIC MACROS
+'   SolarEPC_ResourceConfigurePeriod    Set the NASA POWER date range.
+'   SolarEPC_ResourceQueueImportedSite  Queue a resource run for a SITE.
+'   SolarEPC_ResourceRetryLatestSite    Re-run the most recent imported SITE.
+'   SolarEPC_ResourceFillLocations      Back-fill blank Location cells.
+'   SolarEPC_ResourceMakeVillageDb      Create the VILLAGE_DB sheet.
+'   SolarEPC_ResourceAddVillage         Record the village for the latest site.
+'   SolarEPC_ResourceResume             Retry after an outage.
+'   SolarEPC_ResourceStop               Stop scheduled processing.
+'   SolarEPC_ResourceShowLastError      Display the last recorded error.
+'   SolarEPC_ResourceResumePending      Auto-resume when the workbook opens.
+'   SolarEPC_ResourceProcessNext        Scheduler entry point (internal).
+'==========================================================================
+'
+' VERSION HISTORY
+'   v2.1    Geocoding key is read from SETTINGS!B11 (a dedicated key), then
+'           SETTINGS!B4, then _CLOUD_CFG!B5. The key source actually used is
+'           reported in _CLOUD_CFG A17/B17.
+'   v2.0    Added the VILLAGE_DB tier - an offline, user-owned village list
+'           that supplies Indian revenue village names which no free
+'           geocoder carries.
+'   v1.9.7  Google key read from SETTINGS!B4 instead of _CLOUD_CFG!B5.
+'   v1.9.6  Google tier diagnostics written to _CLOUD_CFG A14/B14, A15/B15.
+'   v1.9.5  Location format is "Exact Area, Taluka, District".
+'   v1.9.2  Location auto-fill added; SolarEPC_ResourceFillLocations.
+'   v1.9.1  RESOURCE_DB columns matched by name; extra columns allowed.
+'   v1.8    Range mode (K=6/K=12) with automatic month-by-month fallback.
 '==========================================================================
 
 Private Const CONFIG_SHEET As String = "_CLOUD_CFG"
@@ -156,6 +119,7 @@ Private Const FAST_PARALLEL_REQUESTS As Long = 6
 Private Const FAST_REQUEST_TIMEOUT_SECONDS As Long = 90
 'v2.0: user-owned village list. Beats every online source because the user
 'knows the real revenue-village name, which no free geocoder carries.
+Private Const SETTINGS_SHEET As String = "SETTINGS"
 Private Const VILLAGE_SHEET As String = "VILLAGE_DB"
 Private Const VILLAGE_MAX_KM As Double = 5#
 
@@ -538,7 +502,7 @@ Public Sub SolarEPC_ResourceFillLocations()
     Set ws = ThisWorkbook.Worksheets(RESOURCE_SHEET)
     Set Tbl = ResourceFindHeaderTable(ws)
     If Tbl Is Nothing Then
-        MsgBox "RESOURCE_DB table nahi mila ya required column missing hai.", _
+        MsgBox "The RESOURCE_DB table was not found, or a required column is missing.", _
                vbExclamation, "Solar EPC Resource"
         Exit Sub
     End If
@@ -546,7 +510,7 @@ Public Sub SolarEPC_ResourceFillLocations()
     cLat = ResourceColumn(Tbl, "Latitude (" & ChrW(176) & ")")
     cLon = ResourceColumn(Tbl, "Longitude (" & ChrW(176) & ")")
     If cLoc = 0 Or cLat = 0 Or cLon = 0 Then
-        MsgBox "RESOURCE_DB me Location, Latitude aur Longitude columns required hain.", _
+        MsgBox "RESOURCE_DB requires the Location, Latitude and Longitude columns.", _
                vbExclamation, "Solar EPC Resource"
         Exit Sub
     End If
@@ -568,7 +532,7 @@ Public Sub SolarEPC_ResourceFillLocations()
     Next R
 
     MsgBox "Location fill complete: " & CStr(Filled) & " row(s) filled. " & _
-           "(Sirf blank cells bhare gaye; manually typed location change nahi hota.)", _
+           "(Only blank cells were filled. Manually entered locations are never overwritten.)", _
            vbInformation, "Solar EPC Resource"
     Exit Sub
 Failed:
@@ -1292,29 +1256,43 @@ Failed:
     ResourceGoogleAddressPart = vbNullString
 End Function
 
-'v1.9.6: OPTIONAL Google reverse-geocode tier - best shot at the EXACT Indian
-'revenue village (OSM simply does not carry names like "Sonwadi Bk.").
-'Active ONLY when a key sits in _CLOUD_CFG!B5. With no key this returns ""
-'and the Nominatim / BigDataCloud tiers run exactly as before.
+'v1.9.6: OPTIONAL Google reverse-geocode tier - the best shot at the EXACT
+'Indian revenue village (OSM simply does not carry names like "Sonwadi Bk.").
+'Active only when a key is found (SETTINGS!B11 -> SETTINGS!B4 -> _CLOUD_CFG!B5).
+'With no key this returns "" and the Nominatim / BigDataCloud tiers run exactly
+'as before.
 'Every outcome is recorded in _CLOUD_CFG A14/B14 (status) and A15/B15 (detail)
 'so a silent fallback can always be diagnosed instead of guessed at.
 Private Function ResourceGoogleLocationLabel(ByVal Lat As Double, ByVal Lon As Double) As String
     Dim Key As String, UrlText As String, JSONText As String
     Dim Locality As String, Taluka As String, District As String
     Dim StatusText As String, ErrorText As String
+    Dim KeySource As String
 
     On Error GoTo Failed
-    'The workbook already stores the Google key for the map on the SETTINGS
-    'sheet. Read it from there first so nothing has to be copied by hand.
-    '_CLOUD_CFG!B5 stays as an optional manual override.
-    Key = ResourceSettingCell("SETTINGS", "B4")
-    If Len(Key) = 0 Then Key = ResourceConfigCell("B5")
+    'Resolve the Geocoding API key. SETTINGS!B11 is the dedicated geocoding
+    'key; SETTINGS!B4 is the workbook map key; _CLOUD_CFG!B5 is a manual
+    'override. The first non-empty value wins.
+    Key = ResourceSettingCell(SETTINGS_SHEET, "B11")
+    KeySource = "SETTINGS!B11"
     If Len(Key) = 0 Then
+        Key = ResourceSettingCell(SETTINGS_SHEET, "B4")
+        KeySource = "SETTINGS!B4"
+    End If
+    If Len(Key) = 0 Then
+        Key = ResourceConfigCell("B5")
+        KeySource = "_CLOUD_CFG!B5"
+    End If
+    If Len(Key) = 0 Then
+        KeySource = "NONE"
         ResourceGoogleStatus "NO_KEY", _
-            "No Google key found in SETTINGS!B4 or _CLOUD_CFG!B5, so the Google tier is " & _
-            "skipped and Nominatim is used. Put the key in SETTINGS!B4 (or B5 as an override)."
+            "No Geocoding API key found in SETTINGS!B11, SETTINGS!B4 or " & _
+            "_CLOUD_CFG!B5, so the Google tier is skipped and Nominatim is used. " & _
+            "Put the key in SETTINGS!B11."
+        ResourceSettingDiag "A17", "GEOCODING KEY SOURCE", "B17", KeySource
         Exit Function
     End If
+    ResourceSettingDiag "A17", "GEOCODING KEY SOURCE", "B17", KeySource
 
     UrlText = "https://maps.googleapis.com/maps/api/geocode/json?latlng=" & _
               ResourceDecimal(Lat, 8) & "," & ResourceDecimal(Lon, 8) & _
@@ -1364,6 +1342,20 @@ Failed:
     ResourceGoogleLocationLabel = vbNullString
     ResourceGoogleStatus "VBA_ERROR", "VBA error " & CStr(Err.Number) & ": " & Err.Description
 End Function
+
+'v2.1: writes a label/value pair into a cell of the hidden _CLOUD_CFG sheet.
+'Diagnostic only - no input field and no Excel Table is touched.
+Private Sub ResourceSettingDiag(ByVal LabelCell As String, ByVal LabelText As String, _
+    ByVal ValueCell As String, ByVal ValueText As String)
+    Dim ws As Worksheet
+    On Error Resume Next
+    Set ws = ThisWorkbook.Worksheets(CONFIG_SHEET)
+    If Not ws Is Nothing Then
+        ws.Range(LabelCell).Value2 = LabelText
+        ws.Range(ValueCell).Value2 = ValueText
+    End If
+    On Error GoTo 0
+End Sub
 
 'v1.9.6: records why the Google tier succeeded / was skipped / failed into the
 'hidden _CLOUD_CFG sheet. Diagnostic only - no input field or Table is touched.
@@ -1465,18 +1457,19 @@ Public Sub SolarEPC_ResourceMakeVillageDb()
         ws.Range("A1:E1").Font.Bold = True
         ws.Columns("A:C").ColumnWidth = 24
         ws.Columns("D:E").ColumnWidth = 14
-        MsgBox "VILLAGE_DB sheet ban gayi." & vbCrLf & vbCrLf & _
-            "Ab har row me bharo:" & vbCrLf & _
-            "  A = gaon ka naam      (e.g. Sonwadi Bk.)" & vbCrLf & _
-            "  B = taluka            (e.g. Phaltan)" & vbCrLf & _
-            "  C = district          (e.g. Satara)" & vbCrLf & _
-            "  D = latitude          (Google Maps me right-click -> copy)" & vbCrLf & _
-            "  E = longitude" & vbCrLf & vbCrLf & _
-            "Ek baar bharne ke baad, us gaon ke paas banne wala har site " & _
-            "automatic usi naam ko Location me likhega. Koi paisa nahi, koi key nahi.", _
+        MsgBox "The VILLAGE_DB sheet has been created." & vbCrLf & vbCrLf & _
+            "Add one row per village:" & vbCrLf & _
+            "  A = Village    (e.g. Sonwadi Bk.)" & vbCrLf & _
+            "  B = Taluka     (e.g. Phaltan)" & vbCrLf & _
+            "  C = District   (e.g. Satara)" & vbCrLf & _
+            "  D = Latitude   (right-click the village in Google Maps and" & vbCrLf & _
+            "                  click the coordinates to copy them)" & vbCrLf & _
+            "  E = Longitude" & vbCrLf & vbCrLf & _
+            "Once a village is stored, every site drawn within 5 km of it is " & _
+            "labelled automatically. No charge and no API key are required.", _
             vbInformation, "Solar EPC Resource"
     Else
-        MsgBox "VILLAGE_DB sheet pehle se maujood hai. (Rows: " & _
+        MsgBox "The VILLAGE_DB sheet already exists. (Villages stored: " & _
             CStr(ws.Cells(ws.Rows.Count, "A").End(xlUp).Row - 1) & ")", _
             vbInformation, "Solar EPC Resource"
     End If
@@ -1497,14 +1490,14 @@ Public Sub SolarEPC_ResourceAddVillage()
     Set ws = ThisWorkbook.Worksheets(RESOURCE_SHEET)
     Set Tbl = ResourceFindHeaderTable(ws)
     If Tbl Is Nothing Then
-        MsgBox "RESOURCE_DB table nahi mila.", vbExclamation, "Solar EPC Resource"
+        MsgBox "The RESOURCE_DB table was not found.", vbExclamation, "Solar EPC Resource"
         Exit Sub
     End If
     cLoc = ResourceColumn(Tbl, "Location")
     cLat = ResourceColumn(Tbl, "Latitude (" & ChrW(176) & ")")
     cLon = ResourceColumn(Tbl, "Longitude (" & ChrW(176) & ")")
     If cLoc = 0 Or cLat = 0 Or cLon = 0 Then
-        MsgBox "RESOURCE_DB me Location / Latitude / Longitude columns required hain.", _
+        MsgBox "RESOURCE_DB requires the Location, Latitude and Longitude columns.", _
             vbExclamation, "Solar EPC Resource"
         Exit Sub
     End If
@@ -1519,7 +1512,7 @@ Public Sub SolarEPC_ResourceAddVillage()
         End If
     Next I
     If R = 0 Then
-        MsgBox "RESOURCE_DB me koi row with latitude nahi mili.", vbExclamation, "Solar EPC Resource"
+        MsgBox "No RESOURCE_DB row with a latitude was found.", vbExclamation, "Solar EPC Resource"
         Exit Sub
     End If
 
@@ -1534,12 +1527,13 @@ Public Sub SolarEPC_ResourceAddVillage()
     If Len(Taluka) = 0 And Len(District) = 0 And Len(Current) > 0 Then Taluka = Current
 
     Village = Trim$(InputBox( _
-        "Is site ka gaon / area ka naam likho:" & vbCrLf & vbCrLf & _
-        "  Latitude : " & LatitudeText & vbCrLf & _
-        "  Longitude: " & LongitudeText & vbCrLf & _
-        "  Abhi mila: " & Current & vbCrLf & vbCrLf & _
-        "Ye naam VILLAGE_DB me save ho jayega aur aage har baar automatic aayega.", _
-        "Solar EPC - Gaon ka naam", vbNullString))
+        "Enter the village or locality name for this site:" & vbCrLf & vbCrLf & _
+        "  Latitude  : " & LatitudeText & vbCrLf & _
+        "  Longitude : " & LongitudeText & vbCrLf & _
+        "  Resolved  : " & Current & vbCrLf & vbCrLf & _
+        "The name is saved to VILLAGE_DB and is reused automatically for " & _
+        "every later site in the same area.", _
+        "Solar EPC - Village name", vbNullString))
     If Len(Village) = 0 Then Exit Sub
 
     Set vs = ThisWorkbook.Worksheets(VILLAGE_SHEET)
@@ -1556,14 +1550,14 @@ Public Sub SolarEPC_ResourceAddVillage()
     mLastLocKey = vbNullString
     mLastLocLabel = vbNullString
 
-    MsgBox "VILLAGE_DB me save ho gaya:" & vbCrLf & vbCrLf & _
+    MsgBox "Saved to VILLAGE_DB:" & vbCrLf & vbCrLf & _
         Village & IIf(Len(Taluka) > 0, ", " & Taluka, "") & _
         IIf(Len(District) > 0, ", " & District, ""), _
         vbInformation, "Solar EPC Resource"
     Exit Sub
 Failed:
-    MsgBox "Gaon add nahi ho saka: " & Err.Description & vbCrLf & vbCrLf & _
-        "Pehle SolarEPC_ResourceMakeVillageDb chalao.", vbExclamation, "Solar EPC Resource"
+    MsgBox "The village could not be added: " & Err.Description & vbCrLf & vbCrLf & _
+        "Run SolarEPC_ResourceMakeVillageDb first.", vbExclamation, "Solar EPC Resource"
 End Sub
 
 'v1.9.5: "EXACT AREA, TALUKA, DISTRICT" for the exact centroid
