@@ -1,7 +1,7 @@
 Option Explicit
 
 '==========================================================================
-' SOLAR EPC - NASA POWER HOURLY RESOURCE MODULE v1.9.6 (RANGE12 + AREA, TALUKA, DISTRICT + GOOGLE DIAG)
+' SOLAR EPC - NASA POWER HOURLY RESOURCE MODULE v1.9.7 (AREA, TALUKA, DISTRICT + GOOGLE FROM SETTINGS!B4)
 '
 ' - Reads only the SITE row in DRAWING_DATA.autoLWHTbl.
 ' - Never reads tblDrawingData (obstacles) for the resource centroid.
@@ -12,6 +12,18 @@ Option Explicit
 ' - T2M minimum/maximum are derived from validated hourly T2M because NASA's
 '   Hourly API rejects T2M_MIN and T2M_MAX.
 '
+' v1.9.7 CHANGE (Google key ab SETTINGS!B4 se):
+' - Pehle code _CLOUD_CFG!B5 se key padhta tha, par asli key workbook ke
+'   SETTINGS sheet me B4 par hai (A4 = "API KEY"). Isliye Google tier kabhi
+'   chala hi nahi aur hamesha Nominatim fall back hota tha.
+' - Ab order hai:  SETTINGS!B4  ->  _CLOUD_CFG!B5 (optional override)
+'   Ab kisi ko key copy-paste karne ki zarurat nahi.
+' - Naya helper: ResourceSettingCell(SheetName, Cell) - kisi bhi sheet ka
+'   cell safe read karta hai; sheet/cell missing ho to "" deta hai.
+' - DHYAAN: agar key HTTP-referrer restricted hai (web map wali key) to
+'   Google REQUEST_DENIED dega, kyunki VBA se referrer nahi jata. Tab
+'   _CLOUD_CFG!B14 me "GOOGLE_REQUEST_DENIED" likha aayega.
+
 ' v1.9.6 CHANGE (Google tier diagnostics):
 ' - Google tier ab chupke se fail nahi hota. Har outcome _CLOUD_CFG me likha
 '   jata hai:  A14/B14 = STATUS,  A15/B15 = DETAIL.
@@ -1211,13 +1223,21 @@ End Function
 'v1.9.4: read an optional _CLOUD_CFG cell. Never errors if the sheet or the
 'cell is missing, so an unset key simply disables the optional tier.
 Private Function ResourceConfigCell(ByVal CellAddress As String) As String
+    ResourceConfigCell = ResourceSettingCell(CONFIG_SHEET, CellAddress)
+End Function
+
+'v1.9.7: read a cell from any sheet (case-insensitive sheet name). Never
+'errors if the sheet or the cell is missing - returns "" instead.
+'Used to pick up the Google key the workbook already stores on SETTINGS!B4.
+Private Function ResourceSettingCell(ByVal SheetName As String, _
+    ByVal CellAddress As String) As String
     Dim ws As Worksheet
     On Error GoTo Failed
-    Set ws = ThisWorkbook.Worksheets(CONFIG_SHEET)
-    ResourceConfigCell = Trim$(CStr(ws.Range(CellAddress).Value2))
+    Set ws = ThisWorkbook.Worksheets(SheetName)
+    ResourceSettingCell = Trim$(CStr(ws.Range(CellAddress).Value2))
     Exit Function
 Failed:
-    ResourceConfigCell = vbNullString
+    ResourceSettingCell = vbNullString
 End Function
 
 'v1.9.4: read one Google address_component by its type, e.g.
@@ -1258,11 +1278,15 @@ Private Function ResourceGoogleLocationLabel(ByVal Lat As Double, ByVal Lon As D
     Dim StatusText As String, ErrorText As String
 
     On Error GoTo Failed
-    Key = ResourceConfigCell("B5")
+    'The workbook already stores the Google key for the map on the SETTINGS
+    'sheet. Read it from there first so nothing has to be copied by hand.
+    '_CLOUD_CFG!B5 stays as an optional manual override.
+    Key = ResourceSettingCell("SETTINGS", "B4")
+    If Len(Key) = 0 Then Key = ResourceConfigCell("B5")
     If Len(Key) = 0 Then
         ResourceGoogleStatus "NO_KEY", _
-            "_CLOUD_CFG!B5 is blank, so the Google tier is skipped and Nominatim is used. " & _
-            "Paste your Google Geocoding API key into B5."
+            "No Google key found in SETTINGS!B4 or _CLOUD_CFG!B5, so the Google tier is " & _
+            "skipped and Nominatim is used. Put the key in SETTINGS!B4 (or B5 as an override)."
         Exit Function
     End If
 
