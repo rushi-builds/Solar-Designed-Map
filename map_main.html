@@ -4,8 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <meta name="theme-color" content="#0b5277">
-<title>Solar EPC 10X — Solar Designed Map • Satellite / Image 2 / 3D</title>
-<meta name="description" content="Solar EPC 10X — solar potential map with satellite imagery, image analysis and 3D site geometry reports.">
+<title>Solar EPC 10X — GODLEVEL FIXED • Satellite / Image 2 / 3D</title>
 
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 
@@ -1427,16 +1426,7 @@ async function selectMapLocation(latlng){
       {headers:{Accept:"application/json"}});
     if(r.ok){
       const d=await r.json();
-      // Build the most specific locality from the reverse-geocoder admin hierarchy.
-      const a=d.address||{};
-      const locality=a.village||a.hamlet||a.suburb||a.locality||a.neighbourhood||a.town||a.city||"";
-      const taluka=a.county||a.municipality||"";
-      const district=a.state_district||a.district||a.county||"";
-      const parts=[];
-      if(locality)parts.push(locality);
-      if(taluka&&taluka!==locality)parts.push(taluka);
-      if(district&&district!==taluka&&district!==locality)parts.push(district);
-      const clean=parts.length?parts.join(", "):d.display_name||fb;
+      const clean=d.display_name||fb;
       $("locationDisplay").textContent=clean;$("searchInput").value=clean;
       state.lastCleanLocation=clean;
       notifyParentLocation(clean,latlng.lat,latlng.lng);
