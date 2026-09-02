@@ -1,7 +1,7 @@
 Option Explicit
 
 '==========================================================================
-' SOLAR EPC - NASA POWER HOURLY RESOURCE MODULE v1.9.4 (RANGE12 + EXACT VILLAGE, TALUKA)
+' SOLAR EPC - NASA POWER HOURLY RESOURCE MODULE v1.9.5 (RANGE12 + AREA, TALUKA, DISTRICT)
 '
 ' - Reads only the SITE row in DRAWING_DATA.autoLWHTbl.
 ' - Never reads tblDrawingData (obstacles) for the resource centroid.
@@ -12,6 +12,20 @@ Option Explicit
 ' - T2M minimum/maximum are derived from validated hourly T2M because NASA's
 '   Hourly API rejects T2M_MIN and T2M_MAX.
 '
+' v1.9.5 CHANGE (Location: EXACT AREA, TALUKA, DISTRICT):
+' - v1.9.4 me galti se DISTRICT hata diya gaya tha - wapas add ho gaya.
+'   Ab format hai:  "Exact Area, Taluka, District"
+'   (e.g. "Sonwadi Bk., Phaltan, Satara" / "Rahegaon, Vaijapur,
+'    Chhatrapati Sambhajinagar"). STATE abhi bhi nahi aata.
+' - Pehla part = centroid jahan draw hua, us exact area ka naam - gaon ho,
+'   hamlet ho, suburb ho ya colony, jo sabse specific mile wahi.
+'   Priority: village -> hamlet -> suburb -> locality ->
+'             neighbourhood -> town -> city
+' - Dusra part  = Taluka   (Nominatim "county": "Phaltan", "Paithan taluka")
+' - Teesra part = District (Nominatim "state_district": "Satara")
+' - Jo level nahi milta wo skip - kabhi kuch invent nahi hota.
+' - Google tier me bhi district add: administrative_area_level_2.
+
 ' v1.9.4 CHANGE (Location: EXACT VILLAGE, TALUKA only):
 ' - Format ab sirf "Gaon, Taluka" hai - District aur State nahi chahiye.
 '     Gaon  priority (exact village): village -> hamlet -> suburb ->
@@ -1152,17 +1166,30 @@ Private Function ResourceLocalityName(ByVal JSONText As String) As String
     Next I
 End Function
 
-'v1.9.4: TALUKA only. District and State are deliberately NOT included -
-'the label is meant to be "Gaon, Taluka" and nothing more.
+'v1.9.5: TALUKA + DISTRICT (two slots). STATE is deliberately NOT included -
+'the label is "Exact Area, Taluka, District" and nothing more.
 'In India Nominatim returns the taluka as "county" ("Phaltan",
-'"Paithan taluka"). Returns "" when there is no taluka, so the label
-'becomes just the locality. A taluka is NEVER invented.
-Private Function ResourceTalukaName(ByVal JSONText As String, ByVal Locality As String) As String
-    Dim V As String
-    V = ResourceAdminClean(ResourceJSONValue(JSONText, "county"))
-    If Len(V) = 0 Then Exit Function
-    If ResourceSameName(V, Locality) Then Exit Function   'town is its own taluka HQ
-    ResourceTalukaName = V
+'"Paithan taluka") and the district as "state_district" ("Satara").
+'Missing levels are simply skipped and names are never invented, so a point
+'with no taluka still yields "Area, District".
+Private Function ResourceAdminNames(ByVal JSONText As String, ByVal Locality As String) As String
+    Dim Keys As Variant
+    Dim I As Long, V As String
+    Dim A1 As String, A2 As String
+    Keys = Array("county", "district", "state_district")   'NOTE: "state" excluded on purpose
+    For I = LBound(Keys) To UBound(Keys)
+        V = ResourceAdminClean(ResourceJSONValue(JSONText, CStr(Keys(I))))
+        If Len(V) > 0 Then
+            If Not ResourceSameName(V, Locality) Then
+                If Len(A1) = 0 Then
+                    A1 = V
+                ElseIf Not ResourceSameName(V, A1) Then
+                    If Len(A2) = 0 Then A2 = V Else Exit For
+                End If
+            End If
+        End If
+    Next I
+    ResourceAdminNames = ResourceLocationCompose(A1, A2)
 End Function
 
 'v1.9.4: read an optional _CLOUD_CFG cell. Never errors if the sheet or the
@@ -1209,7 +1236,7 @@ End Function
 'and the Nominatim / BigDataCloud tiers run exactly as before.
 Private Function ResourceGoogleLocationLabel(ByVal Lat As Double, ByVal Lon As Double) As String
     Dim Key As String, UrlText As String, JSONText As String
-    Dim Locality As String, Taluka As String
+    Dim Locality As String, Taluka As String, District As String
     On Error GoTo Failed
     Key = ResourceConfigCell("B5")
     If Len(Key) = 0 Then Exit Function
@@ -1224,8 +1251,10 @@ Private Function ResourceGoogleLocationLabel(ByVal Lat As Double, ByVal Lon As D
     If Len(Locality) = 0 Then Locality = ResourceGoogleAddressPart(JSONText, "sublocality")
     If Len(Locality) = 0 Then Locality = ResourceGoogleAddressPart(JSONText, "neighborhood")
     Taluka = ResourceGoogleAddressPart(JSONText, "administrative_area_level_3")
+    District = ResourceGoogleAddressPart(JSONText, "administrative_area_level_2")
     If Len(Locality) > 0 Then
-        ResourceGoogleLocationLabel = ResourceLocationCompose(Locality, ResourceAdminClean(Taluka))
+        ResourceGoogleLocationLabel = ResourceLocationCompose(Locality, _
+            ResourceLocationCompose(ResourceAdminClean(Taluka), ResourceAdminClean(District)))
     End If
     Exit Function
 Failed:
@@ -1272,7 +1301,7 @@ Private Function ResourceLocationLabel(ByVal LatitudeText As String, ByVal Longi
     JSONText = ResourceHttpGetJson(UrlText)
     If Len(JSONText) > 0 Then
         Primary = ResourceLocalityName(JSONText)
-        Secondary = ResourceTalukaName(JSONText, Primary)
+        Secondary = ResourceAdminNames(JSONText, Primary)
         If Len(Primary) = 0 Then
             'Last resort only. display_name is still geocoder output (never
             'invented) and its first element is the most specific name the
