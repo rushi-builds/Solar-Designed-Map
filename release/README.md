@@ -1,41 +1,48 @@
-# Solar EPC Resource — v1.9.4
+# Solar EPC Resource — v1.9.5
 
 **Date:** 2026-09-02
-**Commit:** `e90a959`
+**Commit:** `8dfa491`
 **Branch:** `arena/01a06261-solar-designed-map`
 
 ---
 
-## 1. Format badal gaya — ab sirf `Gaon, Taluka`
+## 1. Format — `Exact Area, Taluka, District`
 
-| | Format | Example |
+```
+Sonwadi Bk., Phaltan, Satara
+Rahegaon, Vaijapur, Chhatrapati Sambhajinagar
+```
+
+| Part | Kya hai | Priority |
 |---|---|---|
-| v1.9.2 | `Town, District` | `Phaltan, Satara` |
-| v1.9.3 | `Gaon, Taluka, District/State` | `Rahegaon, Vaijapur, Chhatrapati Sambhajinagar` |
-| **v1.9.4** | **`Gaon, Taluka`** | **`Rahegaon, Vaijapur`** |
+| **1. Exact Area** | Centroid jahan draw hua, us area ka sabse specific naam — gaon ho, hamlet ho, suburb ho ya colony | `village → hamlet → suburb → locality → neighbourhood → town → city` |
+| **2. Taluka** | Taluka / tehsil | Nominatim `county` (`"Phaltan"`, `"Paithan taluka"`) |
+| **3. District** | District | Nominatim `state_district` (`"Satara"`) |
 
-**District aur State ab nahi aate.** Bilkul nahi.
+**State nahi aata.** District zaroor aata hai.
 
-```
-Gaon   priority (exact village): village → hamlet → suburb →
-                                 locality → neighbourhood → town → city
-Taluka: county  (India me Nominatim ka county = taluka)
-```
+Jo level nahi milta wo skip ho jata hai — **kabhi kuch invent nahi hota.**
+Gaon jo khud taluka HQ ho (jaise Baramati) → `Baramati, Pune`.
 
-- Taluka nahi mila → sirf gaon ka naam (kuch invent nahi hota).
-- Gaon jo khud taluka HQ ho (jaise Baramati) → sirf ek baar: `Baramati`.
+### Version history (meri galti ki wajah se)
+
+| Version | Format | Status |
+|---|---|---|
+| v1.9.2 | `Phaltan, Satara` | gaon/taluka hi nahi aata tha |
+| v1.9.3 | `Rahegaon, Vaijapur, Chhatrapati Sambhajinagar` | sahi tha, par kabhi State bhi ghus jata tha |
+| v1.9.4 | `Rahegaon, Vaijapur` | ❌ **galat** — maine district hata diya |
+| **v1.9.5** | **`Rahegaon, Vaijapur, Chhatrapati Sambhajinagar`** | ✅ abhi wala |
 
 ---
 
-## 2. ⭐ Naya: Google tier — ASLI gaon ke liye (optional)
+## 2. ⭐ Google tier — ASLI gaon ke liye (optional par important)
 
 **Problem:** OSM me Indian revenue-village ke naam hote hi nahi.
-`Sonwadi Bk.` Satara district me OSM me **exist hi nahi karta** (maine
-bounded search se verify kiya — result empty aaya). Isliye Nominatim use
-kabhi nahi de sakta.
+`Sonwadi Bk.` Satara district me OSM me **exist hi nahi karta** — maine
+bounded Nominatim search se verify kiya, result **empty** aaya. Isliye
+Nominatim se wo naam kabhi nahi milega, chahe koi bhi logic lagao.
 
-**Solution:** Google ke paas Indian revenue-village coverage hai. Ab ek
-optional Google tier sabse pehle try hota hai.
+**Solution:** Google ke paas Indian revenue-village coverage hai.
 
 ### Setup (30 second)
 
@@ -45,21 +52,25 @@ optional Google tier sabse pehle try hota hai.
 |---|---|
 | **B5** | Apni **Google Geocoding API key** |
 
-> B5 pehle khali tha — isliye koi existing setting overwrite nahi hoti.
+> B5 pehle se khali tha — koi existing setting overwrite nahi hoti.
+> **Key khali rakho to kuch bhi change nahi hota** — purana
+> Nominatim → BigDataCloud flow chalta rahega. Zero risk.
 
-**Key khali rakho to kuch bhi change nahi hota** — purana
-Nominatim → BigDataCloud flow chalta rahega. Zero risk.
-
-### Google tier kya karta hai
+### Google se kya uthta hai
 
 | Google field | Matlab | Label me |
 |---|---|---|
-| `locality` | exact gaon | pehla part |
-| `administrative_area_level_3` | taluka | dusra part |
-| `administrative_area_level_2` | district | ❌ skip |
+| `locality` | exact gaon | part 1 |
+| `administrative_area_level_3` | taluka | part 2 |
+| `administrative_area_level_2` | district | part 3 |
 | `administrative_area_level_1` | state | ❌ skip |
 
-Agar `locality` na mile to `sublocality` → `neighborhood` try hota hai.
+`locality` na mile to `sublocality` → `neighborhood` try hota hai.
+
+**Parser test result (tumhare example coordinate ke liye):**
+```
+Google @ 17.990387, 74.435250  →  Sonwadi Bk, Phaltan, Satara   ✅
+```
 
 ---
 
@@ -72,7 +83,7 @@ Agar `locality` na mile to `sublocality` → `neighborhood` try hota hai.
 
 ---
 
-## 4. Excel me import kaise kare
+## 4. Import kaise kare
 
 1. Workbook kholo → **Alt+F11**.
 2. **Purana module delete karo** (`modSolarEPCResource_k12` → right-click →
@@ -81,10 +92,9 @@ Agar `locality` na mile to `sublocality` → `neighborhood` try hota hai.
 4. **Ctrl+S**.
 5. **Debug → Compile VBAProject** → error nahi aana chahiye.
 
-> ⚠️ **Duplicate module ka issue**
-> Is file me `Attribute VB_Name` nahi hai, isliye Excel module ka naam
-> **filename** se leta hai. Purana module maujood hoga to Excel naye ko
-> `modSolarEPCResource_k121` naam dega → dono me same `Public Sub` hone se
+> ⚠️ Is file me `Attribute VB_Name` nahi hai, isliye Excel module ka naam
+> **filename** se leta hai. Purana module maujood hoga to naye ko
+> `modSolarEPCResource_k121` naam milega → dono me same `Public Sub` hone se
 > **"Ambiguous name detected"** compile error. Pehle delete, phir import.
 
 ---
@@ -92,19 +102,23 @@ Agar `locality` na mile to `sublocality` → `neighborhood` try hota hai.
 ## 5. Verify
 
 **Naya site:** ek naya site run karo → `RESOURCE_DB` ka **Location** column
-dekho. `Gaon, Taluka` aana chahiye.
+dekho.
 
 **Purani rows:** **Alt+F8** → `SolarEPC_ResourceFillLocations` → Run.
 Sirf **blank** cells bharenge.
 
-### Expected results (real Nominatim data, Google key ke bina)
+### Expected (real Nominatim data, Google key ke bina)
 
-| Site | v1.9.4 output |
+| Site | v1.9.5 output |
 |---|---|
-| Rahegaon, Vaijapur | `Rahegaon, Vaijapur` |
-| Pachod (county = "Paithan taluka") | `Pachod, Paithan` |
-| Baramati (town == taluka HQ) | `Baramati` |
-| Kharadi | `Kharadi, Pune` |
+| Rahegaon | `Rahegaon, Vaijapur, Chhatrapati Sambhajinagar` |
+| Pachod (county = "Paithan taluka") | `Pachod, Paithan, Chhatrapati Sambhajinagar` |
+| Baramati (town == taluka HQ) | `Baramati, Pune` |
+| Phaltan coords (OSM me gaon nahi) | `MSEB Colony, Phaltan, Satara` |
+
+Last wala case me `MSEB Colony` isliye aata hai kyunki **OSM me wahan koi
+gaon mapped hi nahi** — ye sabse specific cheez hai jo OSM ko mili. Asli
+`Sonwadi Bk.` ke liye **B5 me Google key daalo.**
 
 ---
 
@@ -124,35 +138,27 @@ Sirf `.bas` files change hui hain (3 copies, sab byte-identical).
 
 ---
 
-## 7. ⚠️ Important — Google output verify karna padega
+## 7. ⚠️ Google output live verify nahi hua
 
-Maine **parser ko** test kiya hai realistic Google response structure par —
-wo sahi se `Sonwadi Bk` + `Phaltan` nikal raha hai:
-
-```
-locality                    → Sonwadi Bk
-administrative_area_level_3 → Phaltan
-FINAL LABEL                 → Sonwadi Bk, Phaltan   ✅
-```
-
-Par **ye maine live Google API se verify nahi kiya** — mere sandbox se
-`maps.googleapis.com` reachable nahi hai, aur mere paas key bhi nahi hai.
+Maine **parser** ko test kiya hai realistic Google response structure par —
+wo `Sonwadi Bk` + `Phaltan` + `Satara` sahi nikal raha hai. Par **live Google
+API se verify nahi kiya** — mere sandbox se `maps.googleapis.com` reachable
+nahi hai aur mere paas key bhi nahi.
 
 Isliye B5 me key daalne ke baad **pehle ek site run karke check kar lena.**
-Agar Google kuch ajeeb de (ya `REQUEST_DENIED` aaye), to module automatically
-Nominatim par fall back ho jata hai — koi error nahi aayega.
-
-Agar Google galat locality de to B5 khali kar do → turant purana behavior.
+Agar Google kuch ajeeb de ya `REQUEST_DENIED` aaye, to module automatically
+Nominatim par fall back ho jata hai — koi error nahi aayega. Pasand na aaye
+to B5 khali kar do → turant purana behavior.
 
 ---
 
 ## 8. Rollback
 
-1. Purana module import karo (v1.9.3 = commit `406658a` se pehle wala,
-   ya v1.9.2 = `183a516`).
+1. Purana module import karo (v1.9.4 = `e90a959`, v1.9.3 = `fdf0de7`,
+   v1.9.2 = `183a516`).
 2. Ya B5 khali kar do → Google tier off.
 3. Location sirf descriptive column hai — weather/resource data par koi asar
-   nahi. Column clear kar do to bhi sab chalega.
+   nahi.
 
 ---
 
