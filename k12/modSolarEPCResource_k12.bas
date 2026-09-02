@@ -1,7 +1,7 @@
 Option Explicit
 
 '==========================================================================
-' SOLAR EPC - NASA POWER HOURLY RESOURCE MODULE v1.9.5 (RANGE12 + AREA, TALUKA, DISTRICT)
+' SOLAR EPC - NASA POWER HOURLY RESOURCE MODULE v1.9.6 (RANGE12 + AREA, TALUKA, DISTRICT + GOOGLE DIAG)
 '
 ' - Reads only the SITE row in DRAWING_DATA.autoLWHTbl.
 ' - Never reads tblDrawingData (obstacles) for the resource centroid.
@@ -12,6 +12,22 @@ Option Explicit
 ' - T2M minimum/maximum are derived from validated hourly T2M because NASA's
 '   Hourly API rejects T2M_MIN and T2M_MAX.
 '
+' v1.9.6 CHANGE (Google tier diagnostics):
+' - Google tier ab chupke se fail nahi hota. Har outcome _CLOUD_CFG me likha
+'   jata hai:  A14/B14 = STATUS,  A15/B15 = DETAIL.
+'   Possible status:
+'     NO_KEY              -> B5 khali hai, Google tier skip hua
+'     HTTP_FAIL           -> maps.googleapis.com se koi reply nahi aaya
+'     GOOGLE_REQUEST_DENIED -> key invalid / restricted / API enabled nahi
+'     GOOGLE_OVER_QUERY_LIMIT -> quota khatam
+'     GOOGLE_ZERO_RESULTS -> Google ko is point ka koi address nahi mila
+'     NO_LOCALITY         -> Google OK bola par locality field nahi diya
+'     OK                  -> Google se label mil gaya (B15 me wo label)
+' - Ek zaroori baat: map jo key use karta hai wo WEB-restricted hoti hai
+'   (HTTP referrer). VBA se call me koi referrer nahi jata, isliye aisi
+'   "demo" key se hamesha REQUEST_DENIED aayega. Google tier ke liye aisi
+'   key chahiye jisme HTTP referrer restriction NA ho.
+
 ' v1.9.5 CHANGE (Location: EXACT AREA, TALUKA, DISTRICT):
 ' - v1.9.4 me galti se DISTRICT hata diya gaya tha - wapas add ho gaya.
 '   Ab format hai:  "Exact Area, Taluka, District"
@@ -1230,36 +1246,90 @@ Failed:
     ResourceGoogleAddressPart = vbNullString
 End Function
 
-'v1.9.4: OPTIONAL Google reverse-geocode tier - best shot at the EXACT Indian
+'v1.9.6: OPTIONAL Google reverse-geocode tier - best shot at the EXACT Indian
 'revenue village (OSM simply does not carry names like "Sonwadi Bk.").
 'Active ONLY when a key sits in _CLOUD_CFG!B5. With no key this returns ""
 'and the Nominatim / BigDataCloud tiers run exactly as before.
+'Every outcome is recorded in _CLOUD_CFG A14/B14 (status) and A15/B15 (detail)
+'so a silent fallback can always be diagnosed instead of guessed at.
 Private Function ResourceGoogleLocationLabel(ByVal Lat As Double, ByVal Lon As Double) As String
     Dim Key As String, UrlText As String, JSONText As String
     Dim Locality As String, Taluka As String, District As String
+    Dim StatusText As String, ErrorText As String
+
     On Error GoTo Failed
     Key = ResourceConfigCell("B5")
-    If Len(Key) = 0 Then Exit Function
+    If Len(Key) = 0 Then
+        ResourceGoogleStatus "NO_KEY", _
+            "_CLOUD_CFG!B5 is blank, so the Google tier is skipped and Nominatim is used. " & _
+            "Paste your Google Geocoding API key into B5."
+        Exit Function
+    End If
+
     UrlText = "https://maps.googleapis.com/maps/api/geocode/json?latlng=" & _
               ResourceDecimal(Lat, 8) & "," & ResourceDecimal(Lon, 8) & _
               "&language=en&key=" & Key
     JSONText = ResourceHttpGetJson(UrlText)
-    If Len(JSONText) = 0 Then Exit Function
-    If InStr(1, JSONText, """status""", vbBinaryCompare) = 0 Then Exit Function
-    If InStr(1, JSONText, """OK""", vbBinaryCompare) = 0 Then Exit Function
+    If Len(JSONText) = 0 Then
+        ResourceGoogleStatus "HTTP_FAIL", _
+            "No response from maps.googleapis.com (network, proxy or firewall block)."
+        Exit Function
+    End If
+
+    StatusText = ResourceJSONValue(JSONText, "status")
+    ErrorText = ResourceJSONValue(JSONText, "error_message")
+    If StrComp(StatusText, "OK", vbTextCompare) <> 0 Then
+        If Len(StatusText) = 0 Then StatusText = "NO_STATUS_FIELD"
+        If Len(ErrorText) = 0 Then
+            If StrComp(StatusText, "REQUEST_DENIED", vbTextCompare) = 0 Then
+                ErrorText = "Key is invalid, expired, HTTP-referrer/IP restricted, or the " & _
+                    "Geocoding API is not enabled for it. VBA calls send no referrer, so a " & _
+                    "web-restricted (demo) key will always be denied."
+            ElseIf StrComp(StatusText, "OVER_QUERY_LIMIT", vbTextCompare) = 0 Then
+                ErrorText = "Quota/billing exhausted on this key."
+            ElseIf StrComp(StatusText, "ZERO_RESULTS", vbTextCompare) = 0 Then
+                ErrorText = "Google has no address for this exact point."
+            End If
+        End If
+        ResourceGoogleStatus "GOOGLE_" & StatusText, ErrorText
+        Exit Function
+    End If
+
     Locality = ResourceGoogleAddressPart(JSONText, "locality")
     If Len(Locality) = 0 Then Locality = ResourceGoogleAddressPart(JSONText, "sublocality")
     If Len(Locality) = 0 Then Locality = ResourceGoogleAddressPart(JSONText, "neighborhood")
+    If Len(Locality) = 0 Then
+        ResourceGoogleStatus "NO_LOCALITY", _
+            "Google replied OK but returned no locality / sublocality / neighborhood component."
+        Exit Function
+    End If
+
     Taluka = ResourceGoogleAddressPart(JSONText, "administrative_area_level_3")
     District = ResourceGoogleAddressPart(JSONText, "administrative_area_level_2")
-    If Len(Locality) > 0 Then
-        ResourceGoogleLocationLabel = ResourceLocationCompose(Locality, _
-            ResourceLocationCompose(ResourceAdminClean(Taluka), ResourceAdminClean(District)))
-    End If
+    ResourceGoogleLocationLabel = ResourceLocationCompose(Locality, _
+        ResourceLocationCompose(ResourceAdminClean(Taluka), ResourceAdminClean(District)))
+    ResourceGoogleStatus "OK", ResourceGoogleLocationLabel
     Exit Function
 Failed:
     ResourceGoogleLocationLabel = vbNullString
+    ResourceGoogleStatus "VBA_ERROR", "VBA error " & CStr(Err.Number) & ": " & Err.Description
 End Function
+
+'v1.9.6: records why the Google tier succeeded / was skipped / failed into the
+'hidden _CLOUD_CFG sheet. Diagnostic only - no input field or Table is touched.
+Private Sub ResourceGoogleStatus(ByVal StatusText As String, ByVal DetailText As String)
+    Dim ws As Worksheet
+    On Error Resume Next
+    Set ws = ThisWorkbook.Worksheets(CONFIG_SHEET)
+    If Not ws Is Nothing Then
+        ws.Range("A14").Value2 = "GOOGLE GEOCODE STATUS"
+        ws.Range("B14").Value2 = StatusText
+        ws.Range("A15").Value2 = "GOOGLE GEOCODE DETAIL"
+        ws.Range("B15").Value2 = Left$(DetailText, 900)
+    End If
+    Debug.Print Format$(Now, "yyyy-mm-dd hh:nn:ss"), "GOOGLE TIER:", StatusText, DetailText
+    On Error GoTo 0
+End Sub
 
 'v1.9.5: "EXACT AREA, TALUKA, DISTRICT" for the exact centroid
 '(e.g. "Rahegaon, Vaijapur, Chhatrapati Sambhajinagar",
