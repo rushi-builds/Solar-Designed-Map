@@ -1419,9 +1419,15 @@ Private Function ResourceGeoapifyLocationLabel(ByVal Lat As Double, ByVal Lon As
         Exit Function
     End If
 
-    'Most specific populated place first: village is the Indian revenue
-    'village when Geoapify has it, otherwise fall back to the city/town.
-    Keys = Array("village", "hamlet", "suburb", "neighbourhood", "city", "town")
+    'Settlement name first, and only then the finer-grained labels.
+    'village  - the Indian revenue village, the most useful answer there is.
+    'town/city - the containing town; these beat hamlet on purpose.
+    'hamlet/suburb/neighbourhood - last, because measured Geoapify replies
+    '   carry a stale hamlet picked up from the nearest POI. At 19.9333,
+    '   74.7333 (inside Vaijapur town) Geoapify returns hamlet
+    '   "Rotegaon Rly Stn" from a nearby school, while city is correctly
+    '   "Vaijapur". Preferring hamlet there yields the wrong label.
+    Keys = Array("village", "town", "city", "hamlet", "suburb", "neighbourhood")
     For I = LBound(Keys) To UBound(Keys)
         V = Trim$(ResourceJSONValue(JSONText, CStr(Keys(I))))
         If Len(V) > 0 Then
