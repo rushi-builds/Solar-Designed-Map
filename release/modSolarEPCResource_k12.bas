@@ -2,7 +2,7 @@ Option Explicit
 
 '==========================================================================
 ' SOLAR EPC - NASA POWER HOURLY RESOURCE MODULE
-' Version 2.2
+' Version 2.3
 '
 ' PURPOSE
 '   Imports NASA POWER hourly solar and weather resource data for a site that
@@ -41,10 +41,6 @@ Option Explicit
 '     0b) Google Geocoding  Reverse geocode through the Google Geocoding API.
 '                           Best Indian revenue-village coverage, but the
 '                           Cloud project must have billing enabled.
-'     0c) Geoapify          Reverse geocode through Geoapify, which draws on
-'                           OpenStreetMap and Who's On First. Free tier is
-'                           3,000 requests per day and needs no credit card.
-'                           Key goes in SETTINGS!B11.
 '     1)  OSM Nominatim     Free, no key required.
 '     2)  BigDataCloud      Free, no key required.
 '
@@ -55,14 +51,18 @@ Option Explicit
 '
 ' CONFIGURATION
 '
-'   Geoapify API key (optional)  ->  SETTINGS!B11
-'       Free tier: 3,000 requests/day, no credit card required.
-'       Sign up at https://www.geoapify.com/ and paste the key into B11.
-'
 '   Google API key (optional). Resolved in this order:
 '       1. SETTINGS!B4      the workbook Google Maps key
-'       2. _CLOUD_CFG!B5    manual override
+'       2. SETTINGS!B11     spare slot for a second Google key
+'       3. _CLOUD_CFG!B5    manual override
 '   When no key is present that tier is skipped and the free tiers run.
+'   NOTE: Google requires billing to be enabled on the Cloud project. Without
+'   it the API answers REQUEST_DENIED and the free tiers below run instead.
+'
+'   IMPORTANT - manual corrections are permanent. A Location cell that already
+'   holds text is never changed, so anything you type by hand survives every
+'   later import and every back-fill run. To have a cell re-resolved, clear it
+'   first, then run SolarEPC_ResourceFillLocations.
 '
 '   VILLAGE_DB sheet (optional). Row 1 holds the headers, data starts at row 2:
 '       A = Village    B = Taluka    C = District
@@ -80,8 +80,6 @@ Option Explicit
 '       A15/B15  Google geocode detail
 '       A16/B16  VILLAGE_DB match
 '       A17/B17  Google key source
-'       A18/B18  Geoapify geocode status
-'       A19/B19  Geoapify geocode detail
 '       A20/B20  resolver that produced the label
 '==========================================================================
 '
@@ -100,12 +98,14 @@ Option Explicit
 '==========================================================================
 '
 ' VERSION HISTORY
-'   v2.2    Added the Geoapify reverse-geocode tier. Geoapify is free (3,000
-'           requests/day) and needs no credit card, so it is the practical
-'           replacement for Google when no billing account is available.
-'           The key is read from SETTINGS!B11. Status is written to
-'           _CLOUD_CFG A18/B18 and A19/B19. A20/B20 records which resolver
-'           actually produced the label.
+'   v2.3    Removed the Geoapify tier. A head-to-head measurement on three
+'           Maharashtra sites showed Geoapify matched OSM Nominatim on two
+'           and was WRONG on the third (it returned a railway-station hamlet
+'           picked up from a nearby school), so it added rate-limit headroom
+'           but no accuracy. SETTINGS!B11 is now a spare slot for a second
+'           Google key: the Google tier resolves B4 -> B11 -> _CLOUD_CFG!B5.
+'           _CLOUD_CFG A18/B18 and A19/B19 are no longer written.
+'   v2.2    Added the Geoapify reverse-geocode tier (removed again in v2.3).
 '   v2.1    Geocoding key is read from SETTINGS!B11 (a dedicated key), then
 '           SETTINGS!B4, then _CLOUD_CFG!B5. The key source actually used is
 '           reported in _CLOUD_CFG A17/B17.
@@ -134,7 +134,10 @@ Private Const MAX_RESOURCE_FAILURES As Long = 3
 Private Const FAST_PARALLEL_REQUESTS As Long = 6
 Private Const FAST_REQUEST_TIMEOUT_SECONDS As Long = 90
 Private Const SETTINGS_SHEET As String = "SETTINGS"
-Private Const GEOAPIFY_KEY_CELL As String = "B11"
+'v2.3: spare slot for a second Google key. The Google tier resolves
+'SETTINGS!B4 -> SETTINGS!B11 -> _CLOUD_CFG!B5 and reports which one it used
+'in _CLOUD_CFG A17/B17.
+Private Const GOOGLE_SPARE_KEY_CELL As String = "B11"
 'v2.0: user-owned village list. Beats every online source because the user
 'knows the real revenue-village name, which no free geocoder carries.
 Private Const VILLAGE_SHEET As String = "VILLAGE_DB"
@@ -1235,8 +1238,8 @@ End Function
 
 'v1.9.7: read a cell from any sheet (case-insensitive sheet name). Never
 'errors if the sheet or the cell is missing - returns "" instead.
-'Used to read the Geocoding API key (SETTINGS!B11) and the Google Maps key
-'(SETTINGS!B4) from the workbook's own SETTINGS sheet.
+'Used to read the Google Maps key (SETTINGS!B4), the spare Google key
+'(SETTINGS!B11) and the manual override (_CLOUD_CFG!B5) from this workbook.
 Private Function ResourceSettingCell(ByVal SheetName As String, _
     ByVal CellAddress As String) As String
     Dim ws As Worksheet
@@ -1276,7 +1279,7 @@ End Function
 
 'v1.9.6: OPTIONAL Google reverse-geocode tier - the best shot at the EXACT
 'Indian revenue village (OSM simply does not carry names like "Sonwadi Bk.").
-'Active only when a key is found (SETTINGS!B11 -> SETTINGS!B4 -> _CLOUD_CFG!B5).
+'Active only when a key is found (SETTINGS!B4 -> SETTINGS!B11 -> _CLOUD_CFG!B5).
 'With no key this returns "" and the Nominatim / BigDataCloud tiers run exactly
 'as before.
 'Every outcome is recorded in _CLOUD_CFG A14/B14 (status) and A15/B15 (detail)
@@ -1289,10 +1292,14 @@ Private Function ResourceGoogleLocationLabel(ByVal Lat As Double, ByVal Lon As D
 
     On Error GoTo Failed
     'Resolve the Google key: SETTINGS!B4 (workbook map key), then
-    '_CLOUD_CFG!B5 (manual override). The first non-empty value wins.
-    '(SETTINGS!B11 is reserved for the Geoapify key.)
+    'SETTINGS!B11 (spare slot), then _CLOUD_CFG!B5 (manual override).
+    'The first non-empty value wins.
     Key = ResourceSettingCell(SETTINGS_SHEET, "B4")
     KeySource = "SETTINGS!B4"
+    If Len(Key) = 0 Then
+        Key = ResourceSettingCell(SETTINGS_SHEET, GOOGLE_SPARE_KEY_CELL)
+        KeySource = "SETTINGS!" & GOOGLE_SPARE_KEY_CELL
+    End If
     If Len(Key) = 0 Then
         Key = ResourceConfigCell("B5")
         KeySource = "_CLOUD_CFG!B5"
@@ -1301,8 +1308,9 @@ Private Function ResourceGoogleLocationLabel(ByVal Lat As Double, ByVal Lon As D
         KeySource = "NONE"
         ResourceGoogleStatus "NO_KEY", _
             "No Google key found in SETTINGS!B4 or _CLOUD_CFG!B5, so the Google tier " & _
-            "is skipped. Put a Google key in SETTINGS!B4, or a free Geoapify key in " & _
-            "SETTINGS!B11."
+            "is skipped. Put a Google key in SETTINGS!B4 or SETTINGS!B11 " & _
+            "(or in _CLOUD_CFG!B5). Remember: Google requires billing to be " & _
+            "enabled on the Cloud project, otherwise it returns REQUEST_DENIED."
         ResourceSettingDiag "A17", "GEOCODING KEY SOURCE", "B17", KeySource
         Exit Function
     End If
@@ -1385,87 +1393,6 @@ Private Sub ResourceGoogleStatus(ByVal StatusText As String, ByVal DetailText As
     End If
     Debug.Print Format$(Now, "yyyy-mm-dd hh:nn:ss"), "GOOGLE TIER:", StatusText, DetailText
     On Error GoTo 0
-End Sub
-
-Private Function ResourceGeoapifyLocationLabel(ByVal Lat As Double, ByVal Lon As Double) As String
-    Dim Key As String, UrlText As String, JSONText As String
-    Dim Locality As String, Taluka As String, District As String
-    Dim Keys As Variant
-    Dim I As Long, V As String
-
-    On Error GoTo Failed
-    'Geoapify is free (3,000 requests/day) and needs no credit card, so it is
-    'the practical geocoder when no Google billing account is available.
-    Key = ResourceSettingCell(SETTINGS_SHEET, GEOAPIFY_KEY_CELL)
-    If Len(Key) = 0 Then
-        ResourceGeoapifyStatus "NO_KEY", _
-            "No Geoapify key in SETTINGS!" & GEOAPIFY_KEY_CELL & _
-            ", so the Geoapify tier is skipped. Get a free key at https://www.geoapify.com/."
-        Exit Function
-    End If
-
-    UrlText = "https://api.geoapify.com/v1/geocode/reverse?lat=" & _
-              ResourceDecimal(Lat, 7) & "&lon=" & ResourceDecimal(Lon, 7) & _
-              "&apiKey=" & Key
-    JSONText = ResourceHttpGetJson(UrlText)
-    If Len(JSONText) = 0 Then
-        ResourceGeoapifyStatus "HTTP_FAIL", _
-            "No response from api.geoapify.com (network, proxy or firewall block)."
-        Exit Function
-    End If
-
-    If InStr(1, JSONText, """features"":[", vbBinaryCompare) = 0 Then
-        ResourceGeoapifyStatus "NO_FEATURES", "Geoapify returned no features for this point."
-        Exit Function
-    End If
-
-    'Settlement name first, and only then the finer-grained labels.
-    'village  - the Indian revenue village, the most useful answer there is.
-    'town/city - the containing town; these beat hamlet on purpose.
-    'hamlet/suburb/neighbourhood - last, because measured Geoapify replies
-    '   carry a stale hamlet picked up from the nearest POI. At 19.9333,
-    '   74.7333 (inside Vaijapur town) Geoapify returns hamlet
-    '   "Rotegaon Rly Stn" from a nearby school, while city is correctly
-    '   "Vaijapur". Preferring hamlet there yields the wrong label.
-    Keys = Array("village", "town", "city", "hamlet", "suburb", "neighbourhood")
-    For I = LBound(Keys) To UBound(Keys)
-        V = Trim$(ResourceJSONValue(JSONText, CStr(Keys(I))))
-        If Len(V) > 0 Then
-            Locality = V
-            Exit For
-        End If
-    Next I
-
-    Taluka = ResourceAdminClean(ResourceJSONValue(JSONText, "county"))
-    District = ResourceAdminClean(ResourceJSONValue(JSONText, "state_district"))
-
-    'Collapse a taluka or district that repeats the locality (e.g. city
-    '"Phaltan" inside county "Phaltan" yields "Phaltan, Satara", not
-    '"Phaltan, Phaltan, Satara").
-    If ResourceSameName(Locality, Taluka) Then Taluka = vbNullString
-    If ResourceSameName(Locality, District) Then District = vbNullString
-
-    If Len(Locality) = 0 And Len(Taluka) = 0 And Len(District) = 0 Then
-        ResourceGeoapifyStatus "NO_LOCALITY", _
-            "Geoapify replied but returned no village / suburb / city / county."
-        Exit Function
-    End If
-
-    ResourceGeoapifyLocationLabel = ResourceLocationCompose(Locality, _
-        ResourceLocationCompose(Taluka, District))
-    ResourceGeoapifyStatus "OK", ResourceGeoapifyLocationLabel
-    Exit Function
-Failed:
-    ResourceGeoapifyLocationLabel = vbNullString
-    ResourceGeoapifyStatus "VBA_ERROR", "VBA error " & CStr(Err.Number) & ": " & Err.Description
-End Function
-
-'v2.2: records why the Geoapify tier succeeded / was skipped / failed into the
-'hidden _CLOUD_CFG sheet. Diagnostic only - no input field or Table is touched.
-Private Sub ResourceGeoapifyStatus(ByVal StatusText As String, ByVal DetailText As String)
-    ResourceSettingDiag "A18", "GEOAPIFY GEOCODE STATUS", "B18", StatusText
-    ResourceSettingDiag "A19", "GEOAPIFY GEOCODE DETAIL", "B19", Left$(DetailText, 900)
-    Debug.Print Format$(Now, "yyyy-mm-dd hh:nn:ss"), "GEOAPIFY TIER:", StatusText, DetailText
 End Sub
 
 'v2.0: distance in km between two WGS84 points (equirectangular approximation).
@@ -1659,7 +1586,7 @@ End Sub
 '(e.g. "Rahegaon, Vaijapur, Chhatrapati Sambhajinagar",
 '"Sonwadi Bk., Phaltan, Satara"). STATE is NOT included.
 'Tiers: 0) VILLAGE_DB (user's own sheet - free, offline, exact revenue
-'village) -> 0b) Google (only if a working key is found) ->
+'village) -> 0b) Google (only if a working key with billing is found) ->
 '1) OSM Nominatim (free, no key) -> 2) BigDataCloud (free, no key).
 'Only the exact centroid lat/lon is reverse-geocoded - there is no
 'nearest-town search. Result is descriptive ONLY; identity stays
@@ -1697,13 +1624,6 @@ Private Function ResourceLocationLabel(ByVal LatitudeText As String, ByVal Longi
     ResourceLocationLabel = ResourceGoogleLocationLabel(Lat, Lon)
     If Len(ResourceLocationLabel) > 0 Then
         ResourceSettingDiag "A20", "LOCATION RESOLVER", "B20", "GOOGLE"
-        GoTo StoreCache
-    End If
-
-    '0c) Geoapify - free, no credit card, generous rate limit.
-    ResourceLocationLabel = ResourceGeoapifyLocationLabel(Lat, Lon)
-    If Len(ResourceLocationLabel) > 0 Then
-        ResourceSettingDiag "A20", "LOCATION RESOLVER", "B20", "GEOAPIFY"
         GoTo StoreCache
     End If
 
