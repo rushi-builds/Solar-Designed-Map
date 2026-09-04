@@ -12,7 +12,7 @@
 
 | Tumhe kya chahiye | Ye import karo | Kya hota hai |
 |---|---|---|
-| **Sab automatic** (recommended) — draw + SAVE karo, bas | **`modSolarEPCResource.bas`** — v2.3 AUTOMATIC build | Workbook khulte hi watcher chalu. Har ~5s DRAWING_DATA check; nayi SITE row pe RESOURCE_DB ke **blank Latitude/Longitude me exact centroid** aur **blank Location me "Exact Area, Taluka, District"** apne aap likh deta hai. Koi Alt+F8 nahi, koi popup nahi — sirf status bar pe ek line. |
+| **Sab automatic + purana sab kaam karta rahe** (recommended) | **`modSolarEPCResource.bas`** — v2.4 COMPLETE+AUTO build | Purane module ka **poora replacement**: NASA pipeline, scheduler, saare macros waise hi + watcher jo har ~5s DRAWING_DATA check karke RESOURCE_DB ke **blank Latitude/Longitude me exact centroid** aur **blank Location me "Exact Area, Taluka, District"** apne aap likhta hai. Koi Alt+F8 nahi, koi popup nahi. |
 | Manual toolkit (FillDrawnCentroids, `SolarEPC_Exact*` functions, Show macro) | `modSolarEPCResource_v2.2_complete.bas` | Pehle purana `modSolarEPCResource` module **remove** karo, phir import karo. |
 
 Automatic build deliberately safe hai: **sirf BLANK cells bharta hai** (manual entry /
@@ -228,13 +228,19 @@ geocode tiers). Maine khud se ek bhi existing line nahi badli.
 
 ## 4. Deploy (2 minute)
 
-**Automatic build (v2.3 — recommended):**
+**Complete+Auto build (v2.4 — recommended):**
 
 1. Excel → `Alt+F11` → VBE.
-2. Right-click project → **Import File…** → `location-extract/modSolarEPCResource.bas`.
-   (Purana `modSolarEPCResource` **remove mat karo** — dono saath chalte hain.)
-3. Bas. Workbook save karke dobara kholo — ya `SolarEPC_DrawnLocationAutoStart` ek
-   baar chala do. Ab har draw+SAVE ke ~5s andar RESOURCE_DB apne aap bharega.
+2. Agar `modSolarEPCDrawnLocation` module dikhe → **Remove**.
+3. Purana `modSolarEPCResource` module → **Remove** (backup export kar lena).
+4. Right-click project → **Import File…** → `location-extract/modSolarEPCResource.bas`.
+5. Save karke workbook dobara kholo. Ab har draw+SAVE ke ~5s andar RESOURCE_DB
+   apne aap bharega, aur NASA pipeline/scheduler sab pehle jaisa chalega.
+
+> Ye file purane module ka **poora replacement** hai — isliye ThisWorkbook ke
+> `Workbook_Open` (`SolarEPC_ResourceResumePending`) aur relay ke
+> `SolarEPC_ResourceQueueImportedSite` calls compile hote hain. Module content
+> sirf paste mat karna (Attribute line paste nahi hoti); hamesha **Import** karo.
 
 **Complete v2.2 build (saare macros/functions):**
 
@@ -310,7 +316,7 @@ badlega aur behaviour wahi rahega jo aaj hai (nayi row).
 
 | File | What it is |
 |---|---|
-| `location-extract/modSolarEPCResource.bas` | **v2.3 AUTOMATIC build** — module `modSolarEPCDrawnLocation`: watcher + auto-fill + Show macro. **Yahi import karo.** |
+| `location-extract/modSolarEPCResource.bas` | **v2.4 COMPLETE+AUTO** — module `modSolarEPCResource`: poora legacy module + automatic watcher. **Yahi import karo (purana module replace karta hai).** |
 | `location-extract/modSolarEPCResource_v2.2_complete.bas` | **Complete v2.2** — saare macros + public functions (purana modSolarEPCResource replace karta hai) |
 | `location-extract/SolarEPC_v2.2_LocationExtract_patch.zip` | Dono builds + guide + harness ek zip me |
 | `location-extract/IMPLEMENTATION_GUIDE.md` | This guide |
