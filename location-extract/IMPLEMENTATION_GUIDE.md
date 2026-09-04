@@ -103,6 +103,15 @@ Do cheezein "exact location" hain, aur dono ab Excel me available hain:
 | `SolarEPC_DrawnLocationAutoStop` | watcher band (OnTime cancel) |
 | `SolarEPC_DrawnLocationAutoNow` | bina wait kiye turant ek sweep |
 | `SolarEPC_ResourceShowDrawnLocation` | manual dekhna ho (verification) |
+| `SolarEPC_DrawnLocationDebug` | **kuch nahi bhar raha? ye chalao** — poori chain ka read-only report (watcher ON?, SITE row?, centroid?, resource_db row?, label tier?, last fill) + clipboard copy |
+
+### v2.5 additions
+- **Auto row-create**: RESOURCE_DB me us Project ID ki row hai hi nahi, to watcher
+  ~10s baad row apne aap bana deta hai (Project ID + centroid + label) — draw kiya
+  hai to location dikhegi hi dikhegi.
+- **Status bar reasons**: NOROW / LOCPEND jaisi states ab chhupti nahi — status bar
+  pe likha aata hai ki kya ho raha hai aur kyu.
+- **`SolarEPC_DrawnLocationDebug`**: support chahiye ho to iska screenshot bhej do.
 
 Workbook band hone pe `Auto_Close` scheduler saaf kar deta hai.
 

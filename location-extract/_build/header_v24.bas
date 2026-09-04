@@ -3,7 +3,7 @@ Option Explicit
 
 '==========================================================================
 ' SOLAR EPC - NASA POWER HOURLY RESOURCE MODULE + AUTOMATIC LOCATION FILL
-' Version 2.4
+' Version 2.5
 '
 ' YE FILE TUMHARE PURANE modSolarEPCResource KA POORA REPLACEMENT HAI.
 '   - v2.1/v2.2 ka SARA kaam waise hi chalta hai: NASA POWER hourly import,
@@ -13,6 +13,10 @@ Option Explicit
 '     MakeVillageDb, AddVillage, Resume, Stop, ShowLastError,
 '     ResumePending, ProcessNext) - isliye tumhara ThisWorkbook,
 '     modSolarEPCCloudRelay aur sheet buttons sab compile hote hain.
+'   - v2.5: RESOURCE_DB me project ki row na ho to watcher wo row APNE AAP
+'     bana deta hai (blank-only rules phir bhi lagute hain), status bar pe har
+'     step ka reason dikhta hai, aur ek diagnostic macro hai:
+'         SolarEPC_DrawnLocationDebug  -> poori chain ka report (read-only)
 '   - PLUS v2.3 ka AUTOMATIC watcher: workbook khulte hi chalu, har 5s
 '     DRAWING_DATA.autoLWHTbl dekhta hai; nayi ya dobara-draw hui SITE row pe
 '     RESOURCE_DB ke BLANK Latitude(deg)/Longitude(deg) me exact centroid
