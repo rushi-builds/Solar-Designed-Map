@@ -10,14 +10,15 @@
 
 ## 0. Kaunsi file import karni hai? (pehle ye padho)
 
-| Tumhe kya chahiye | Ye import karo | Kya milta hai |
+| Tumhe kya chahiye | Ye import karo | Kya hota hai |
 |---|---|---|
-| **Sirf exact drawn location dekhni hai** (recommended, zero risk) | **`modSolarEPCResource.bas`** — MINIMAL build | Module ka naam `modSolarEPCDrawnLocation`, andar **sirf EK public macro**: `SolarEPC_ResourceShowDrawnLocation`. Tumhara existing `modSolarEPCResource` (v1.9.2/v2.1) jaisa-hai waisa rahega — kuch remove nahi karna, koi collision nahi. |
-| Poora v2.2 feature set (FillDrawnCentroids, `SolarEPC_Exact*` functions, labels) | `modSolarEPCResource_v2.2_complete.bas` | Pehle purana `modSolarEPCResource` module **remove** karo, phir import karo (same public macro names). |
+| **Sab automatic** (recommended) — draw + SAVE karo, bas | **`modSolarEPCResource.bas`** — v2.3 AUTOMATIC build | Workbook khulte hi watcher chalu. Har ~5s DRAWING_DATA check; nayi SITE row pe RESOURCE_DB ke **blank Latitude/Longitude me exact centroid** aur **blank Location me "Exact Area, Taluka, District"** apne aap likh deta hai. Koi Alt+F8 nahi, koi popup nahi — sirf status bar pe ek line. |
+| Manual toolkit (FillDrawnCentroids, `SolarEPC_Exact*` functions, Show macro) | `modSolarEPCResource_v2.2_complete.bas` | Pehle purana `modSolarEPCResource` module **remove** karo, phir import karo. |
 
-Minimal build deliberately chhota hai: **koi NASA call nahi, koi Worker call nahi,
-koi cloud config nahi, koi geocoding nahi, koi RESOURCE_DB write nahi** — sirf
-`DRAWING_DATA.autoLWHTbl` padhta hai, kuch likhta nahi.
+Automatic build deliberately safe hai: **sirf BLANK cells bharta hai** (manual entry /
+formula kabhi overwrite nahi), NASA numbers / Data Status / cache identity ko chhoota
+hi nahi, aur tumhara existing `modSolarEPCResource` module jaisa hai waisa rahega
+(module name alag hai: `modSolarEPCDrawnLocation`).
 
 ---
 
@@ -57,6 +58,65 @@ Do cheezein "exact location" hain, aur dono ab Excel me available hain:
 |---|---|---|---|---|
 | a | **Drawn boundary** — har corner jo tumne click kiya (8 decimals) | `DRAWING_DATA.autoLWHTbl` → `Coordinates` | cell me pada tha, padhne ka API nahi tha | `SolarEPC_ExactSiteBoundary` |
 | b | **Exact site centroid** — us polygon ka area-weighted centre. **Yahi authoritative coordinate hai** (NASA ko yahi jata hai, `RESOURCE_DB` Latitude/Longitude me yahi likha jata hai) | sirf Worker ke paas tha | Worker + internet zaroori tha | `SolarEPC_ExactSiteLocation` — **offline** |
+
+---
+
+## 1.5 v2.3 — AUTOMATIC fill (bina Alt+F8, bina popup)
+
+```
+ workbook open
+      │  Auto_Open  (legacy auto-start, koi paste nahi karna)
+      ▼
+ watcher ON  +  turant ek sweep (pehle se drawn sites bhi bhar jaati hain)
+      │
+      │  har 5 second (AUTO_TICK_SECONDS)
+      ▼
+ DRAWING_DATA.autoLWHTbl scan
+      │  nayi SITE row (Reference id = SITE-MAP-...) ya dobara-draw hui row
+      ▼
+ exact centroid (offline, Worker-identical math)
+      ▼
+ RESOURCE_DB me us Project ID ki row:
+      • BLANK Latitude (°) / Longitude (°)  ← exact centroid (8 decimals)
+      • BLANK Location                     ← "Exact Area, Taluka, District"
+                                            (VILLAGE_DB → Google → Nominatim → BigDataCloud)
+      ▼
+ status bar: "Solar EPC: exact drawn location auto-filled -> PRJ-001 | lat lon location(...)"
+ _CLOUD_CFG!A18/B18: last auto-fill record
+```
+
+### Safety rules (kabhi violate nahi hote)
+- **Blank-only**: bhara hua cell, manual entry, formula cell — kabhi overwrite nahi.
+- **Row match**: same Project ID jiske lat/lon blank hain, ya lat/lon already isi
+  centroid ke barabar → wahi row; warna kuch ticks retry (`NOROW:n`), phir chhod deta hai.
+- **NASA untouched**: GHI/DNI/…/Data Status/cache_key/polygon_hash — is module me
+  unka code hai hi nahi.
+- **Label retry**: internet/VILLAGE_DB na ho to lat/lon phir bhi bharte hain; label
+  6 ticks tak retry hota hai, phir ruk jaata hai — galat value kabhi nahi likhi jaati.
+- **Redraw**: Coordinates badle to key badalti hai → naya centroid; par blank-only
+  rule ki wajah se purani bhari hui value replace NAHI hoti (manual safety).
+
+### Control macros (zaroorat padhe to)
+| Macro | Kaam |
+|---|---|
+| `SolarEPC_DrawnLocationAutoStart` | watcher chalu + turant sweep |
+| `SolarEPC_DrawnLocationAutoStop` | watcher band (OnTime cancel) |
+| `SolarEPC_DrawnLocationAutoNow` | bina wait kiye turant ek sweep |
+| `SolarEPC_ResourceShowDrawnLocation` | manual dekhna ho (verification) |
+
+Workbook band hone pe `Auto_Close` scheduler saaf kar deta hai.
+
+### Agar "ambiguous name: Auto_Open" aaye (bahut rare)
+Is workbook me kahin aur Auto_Open/Auto_Close defined honge. Is module ke do
+chhote stub hata do aur ThisWorkbook me ye rakh do:
+```vb
+Private Sub Workbook_Open()
+    SolarEPC_DrawnLocationAutoStart
+End Sub
+Private Sub Workbook_BeforeClose(Cancel As Boolean)
+    SolarEPC_DrawnLocationAutoStop
+End Sub
+```
 
 ---
 
@@ -168,13 +228,13 @@ geocode tiers). Maine khud se ek bhi existing line nahi badli.
 
 ## 4. Deploy (2 minute)
 
-**Minimal build (sirf `SolarEPC_ResourceShowDrawnLocation`):**
+**Automatic build (v2.3 — recommended):**
 
 1. Excel → `Alt+F11` → VBE.
 2. Right-click project → **Import File…** → `location-extract/modSolarEPCResource.bas`.
-   (Purana `modSolarEPCResource` **remove mat karo** — minimal build alag module
-   name use karta hai, dono saath rahenge.)
-3. `Alt+F8` → `SolarEPC_ResourceShowDrawnLocation` → Run.
+   (Purana `modSolarEPCResource` **remove mat karo** — dono saath chalte hain.)
+3. Bas. Workbook save karke dobara kholo — ya `SolarEPC_DrawnLocationAutoStart` ek
+   baar chala do. Ab har draw+SAVE ke ~5s andar RESOURCE_DB apne aap bharega.
 
 **Complete v2.2 build (saare macros/functions):**
 
@@ -250,7 +310,7 @@ badlega aur behaviour wahi rahega jo aaj hai (nayi row).
 
 | File | What it is |
 |---|---|
-| `location-extract/modSolarEPCResource.bas` | **MINIMAL build (v2.2-min)** — module `modSolarEPCDrawnLocation`, sirf `SolarEPC_ResourceShowDrawnLocation`. **Yahi import karo agar sirf exact location chahiye.** |
+| `location-extract/modSolarEPCResource.bas` | **v2.3 AUTOMATIC build** — module `modSolarEPCDrawnLocation`: watcher + auto-fill + Show macro. **Yahi import karo.** |
 | `location-extract/modSolarEPCResource_v2.2_complete.bas` | **Complete v2.2** — saare macros + public functions (purana modSolarEPCResource replace karta hai) |
 | `location-extract/SolarEPC_v2.2_LocationExtract_patch.zip` | Dono builds + guide + harness ek zip me |
 | `location-extract/IMPLEMENTATION_GUIDE.md` | This guide |
