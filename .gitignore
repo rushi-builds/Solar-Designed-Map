@@ -67,3 +67,7 @@ node_modules/
 
 # dataconnect generated files
 .dataconnect
+
+# Python bytecode (parity harness in location-extract/verify)
+__pycache__/
+*.pyc
