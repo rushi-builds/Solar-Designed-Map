@@ -8,6 +8,19 @@
 
 ---
 
+## 0. Kaunsi file import karni hai? (pehle ye padho)
+
+| Tumhe kya chahiye | Ye import karo | Kya milta hai |
+|---|---|---|
+| **Sirf exact drawn location dekhni hai** (recommended, zero risk) | **`modSolarEPCResource.bas`** — MINIMAL build | Module ka naam `modSolarEPCDrawnLocation`, andar **sirf EK public macro**: `SolarEPC_ResourceShowDrawnLocation`. Tumhara existing `modSolarEPCResource` (v1.9.2/v2.1) jaisa-hai waisa rahega — kuch remove nahi karna, koi collision nahi. |
+| Poora v2.2 feature set (FillDrawnCentroids, `SolarEPC_Exact*` functions, labels) | `modSolarEPCResource_v2.2_complete.bas` | Pehle purana `modSolarEPCResource` module **remove** karo, phir import karo (same public macro names). |
+
+Minimal build deliberately chhota hai: **koi NASA call nahi, koi Worker call nahi,
+koi cloud config nahi, koi geocoding nahi, koi RESOURCE_DB write nahi** — sirf
+`DRAWING_DATA.autoLWHTbl` padhta hai, kuch likhta nahi.
+
+---
+
 ## 1. Exact location aati kaha se hai (poora flow)
 
 ```
@@ -155,9 +168,19 @@ geocode tiers). Maine khud se ek bhi existing line nahi badli.
 
 ## 4. Deploy (2 minute)
 
+**Minimal build (sirf `SolarEPC_ResourceShowDrawnLocation`):**
+
+1. Excel → `Alt+F11` → VBE.
+2. Right-click project → **Import File…** → `location-extract/modSolarEPCResource.bas`.
+   (Purana `modSolarEPCResource` **remove mat karo** — minimal build alag module
+   name use karta hai, dono saath rahenge.)
+3. `Alt+F8` → `SolarEPC_ResourceShowDrawnLocation` → Run.
+
+**Complete v2.2 build (saare macros/functions):**
+
 1. Excel → `Alt+F11` → VBE.
 2. Purana `modSolarEPCResource` module → right-click → **Remove** (export karke backup rakh lo).
-3. Right-click project → **Import File…** → `location-extract/modSolarEPCResource.bas`.
+3. Right-click project → **Import File…** → `location-extract/modSolarEPCResource_v2.2_complete.bas`.
 4. `Alt+F8` → `SolarEPC_ResourceShowDrawnLocation` → Run.
 
 **Worker deploy nahi karna. `worker.js` / D1 schema / map HTML / cache key — kuch touch nahi hua.**
@@ -227,7 +250,9 @@ badlega aur behaviour wahi rahega jo aaj hai (nayi row).
 
 | File | What it is |
 |---|---|
-| `location-extract/modSolarEPCResource.bas` | **v2.2 module** — import this |
+| `location-extract/modSolarEPCResource.bas` | **MINIMAL build (v2.2-min)** — module `modSolarEPCDrawnLocation`, sirf `SolarEPC_ResourceShowDrawnLocation`. **Yahi import karo agar sirf exact location chahiye.** |
+| `location-extract/modSolarEPCResource_v2.2_complete.bas` | **Complete v2.2** — saare macros + public functions (purana modSolarEPCResource replace karta hai) |
+| `location-extract/SolarEPC_v2.2_LocationExtract_patch.zip` | Dono builds + guide + harness ek zip me |
 | `location-extract/IMPLEMENTATION_GUIDE.md` | This guide |
 | `location-extract/vba_lint.py` | Structural linter used on the module (blocks, labels, duplicates, line length) |
 | `location-extract/verify/run_parity_check.sh` | Reproducible Worker-vs-VBA parity proof |
