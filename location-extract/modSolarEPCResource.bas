@@ -3052,7 +3052,7 @@ Public Sub SolarEPC_DrawnLocationDebug()
     End If
     P2 = P2 & vbCrLf & "Ye report copy ho gayi hai clipboard pe."
 
-    CopyToClipboard P1 & vbCrLf & P2
+    ResourceCopyToClipboard P1 & vbCrLf & P2
     MsgBox P1, vbInformation, "Solar EPC Debug 1/2"
     MsgBox P2, vbInformation, "Solar EPC Debug 2/2"
 End Sub
