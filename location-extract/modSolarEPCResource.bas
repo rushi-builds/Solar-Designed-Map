@@ -3,7 +3,7 @@ Option Explicit
 
 '==========================================================================
 ' SOLAR EPC - NASA POWER HOURLY RESOURCE MODULE + AUTOMATIC LOCATION FILL
-' Version 3.0
+' Version 3.1
 '
 ' YE FILE TUMHARE PURANE modSolarEPCResource KA POORA REPLACEMENT HAI.
 '   - v2.1/v2.2 ka SARA kaam waise hi chalta hai: NASA POWER hourly import,
@@ -17,6 +17,8 @@ Option Explicit
 '     bana deta hai (blank-only rules phir bhi lagute hain), status bar pe har
 '     step ka reason dikhta hai, aur ek diagnostic macro hai:
 '         SolarEPC_DrawnLocationDebug  -> poori chain ka report (read-only)
+'   - v3.1: GeoNames FREE tier (koi card/billing/download nahi) - Indian
+'     census village names; username SETTINGS!B12 (ya _CLOUD_CFG!B19).
 '   - v3.0: SINGLE MODULE - NASA pipeline + watcher + auto row-create +
 '     debug, sab ek hi file me. Nayi RESOURCE_DB column
 '     "Run Date-Time (Local)" har NASA summary import pe aapke computer
@@ -1555,6 +1557,11 @@ Private Function ResourceLocationLabel(ByVal LatitudeText As String, ByVal Longi
     ResourceLocationLabel = ResourceVillageDbLabel(Lat, Lon)
     If Len(ResourceLocationLabel) > 0 Then GoTo StoreCache
 
+    '0a) v3.1: GeoNames free tier (no card/no billing/no download) - Indian
+    '   census village names jo OSM/BigDataCloud ke paas nahi hote.
+    ResourceLocationLabel = ResourceGeoNamesLabel(Lat, Lon)
+    If Len(ResourceLocationLabel) > 0 Then GoTo StoreCache
+
     '0b) OPTIONAL Google tier - only fires when a key is found and works.
     ResourceLocationLabel = ResourceGoogleLocationLabel(Lat, Lon)
     If Len(ResourceLocationLabel) > 0 Then GoTo StoreCache
@@ -2948,6 +2955,7 @@ Public Sub SolarEPC_DrawnLocationDebug()
     Dim LabelText As String
     Dim ws As Worksheet
     Dim GoogleStatus As String, GoogleDetail As String, VillageMatch As String, LastFill As String
+    Dim GeoNamesStatus As String
 
     On Error Resume Next
 
@@ -3050,9 +3058,11 @@ Public Sub SolarEPC_DrawnLocationDebug()
             GoogleDetail = CStr(ws.Range("B15").Value2)
             VillageMatch = CStr(ws.Range("B16").Value2)
             LastFill = CStr(ws.Range("B18").Value2)
+            GeoNamesStatus = CStr(ws.Range("B20").Value2)
             P2 = P2 & "   VILLAGE_DB match: " & IIf(Len(VillageMatch) > 0, VillageMatch, "-") & vbCrLf & _
                       "   Google tier: " & IIf(Len(GoogleStatus) > 0, GoogleStatus, "-") & _
                       IIf(Len(GoogleDetail) > 0, " (" & Left$(GoogleDetail, 120) & ")", "") & vbCrLf & _
+                      "   GeoNames tier: " & IIf(Len(GeoNamesStatus) > 0, GeoNamesStatus, "-") & vbCrLf & _
                       "   Last auto-fill: " & IIf(Len(LastFill) > 0, LastFill, "-") & vbCrLf
         End If
     End If
@@ -3092,3 +3102,69 @@ Private Sub ResourceStampLocalRunTime(ByVal Tbl As ListObject, ByVal Target As R
     Cell.NumberFormat = "@"
     Cell.Value2 = Format$(Now, "dd-mm-yyyy hh:nn:ss")
 End Sub
+
+'--------------------------------------------------------------------------
+' v3.1: GeoNames FREE tier - koi card nahi, koi billing nahi, koi download
+' nahi. Sirf ek chhota HTTPS call (lat/lon) -> ~1KB JSON wapas. GeoNames ka
+' database unke server pe hai; workbook me kuch store NAHIN hota.
+' Username free hai (geonames.org signup, email only): SETTINGS!B12 me rakho,
+' fallback _CLOUD_CFG!B19. Username na ho to tier chupchaap skip ho jaata hai.
+' Sirf populated places (gaon/qasbe) accept hote hain, aur sirf 3 km ke andar.
+'--------------------------------------------------------------------------
+Private Function ResourceGeoNamesLabel(ByVal Lat As Double, ByVal Lon As Double) As String
+    Dim UserName As String, UrlText As String, JSONText As String
+    Dim Village As String, Taluka As String, District As String
+    Dim PlaceLat As String, PlaceLon As String
+    Dim Km As Double
+
+    On Error GoTo Failed
+    UserName = ResourceSettingCell(SETTINGS_SHEET, "B12")
+    If Len(UserName) = 0 Then UserName = ResourceConfigCell("B19")
+    If Len(UserName) = 0 Then
+        ResourceSettingDiag "A20", "GEONAMES STATUS", "B20", _
+            "NO_USER - geonames.org pe free signup karke username SETTINGS!B12 me rakho"
+        Exit Function
+    End If
+
+    UrlText = "https://secure.geonames.org/findNearbyPlaceNameJSON?lat=" & _
+              ResourceDecimal(Lat, 6) & "&lng=" & ResourceDecimal(Lon, 6) & _
+              "&radius=3&maxRows=1&style=LONG&username=" & UserName
+    JSONText = ResourceHttpGetJson(UrlText)
+    If Len(JSONText) = 0 Then
+        ResourceSettingDiag "A20", "GEONAMES STATUS", "B20", "HTTP_FAIL - network block"
+        Exit Function
+    End If
+    If InStr(1, JSONText, """" & "status" & """", vbBinaryCompare) > 0 Then
+        ResourceSettingDiag "A20", "GEONAMES STATUS", "B20", _
+            "ERROR - " & Left$(ResourceJSONValue(JSONText, "message"), 200)
+        Exit Function
+    End If
+
+    Village = Trim$(ResourceJSONValue(JSONText, "name"))
+    If Len(Village) = 0 Then
+        ResourceSettingDiag "A20", "GEONAMES STATUS", "B20", "NO_MATCH - 3 km me koi gaon nahi"
+        Exit Function
+    End If
+    PlaceLat = Trim$(ResourceJSONValue(JSONText, "lat"))
+    PlaceLon = Trim$(ResourceJSONValue(JSONText, "lng"))
+    If IsNumeric(PlaceLat) And IsNumeric(PlaceLon) Then
+        Km = ResourceDistanceKm(Lat, Lon, CDbl(PlaceLat), CDbl(PlaceLon))
+        If Km > 3# Then
+            ResourceSettingDiag "A20", "GEONAMES STATUS", "B20", _
+                "TOO_FAR - " & Village & " " & Format$(Km, "0.0") & " km door tha, reject"
+            Exit Function
+        End If
+    End If
+
+    Taluka = ResourceAdminClean(ResourceJSONValue(JSONText, "adminName3"))
+    District = ResourceAdminClean(ResourceJSONValue(JSONText, "adminName2"))
+    If ResourceSameName(Taluka, Village) Then Taluka = vbNullString
+    If ResourceSameName(District, Village) Then District = vbNullString
+    If ResourceSameName(District, Taluka) Then District = vbNullString
+    ResourceGeoNamesLabel = ResourceLocationCompose(Village, _
+        ResourceLocationCompose(Taluka, District))
+    ResourceSettingDiag "A20", "GEONAMES STATUS", "B20", "OK - " & ResourceGeoNamesLabel
+    Exit Function
+Failed:
+    ResourceGeoNamesLabel = vbNullString
+End Function

@@ -387,3 +387,16 @@ Isliye ~45 km door ki do sites ka weather alag aur solar same ho sakta hai
 (dono ek hi 1-deg solar cell me hain). 50 m apart sites ka SAB same hona bhi
 correct hai. NASA ka apna web tool bhi in points pe yahi values dega.
 Source: https://power.larc.nasa.gov/docs/methodology/data/sources/
+
+### v3.1 - GeoNames FREE tier (bina card, bina billing, bina download)
+1. https://www.geonames.org/login -> **create account**: username + email +
+   password. Free, instant, **koi card nahi**.
+2. Wo username workbook me **SETTINGS!B12** me likh do (fallback _CLOUD_CFG!B19).
+3. Bas. Ab har label pe VILLAGE_DB ke baad GeoNames try hota hai: 3 km ke
+   andar ka census gaon mila to Location me gaon ka naam aa jayega
+   (e.g. "Sonwadi Bk., Phaltan, Satara").
+- **Koi download/storage nahi**: har lookup ek ~1KB HTTPS call hai (jaise
+  Nominatim aaj hai). GeoNames ka database unke server pe rehta hai.
+- Status/diagnosis: _CLOUD_CFG **B20** (NO_USER / NO_MATCH / TOO_FAR / OK - ...)
+  aur `SolarEPC_DrawnLocationDebug` report me "GeoNames tier" line.
+- Username na ho to tier chupchaap skip - baaki sab pehle jaisa.
