@@ -3,7 +3,7 @@ Option Explicit
 
 '==========================================================================
 ' SOLAR EPC - NASA POWER HOURLY RESOURCE MODULE + AUTOMATIC LOCATION FILL
-' Version 2.5
+' Version 3.0
 '
 ' YE FILE TUMHARE PURANE modSolarEPCResource KA POORA REPLACEMENT HAI.
 '   - v2.1/v2.2 ka SARA kaam waise hi chalta hai: NASA POWER hourly import,
@@ -17,6 +17,10 @@ Option Explicit
 '     bana deta hai (blank-only rules phir bhi lagute hain), status bar pe har
 '     step ka reason dikhta hai, aur ek diagnostic macro hai:
 '         SolarEPC_DrawnLocationDebug  -> poori chain ka report (read-only)
+'   - v3.0: SINGLE MODULE - NASA pipeline + watcher + auto row-create +
+'     debug, sab ek hi file me. Nayi RESOURCE_DB column
+'     "Run Date-Time (Local)" har NASA summary import pe aapke computer
+'     ka exact din + samay stamp karti hai (column khud ban jaati hai).
 '   - PLUS v2.3 ka AUTOMATIC watcher: workbook khulte hi chalu, har 5s
 '     DRAWING_DATA.autoLWHTbl dekhta hai; nayi ya dobara-draw hui SITE row pe
 '     RESOURCE_DB ke BLANK Latitude(deg)/Longitude(deg) me exact centroid
@@ -2408,6 +2412,8 @@ Private Sub ResourceWriteToDatabase(ByVal D As Object)
     ResourceWriteTableField Tbl, Target, "Data Status", ResourceValue(D, "data_status")
     ResourceWriteTableField Tbl, Target, "Source Reference", ResourceValue(D, "source_reference")
     ResourceWriteTableField Tbl, Target, "Remarks", ResourceValue(D, "remarks")
+    'v3.0: exact local run stamp (new column, auto-created once).
+    ResourceStampLocalRunTime Tbl, Target
     Exit Sub
 Failed:
 End Sub
@@ -3055,4 +3061,34 @@ Public Sub SolarEPC_DrawnLocationDebug()
     ResourceCopyToClipboard P1 & vbCrLf & P2
     MsgBox P1, vbInformation, "Solar EPC Debug 1/2"
     MsgBox P2, vbInformation, "Solar EPC Debug 2/2"
+End Sub
+
+'--------------------------------------------------------------------------
+' v3.0: RESOURCE_DB me ek extra column "Run Date-Time (Local)" -
+' jis DIN aur TIME (aapke computer ki local ghadi) pe NASA summary import
+' hua, exact stamp. Worker ka "Retrieval Date" UTC fetch-time rakhta hai;
+' ye column aapka apna local run-time hai, har import pe fresh update.
+' Column na ho to pehli import par apne aap ban jaata hai (table ke end me).
+'--------------------------------------------------------------------------
+Private Sub ResourceStampLocalRunTime(ByVal Tbl As ListObject, ByVal Target As Range)
+    Dim ColName As String
+    Dim C As Long
+    Dim Col As ListColumn
+    Dim Cell As Range
+
+    On Error Resume Next
+    ColName = "Run Date-Time (Local)"
+    C = ResourceColumn(Tbl, ColName)
+    If C = 0 Then
+        Set Col = Tbl.ListColumns.Add(Tbl.ListColumns.Count + 1)
+        If Not Col Is Nothing Then Col.Name = ColName
+        C = ResourceColumn(Tbl, ColName)
+    End If
+    On Error GoTo 0
+    If C = 0 Then Exit Sub
+    Set Cell = Target.Cells(1, C)
+    If Cell Is Nothing Then Exit Sub
+    If Cell.HasFormula Then Exit Sub
+    Cell.NumberFormat = "@"
+    Cell.Value2 = Format$(Now, "dd-mm-yyyy hh:nn:ss")
 End Sub

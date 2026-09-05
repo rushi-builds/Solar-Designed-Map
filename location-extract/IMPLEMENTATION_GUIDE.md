@@ -355,3 +355,35 @@ Apna purana `modSolarEPCResource` **mat hatao**. Uske SAATH ye add-on import kar
   `Auto_Open` sub hata dena aur ThisWorkbook `Workbook_Open` me ek line
   jod dena: `SolarEPC_AutoLocationStart`
 - v2.4+ complete module ke saath ye add-on MAT lagana (watcher double ho jayega)
+
+---
+
+## v3.0 - SINGLE MODULE (recommended sabke liye)
+
+Ek hi file: **modSolarEPCResource.bas (v3.0)** = NASA POWER pipeline + automatic
+watcher + auto row-create + debug macro + sab legacy public macros.
+
+Deploy:
+1. VBE me **saare** purane module hatao: `modSolarEPCResource` (koi bhi version),
+   `modSolarEPCDrawnLocation` (agar ho), **aur `modSolarEPCAutoLocation` (agar ho)**
+2. Import File... -> `modSolarEPCResource.bas` (v3.0)
+3. Save -> workbook dobara kholo (macros enabled)
+4. Draw + SAVE -> ~5-15s me blank lat/lon + blank Location auto; NASA import
+   complete hote hi GHI/DNI/wagaira + naya local time stamp
+
+### Nayi column: "Run Date-Time (Local)"
+Har NASA summary import par RESOURCE_DB me aapke computer ka exact
+din + samay (`dd-mm-yyyy hh:nn:ss`) stamp hota hai. Column pehli import par
+apne aap banti hai (table ke end me). Worker ka "Retrieval Date" UTC fetch-time
+rahat hai; ye nayi column aapka local run-time hai.
+
+### FAQ: do alag sites ke GHI/DNI/DHI (ya albedo) same kyu?
+Ye bug NAHIN hai - NASA POWER ka native resolution hai:
+- **Solar parameters** (ALLSKY_SFC_SW_DWN/DNI/DIFF, ALLSKY_SRF_ALB) = CERES
+  SYN1deg **1 deg x 1 deg grid (~110 km)**
+- **Meteorology** (T2M, WS10M, RH2M, PS, PRECTOTCORR) = MERRA-2
+  **0.5 deg x 0.625 deg grid (~55 x 62 km)**
+Isliye ~45 km door ki do sites ka weather alag aur solar same ho sakta hai
+(dono ek hi 1-deg solar cell me hain). 50 m apart sites ka SAB same hona bhi
+correct hai. NASA ka apna web tool bhi in points pe yahi values dega.
+Source: https://power.larc.nasa.gov/docs/methodology/data/sources/
