@@ -336,3 +336,22 @@ badlega aur behaviour wahi rahega jo aaj hai (nayi row).
 | `location-extract/verify/parity.mjs`, `cases.mjs`, `cases_worker.py` | Case generators (5000 random + 7 hand-built) |
 
 Nothing here is deployed. `k12/`, `resource-range6/`, `map_main.html`, `public/` — untouched.
+
+---
+
+## Legacy users (module v2.1 / v2.2 / v2.3 jo already workbook me hai)
+
+Apna purana `modSolarEPCResource` **mat hatao**. Uske SAATH ye add-on import karo:
+
+**`modSolarEPCAutoLocation.bas`** (zip: `SolarEPC_v2.6_addon.zip`)
+
+- Draw + SAVE -> ~5-15s me RESOURCE_DB ke blank lat/lon + blank Location apne aap bharne lagte hain
+- Row na ho to ~10s me row apne aap ban jaati hai
+- `SolarEPC_AutoLocationDebug` = poori chain ka read-only report
+- Saare helpers `Private` hain, isliye purane module se koi naam nahi takrata
+- Workbook khulte hi watcher ON (`Auto_Open`), band hote OFF
+- **Note:** agar import ke baad "Ambiguous name detected: Auto_Open" aaye
+  (matlab kisi doosre module me bhi Auto_Open hai), to add-on ki
+  `Auto_Open` sub hata dena aur ThisWorkbook `Workbook_Open` me ek line
+  jod dena: `SolarEPC_AutoLocationStart`
+- v2.4+ complete module ke saath ye add-on MAT lagana (watcher double ho jayega)
