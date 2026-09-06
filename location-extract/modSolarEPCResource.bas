@@ -14,14 +14,14 @@ End Type
 Private Declare PtrSafe Sub GetSystemTime Lib "kernel32" (lpSystemTime As SYSTEMTIME)
 
 '==========================================================================
-' SOLAR EPC RESOURCE MODULE  v4.0.0
+' SOLAR EPC RESOURCE MODULE  v4.0.1
 ' Single replacement for modSolarEPCResource.
 ' Fast watcher, no hourglass cursor, RESOURCE_DB fills stack top-down
 ' (next completely blank row). Manual Fill always appends a new row when
 ' the project already has lat/lon. Watcher labels stay OFFLINE (VILLAGE_DB
 ' only); online reverse-geocode runs only on user macros.
 ' Import: remove old modSolarEPCResource + modSolarEPCDrawnLocation, then
-' Import File this .bas. Run SolarEPC_ShowModuleVersion -> v4.0.0
+' Import File this .bas. Run SolarEPC_ShowModuleVersion -> v4.0.1
 '==========================================================================
 
 'Watcher tuning (all other constants already exist inside the module).
@@ -33,7 +33,7 @@ Private Const AUTO_LABEL_RETRIES As Long = 15     'limited retries while the lab
 Private Const MANUAL_POINT_RETRIES As Long = 15   'retries while a manual site's point is unprovable
 Private Const MANUAL_SQUARE_HALF_DEG As Double = 0.0001  '~11 m half-side of the manual NASA square
 Private Const INPUT_SHEET As String = "INPUT"
-Private Const MODULE_VERSION As String = "4.0.0"     'single source of the version tag
+Private Const MODULE_VERSION As String = "4.0.1"     'single source of the version tag
 
 
 Private Const CONFIG_SHEET As String = "_CLOUD_CFG"
@@ -107,7 +107,6 @@ Private mManualHttpKind As Long         '1 link scan, 2 Google geocode, 3 Nomina
 Private mManualHttpStarted As Date
 Private mResumeDeferred As Boolean        'open-time pending check deferred once
 Private mLabelOnlineOk As Boolean           'True only on user macros (never the watcher)
-Private mUiFrozen As Long
 
 'One-time SYSTEM configuration. Dates are not added to customer INPUT fields.
 'Nothing is saved unless both dates are explicitly entered and validated.
@@ -2643,31 +2642,6 @@ End Function
 ' read-only debug macro (SolarEPC_DrawnLocationDebug).
 '--------------------------------------------------------------------------
 
-Private Sub ExcelUiQuietStart()
-    On Error Resume Next
-    mUiFrozen = mUiFrozen + 1
-    If mUiFrozen = 1 Then
-        Application.Cursor = xlDefault
-        Application.ScreenUpdating = False
-        Application.EnableEvents = False
-        Application.Calculation = xlCalculationManual
-    End If
-    On Error GoTo 0
-End Sub
-
-Private Sub ExcelUiQuietEnd()
-    On Error Resume Next
-    If mUiFrozen > 0 Then mUiFrozen = mUiFrozen - 1
-    If mUiFrozen = 0 Then
-        Application.Calculation = xlCalculationAutomatic
-        Application.EnableEvents = True
-        Application.ScreenUpdating = True
-        Application.Cursor = xlDefault
-        Application.StatusBar = False
-    End If
-    On Error GoTo 0
-End Sub
-
 Public Sub Auto_Open()
     On Error Resume Next
     SolarEPC_DrawnLocationAutoStart
@@ -2727,12 +2701,12 @@ Public Sub SolarEPC_DrawnLocationTick()
     mAutoNextRun = 0
     If Not mAutoActive Then Exit Sub
     On Error Resume Next
-    ExcelUiQuietStart
+    Application.Cursor = xlDefault
     If mProcessed Is Nothing Then Set mProcessed = CreateObject("Scripting.Dictionary")
     mLabelOnlineOk = False
     DrawnLocationSweep
     DrawnLocationSchedule DrawnLocationNextDelay()
-    ExcelUiQuietEnd
+    Application.Cursor = xlDefault
 End Sub
 
 'Idle heartbeat when quiet, fast follow-up while a retry is open.
@@ -4029,36 +4003,39 @@ Private Function FillResourceDbForSite(ByVal ProjectID As String, _
         Exit Function
     End If
 
-    'Row match: same Project ID jiske lat/lon blank hain, ya same Project ID
-    'whose lat/lon already equal this centroid (Location may still be blank).
-    For R = 1 To Tbl.ListRows.Count
-        Set RowRange = Tbl.ListRows(R).Range
-        RowProject = Trim$(CStr(RowRange.Cells(1, cProject).Value2))
-        If StrComp(RowProject, ProjectID, vbTextCompare) = 0 Then
-            RowLat = Trim$(CStr(RowRange.Cells(1, cLat).Value2))
-            RowLon = Trim$(CStr(RowRange.Cells(1, cLon).Value2))
-            If Len(RowLat) = 0 And Len(RowLon) = 0 Then
-                Set Target = RowRange
-                Exit For
-            ElseIf Not AppendNew And IsNumeric(RowLat) And IsNumeric(RowLon) Then
-                If Abs(CDbl(RowLat) - CentroidLatitude) < 0.0000005 And _
-                   Abs(CDbl(RowLon) - CentroidLongitude) < 0.0000005 Then
-                    Set Target = RowRange
-                    Exit For
-                End If
-            End If
-        End If
-    Next R
-    'Next completely blank row AFTER the last used content so fills stack
-    'ek-ke-niche-ek. Never reuse a filled row.
-    If Target Is Nothing Then
-        LastUsed = 0
+    'Reuse only when NOT appending: blank lat/lon for this project, or
+    'same centroid. Manual Fill always AppendNew so every click lands on
+    'the next empty row under the last filled one.
+    If Not AppendNew Then
         For R = 1 To Tbl.ListRows.Count
             Set RowRange = Tbl.ListRows(R).Range
-            If Len(Trim$(CStr(RowRange.Cells(1, cProject).Value2 & ""))) > 0 Then LastUsed = R
-            If Len(Trim$(CStr(RowRange.Cells(1, cLat).Value2 & ""))) > 0 Then LastUsed = R
-            If Len(Trim$(CStr(RowRange.Cells(1, cLon).Value2 & ""))) > 0 Then LastUsed = R
+            RowProject = Trim$(CStr(RowRange.Cells(1, cProject).Value2))
+            If StrComp(RowProject, ProjectID, vbTextCompare) = 0 Then
+                RowLat = Trim$(CStr(RowRange.Cells(1, cLat).Value2))
+                RowLon = Trim$(CStr(RowRange.Cells(1, cLon).Value2))
+                If Len(RowLat) = 0 And Len(RowLon) = 0 Then
+                    Set Target = RowRange
+                    Exit For
+                ElseIf IsNumeric(RowLat) And IsNumeric(RowLon) Then
+                    If Abs(CDbl(RowLat) - CentroidLatitude) < 0.0000005 And _
+                       Abs(CDbl(RowLon) - CentroidLongitude) < 0.0000005 Then
+                        Set Target = RowRange
+                        Exit For
+                    End If
+                End If
+            End If
         Next R
+    End If
+    'Next completely blank row AFTER the last used content so fills stack
+    'ek-ke-niche-ek. Never reuse a filled row.
+    LastUsed = 0
+    For R = 1 To Tbl.ListRows.Count
+        Set RowRange = Tbl.ListRows(R).Range
+        If Len(Trim$(CStr(RowRange.Cells(1, cProject).Value2 & ""))) > 0 Then LastUsed = R
+        If Len(Trim$(CStr(RowRange.Cells(1, cLat).Value2 & ""))) > 0 Then LastUsed = R
+        If Len(Trim$(CStr(RowRange.Cells(1, cLon).Value2 & ""))) > 0 Then LastUsed = R
+    Next R
+    If Target Is Nothing Then
         For R = LastUsed + 1 To Tbl.ListRows.Count
             Set RowRange = Tbl.ListRows(R).Range
             If Len(Trim$(CStr(RowRange.Cells(1, cProject).Value2 & ""))) = 0 And _
@@ -4086,6 +4063,11 @@ Private Function FillResourceDbForSite(ByVal ProjectID As String, _
             If Len(Trim$(CStr(Cell.Value2))) = 0 And Not Cell.HasFormula Then Cell.Value2 = ProjectID
         End If
         DidText = "NEWROW "
+    End If
+
+    If cProject > 0 Then
+        Set Cell = Target.Cells(1, cProject)
+        If Len(Trim$(CStr(Cell.Value2))) = 0 And Not Cell.HasFormula Then Cell.Value2 = ProjectID
     End If
 
     '1. exact centroid - BLANK lat/lon cells only.
