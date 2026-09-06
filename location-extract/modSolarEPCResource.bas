@@ -30,6 +30,11 @@ Private Declare PtrSafe Sub GetSystemTime Lib "kernel32" (lpSystemTime As SYSTEM
 '     its reason on the status bar; SolarEPC_DrawnLocationDebug produces a
 '     read-only report of the whole chain.
 '   - v3.11 FINAL: every user-facing message, status-bar line and debug
+'   - v3.22.6: Manual Fill now appends one row below the previous one (ek ke
+'     niche ek) exactly like the automatic path: a blank stuck row for the
+'     project is still filled first, otherwise every run creates a fresh row
+'     via the new AppendNew switch of FillResourceDbForSite, and a new pass 3
+'     picks the latest coordinated site row so the macro never stalls.
 '   - v3.22.5: every Manual Fill report box now stamps the running module
 '     version and the workbook name the code actually wrote into, so a stale
 '     import or a second open workbook can never hide again.
@@ -195,7 +200,7 @@ Private Const AUTO_LABEL_RETRIES As Long = 15     'limited retries while the lab
 Private Const MANUAL_POINT_RETRIES As Long = 15   'retries while a manual site's point is unprovable
 Private Const MANUAL_SQUARE_HALF_DEG As Double = 0.0001  '~11 m half-side of the manual NASA square
 Private Const INPUT_SHEET As String = "INPUT"
-Private Const MODULE_VERSION As String = "3.22.5"   'single source of the version tag
+Private Const MODULE_VERSION As String = "3.22.6"   'single source of the version tag
 
 
 Private Const CONFIG_SHEET As String = "_CLOUD_CFG"
@@ -3596,6 +3601,7 @@ Public Sub SolarEPC_ManualFillNow()
     Dim FilterText As String
     Dim BeforeText As String
     Dim AfterText As String
+    Dim AppendMode As Boolean
     SheetName = IIf(DbTbl Is Nothing, "(none)", DbTbl.Parent.Name)
     FilterText = "NO"
     On Error Resume Next
@@ -3620,6 +3626,14 @@ Public Sub SolarEPC_ManualFillNow()
         For R = 1 To UBound(Body, 1)
             If Len(SafeCellText(Body(R, cProject))) > 0 Then
                 If Not ResourceProjectFilledInDb(DbTbl, SafeCellText(Body(R, cProject))) Then RowFound = R
+            End If
+        Next R
+    End If
+    If RowFound = 0 Then
+        For R = 1 To UBound(Body, 1)
+            If Len(SafeCellText(Body(R, cProject))) > 0 And Len(SafeCellText(Body(R, cCoords))) > 0 Then
+                RowFound = R
+                AppendMode = True
             End If
         Next R
     End If
@@ -3671,7 +3685,7 @@ Public Sub SolarEPC_ManualFillNow()
 
     BeforeText = ResourceDbReadBack(ProjectID)
 
-    ResultText = FillResourceDbForSite(ProjectID, Lat, Lon, True)
+    ResultText = FillResourceDbForSite(ProjectID, Lat, Lon, True, AppendMode)
 
     AfterText = ResourceDbReadBack(ProjectID)
 
@@ -4096,7 +4110,8 @@ End Sub
 'NOROW / LOCPEND.
 Private Function FillResourceDbForSite(ByVal ProjectID As String, _
     ByVal CentroidLatitude As Double, ByVal CentroidLongitude As Double, _
-    Optional ByVal AllowCreate As Boolean = False) As String
+    Optional ByVal AllowCreate As Boolean = False, _
+    Optional ByVal AppendNew As Boolean = False) As String
 
     Dim Tbl As ListObject
     Dim R As Long
@@ -4136,7 +4151,7 @@ Private Function FillResourceDbForSite(ByVal ProjectID As String, _
             If Len(RowLat) = 0 And Len(RowLon) = 0 Then
                 Set Target = RowRange
                 Exit For
-            ElseIf IsNumeric(RowLat) And IsNumeric(RowLon) Then
+            ElseIf Not AppendNew And IsNumeric(RowLat) And IsNumeric(RowLon) Then
                 If Abs(CDbl(RowLat) - CentroidLatitude) < 0.0000005 And _
                    Abs(CDbl(RowLon) - CentroidLongitude) < 0.0000005 Then
                     Set Target = RowRange
