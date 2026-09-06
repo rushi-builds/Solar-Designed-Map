@@ -15,7 +15,7 @@ Private Declare PtrSafe Sub GetSystemTime Lib "kernel32" (lpSystemTime As SYSTEM
 
 '==========================================================================
 ' SOLAR EPC - NASA POWER HOURLY RESOURCE MODULE + AUTOMATIC LOCATION FILL
-' Version 3.22.1 (FINAL)
+' Version 3.22.2 (FINAL)
 '
 ' THIS FILE IS A COMPLETE REPLACEMENT FOR THE LEGACY modSolarEPCResource.
 '   - Every legacy capability keeps working unchanged: NASA POWER hourly
@@ -30,6 +30,11 @@ Private Declare PtrSafe Sub GetSystemTime Lib "kernel32" (lpSystemTime As SYSTEM
 '     its reason on the status bar; SolarEPC_DrawnLocationDebug produces a
 '     read-only report of the whole chain.
 '   - v3.11 FINAL: every user-facing message, status-bar line and debug
+'   - v3.22.2: fixes the VBA IsNumeric(Empty)=True trap that made blank
+'     RESOURCE_DB rows look "already filled" (manual macro refused to act and
+'     VILLAGE_DB rows with blank coordinates could win with a 0,0 point); the
+'     Manual Fill report now shows the code-eye view of the table before and
+'     after the write (row count and per-row latitude values).
 '   - v3.22.1: the Manual Fill report now names the sheet the resource_db
 '     table lives on and whether an AutoFilter is hiding its rows, so a
 '     "filled but invisible" RESOURCE_DB can never be mistaken for an empty
@@ -177,7 +182,7 @@ Private Const AUTO_LABEL_RETRIES As Long = 15     'limited retries while the lab
 Private Const MANUAL_POINT_RETRIES As Long = 15   'retries while a manual site's point is unprovable
 Private Const MANUAL_SQUARE_HALF_DEG As Double = 0.0001  '~11 m half-side of the manual NASA square
 Private Const INPUT_SHEET As String = "INPUT"
-Private Const MODULE_VERSION As String = "3.22.1"   'single source of the version tag
+Private Const MODULE_VERSION As String = "3.22.2"   'single source of the version tag
 
 
 Private Const CONFIG_SHEET As String = "_CLOUD_CFG"
@@ -1530,7 +1535,9 @@ Private Function ResourceVillageDbLabel(ByVal Lat As Double, ByVal Lon As Double
     For R = 2 To LastRow
         Village = Trim$(CStr(ws.Cells(R, "A").Value2))
         If Len(Village) > 0 Then
-            If IsNumeric(ws.Cells(R, "D").Value2) And IsNumeric(ws.Cells(R, "E").Value2) Then
+            If Len(Trim$(CStr(ws.Cells(R, "D").Value2 & ""))) > 0 And _
+               Len(Trim$(CStr(ws.Cells(R, "E").Value2 & ""))) > 0 And _
+               IsNumeric(ws.Cells(R, "D").Value2) And IsNumeric(ws.Cells(R, "E").Value2) Then
                 Km = ResourceDistanceKm(Lat, Lon, _
                     CDbl(ws.Cells(R, "D").Value2), CDbl(ws.Cells(R, "E").Value2))
                 If Km < BestKm Then
@@ -3220,7 +3227,9 @@ Private Function ResourceVillageDbPointByName(ByVal PlaceText As String, _
         If Len(Village) > 0 Then
             If StrComp(Village, PlaceText, vbTextCompare) = 0 Or _
                StrComp(Village, FirstPart, vbTextCompare) = 0 Then
-                If IsNumeric(ws.Cells(R, "D").Value2) And IsNumeric(ws.Cells(R, "E").Value2) Then
+                If Len(Trim$(CStr(ws.Cells(R, "D").Value2 & ""))) > 0 And _
+                   Len(Trim$(CStr(ws.Cells(R, "E").Value2 & ""))) > 0 And _
+                   IsNumeric(ws.Cells(R, "D").Value2) And IsNumeric(ws.Cells(R, "E").Value2) Then
                     LatOut = CDbl(ws.Cells(R, "D").Value2)
                     LonOut = CDbl(ws.Cells(R, "E").Value2)
                     If ResourcePointInRange(LatOut, LonOut) Then
@@ -3643,7 +3652,41 @@ Public Sub SolarEPC_ManualFillNow()
         End If
     End If
 
+    Dim BeforeText As String
+    Dim AfterText As String
+    Dim RR As Long
+    Dim cDbP As Long
+    Dim cDbL As Long
+    If Not DbTbl Is Nothing Then
+        cDbP = TableColumn(DbTbl, "Project ID")
+        cDbL = TableColumn(DbTbl, "Latitude (" & ChrW(176) & ")")
+        BeforeText = "rows=" & CStr(DbTbl.ListRows.Count)
+        If cDbP > 0 And cDbL > 0 Then
+            For RR = 1 To DbTbl.ListRows.Count
+                If StrComp(Trim$(CStr(DbTbl.ListRows(RR).Range.Cells(1, cDbP).Value2 & "")), _
+                           ProjectID, vbTextCompare) = 0 Then
+                    BeforeText = BeforeText & "; row" & CStr(RR) & " lat=[" & _
+                        CStr(DbTbl.ListRows(RR).Range.Cells(1, cDbL).Value2 & "") & "]"
+                End If
+            Next RR
+        End If
+    Else
+        BeforeText = "table missing"
+    End If
+
     ResultText = FillResourceDbForSite(ProjectID, Lat, Lon, True)
+
+    AfterText = vbNullString
+    If Not DbTbl Is Nothing And cDbP > 0 And cDbL > 0 Then
+        For RR = 1 To DbTbl.ListRows.Count
+            If StrComp(Trim$(CStr(DbTbl.ListRows(RR).Range.Cells(1, cDbP).Value2 & "")), _
+                       ProjectID, vbTextCompare) = 0 Then
+                AfterText = AfterText & "row" & CStr(RR) & " lat=[" & _
+                    CStr(DbTbl.ListRows(RR).Range.Cells(1, cDbL).Value2 & "") & "] "
+            End If
+        Next RR
+    End If
+
     If Len(CoordText) = 0 Then
         Set CoordCell = Tbl.ListRows(RowFound).Range.Cells(1, cCoords)
         If Len(Trim$(CStr(CoordCell.Value2))) = 0 And Not CoordCell.HasFormula Then
@@ -3659,6 +3702,7 @@ Public Sub SolarEPC_ManualFillNow()
             "  Project          : " & ProjectID & vbCrLf & _
             "  Point            : " & Format$(Lat, "0.000000") & ", " & Format$(Lon, "0.000000") & vbCrLf & _
             "  Fill result      : " & IIf(Len(ResultText) = 0, "(empty)", ResultText) & vbCrLf & _
+            "  DB before        : " & BeforeText & vbCrLf & _
             "  resource_db table: " & TableFound & vbCrLf & _
             "  Table lives on    : " & SheetName & vbCrLf & _
             "  Filter hiding rows: " & FilterText & vbCrLf & vbCrLf & _
@@ -3678,6 +3722,8 @@ Public Sub SolarEPC_ManualFillNow()
         "  Point   : " & Format$(Lat, "0.000000") & ", " & Format$(Lon, "0.000000") & vbCrLf & _
         "  Source  : " & TierText & vbCrLf & _
         "  Written : " & ResultText & vbCrLf & _
+        "  DB before: " & BeforeText & vbCrLf & _
+        "  DB after : " & IIf(Len(AfterText) = 0, "(no row)", AfterText) & vbCrLf & _
         "  resource_db table: " & TableFound & vbCrLf & _
         "  Table lives on    : " & SheetName & vbCrLf & _
         "  Filter hiding rows: " & FilterText & vbCrLf & vbCrLf & _
@@ -3704,7 +3750,8 @@ Private Function ResourceProjectFilledInDb(ByVal Tbl As ListObject, ByVal Projec
     For R = 1 To Tbl.ListRows.Count
         If StrComp(Trim$(CStr(Tbl.ListRows(R).Range.Cells(1, cProject).Value2)), _
                    ProjectID, vbTextCompare) = 0 Then
-            If IsNumeric(Tbl.ListRows(R).Range.Cells(1, cLat).Value2) Then
+            If Len(Trim$(CStr(Tbl.ListRows(R).Range.Cells(1, cLat).Value2 & ""))) > 0 And _
+               IsNumeric(Tbl.ListRows(R).Range.Cells(1, cLat).Value2) Then
                 ResourceProjectFilledInDb = True
                 Exit Function
             End If
