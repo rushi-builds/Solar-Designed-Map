@@ -15,7 +15,7 @@ Private Declare PtrSafe Sub GetSystemTime Lib "kernel32" (lpSystemTime As SYSTEM
 
 '==========================================================================
 ' SOLAR EPC - NASA POWER HOURLY RESOURCE MODULE + AUTOMATIC LOCATION FILL
-' Version 3.11 (FINAL)
+' Version 3.11.1 (FINAL)
 '
 ' THIS FILE IS A COMPLETE REPLACEMENT FOR THE LEGACY modSolarEPCResource.
 '   - Every legacy capability keeps working unchanged: NASA POWER hourly
@@ -30,6 +30,9 @@ Private Declare PtrSafe Sub GetSystemTime Lib "kernel32" (lpSystemTime As SYSTEM
 '     its reason on the status bar; SolarEPC_DrawnLocationDebug produces a
 '     read-only report of the whole chain.
 '   - v3.11 FINAL: every user-facing message, status-bar line and debug
+'   - v3.11.1: restores one comment apostrophe that the translation step
+'     dropped (it made VBA read the comment as code: "Compile error:
+'     Syntax error" at import). No logic changed at all.
 '     report is now professional English; the per-tick RESOURCE_DB scan
 '     was replaced by one bulk column read per sweep (faster ticks);
 '     K=12 range mode verified active (_CLOUD_CFG B12 = RANGE12).
@@ -2926,7 +2929,7 @@ Failed:
 End Function
 
 '--------------------------------------------------------------------------
- v2.4 adapters - connect the watcher's named helpers to the proven
+' v2.4 adapters - connect the watcher's named helpers to the proven
 ' helpers of the complete module (no duplicated logic).
 '--------------------------------------------------------------------------
 Private Function DrawnSiteTable() As ListObject
