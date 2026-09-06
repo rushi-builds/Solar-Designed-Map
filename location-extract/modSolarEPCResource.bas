@@ -15,7 +15,7 @@ Private Declare PtrSafe Sub GetSystemTime Lib "kernel32" (lpSystemTime As SYSTEM
 
 '==========================================================================
 ' SOLAR EPC - NASA POWER HOURLY RESOURCE MODULE + AUTOMATIC LOCATION FILL
-' Version 3.12 (FINAL)
+' Version 3.13 (FINAL)
 '
 ' THIS FILE IS A COMPLETE REPLACEMENT FOR THE LEGACY modSolarEPCResource.
 '   - Every legacy capability keeps working unchanged: NASA POWER hourly
@@ -30,6 +30,15 @@ Private Declare PtrSafe Sub GetSystemTime Lib "kernel32" (lpSystemTime As SYSTEM
 '     its reason on the status bar; SolarEPC_DrawnLocationDebug produces a
 '     read-only report of the whole chain.
 '   - v3.11 FINAL: every user-facing message, status-bar line and debug
+'   - v3.13 FINAL: MANUAL BRIDGE. A SITE row saved without coordinates
+'     (manual dimensions entry) is now bridged automatically: its identity is
+'     the Google-proven project point (INPUT!C8 pair/link, redirect-resolved,
+'     else INPUT!C7 forward-geocoded); lat/lon, Location and Date/Time fill
+'     blank-only from that point and the NASA columns are fetched on a tiny
+'     square polygon whose centroid IS that point (Worker-validated). Only
+'     manual rows created while the watcher runs are bridged; rows present at
+'     watcher start are baselined so a stale C8 can never leak into them.
+'     Drawn-site behaviour, accuracy and blank-only rules are unchanged.
 '   - v3.12 FINAL: adaptive lightweight watcher. An idle tick now costs one
 '     bulk read of the small site table plus a signature compare (sub-ms,
 '     RESOURCE_DB untouched); the full sweep (one bulk RESOURCE_DB read +
@@ -96,6 +105,9 @@ Private Const AUTO_TICK_BUSY_SECONDS As Long = 2  'fast follow-up while a retry 
 Private Const AUTO_RESYNC_TICKS As Long = 10      'forced full sweep every ~10 idle ticks (~30 s)
 Private Const AUTO_NOROW_RETRIES As Long = 30     'retry ~1 min when the RESOURCE_DB row is missing
 Private Const AUTO_LABEL_RETRIES As Long = 15     'limited retries while the label tier is offline
+Private Const MANUAL_POINT_RETRIES As Long = 15   'retries while a manual site's point is unprovable
+Private Const MANUAL_SQUARE_HALF_DEG As Double = 0.0001  '~11 m half-side of the manual NASA square
+Private Const INPUT_SHEET As String = "INPUT"
 
 
 Private Const CONFIG_SHEET As String = "_CLOUD_CFG"
@@ -155,6 +167,13 @@ Private mFilledCache As Object          'ProjectID -> row already carries lat/lo
 Private mSiteSignature As String        'concatenated SITE keys of the last full sweep
 Private mIdleTicks As Long              'idle ticks since the last full sweep
 Private mAutoPending As Boolean         'a retry (missing row / offline label) is open
+Private mManualBaseline As Object       'no-coordinate SITE rows present at watcher start
+Private mManualBaseDone As Boolean      'baseline captured once per session
+Private mManualNasaSent As Object       'manual key -> NASA start already queued
+Private mManualPointCacheKey As String  'INPUT!C7+C8 text behind the cached manual point
+Private mManualPointCacheLat As Double
+Private mManualPointCacheLon As Double
+Private mManualPointCacheOk As Boolean
 
 'One-time SYSTEM configuration. Dates are not added to customer INPUT fields.
 'Nothing is saved unless both dates are explicitly entered and validated.
@@ -2625,6 +2644,16 @@ End Function
 '      the BLANK Location cell - VILLAGE_DB -> Google -> Nominatim ->
 '      BigDataCloud, using this workbook's existing rules
 '
+' v3.13 MANUAL BRIDGE: a SITE row saved WITHOUT coordinates (manual
+' dimensions entry) carries no polygon, so its geographic identity is the
+' Google-proven project point resolved from INPUT!C8 / INPUT!C7. Only manual
+' rows created while the watcher is running are bridged (rows already present
+' at watcher start are baselined, because INPUT!C8 may since have moved to
+' another project). Such a row is filled blank-only from that proven point
+' and its NASA columns are fetched on a tiny square polygon whose
+' area-weighted centroid IS exactly that point - so the Worker-validated
+' numbers stay coordinate-exact.
+'
 ' Filled cells are NEVER overwritten, formula cells are skipped, and the
 ' NASA numbers/status inside RESOURCE_DB are never touched. The only
 ' feedback is a single status-bar line.
@@ -2737,11 +2766,14 @@ Private Sub DrawnLocationSweep(Optional ByVal ForceFull As Boolean = False)
     Dim AreaM2 As Double
     Dim ErrorText As String
     Dim ResultText As String
+    Dim ManualLat As Double
+    Dim ManualLon As Double
 
     On Error GoTo Done
     Set Tbl = DrawnSiteTable()
     If Tbl Is Nothing Then Exit Sub
     If mProcessed Is Nothing Then Set mProcessed = CreateObject("Scripting.Dictionary")
+    If mManualNasaSent Is Nothing Then Set mManualNasaSent = CreateObject("Scripting.Dictionary")
 
     'Two bulk reads (headers + body) replace every per-row COM call.
     Headers = Tbl.HeaderRowRange.Value2
@@ -2781,13 +2813,32 @@ Private Sub DrawnLocationSweep(Optional ByVal ForceFull As Boolean = False)
     mSiteSignature = Signature
     Set mFilledCache = ResourceBuildFilledMap()
 
+    'v3.13 baseline (once per session): no-coordinate SITE rows that already
+    'exist right now are never point-filled later - only manual rows created
+    'while the watcher runs are bridged, so a stale INPUT!C8 can never leak
+    'into an older row.
+    If Not mManualBaseDone Then
+        mManualBaseDone = True
+        If mManualBaseline Is Nothing Then Set mManualBaseline = CreateObject("Scripting.Dictionary")
+        If RowsPresent Then
+            For R = 1 To UBound(Body, 1)
+                If Len(Trim$(CStr(Body(R, cProject) & ""))) > 0 And _
+                   Len(Trim$(CStr(Body(R, cCoords) & ""))) = 0 Then
+                    mManualBaseline(Trim$(CStr(Body(R, cRef) & "")) & "|" & _
+                        Trim$(CStr(Body(R, cProject) & ""))) = True
+                End If
+            Next R
+        End If
+    End If
+
     If RowsPresent Then
     For R = 1 To UBound(Body, 1)
         ReferenceText = Trim$(CStr(Body(R, cRef) & ""))
-        If UCase$(Left$(ReferenceText, 9)) = "SITE-MAP-" Then
-            ProjectID = Trim$(CStr(Body(R, cProject) & ""))
-            CoordinateText = Trim$(CStr(Body(R, cCoords) & ""))
-            If Len(ProjectID) > 0 And Len(CoordinateText) > 0 Then
+        ProjectID = Trim$(CStr(Body(R, cProject) & ""))
+        CoordinateText = Trim$(CStr(Body(R, cCoords) & ""))
+        If Len(ProjectID) > 0 Then
+            If Len(CoordinateText) > 0 Then
+                'DRAWN path (any reference format): exact polygon centroid.
                 'The key includes the coordinates: re-drawing the site changes
                 'the key and the fill is attempted again.
                 KeyText = ReferenceText & "|" & CoordinateText
@@ -2839,6 +2890,51 @@ Private Sub DrawnLocationSweep(Optional ByVal ForceFull As Boolean = False)
                         mProcessed(KeyText) = "DONE"
                     End If
                 End If
+            ElseIf Not mManualBaseline.Exists(ReferenceText & "|" & ProjectID) Then
+                'v3.13 MANUAL bridge: dimensions only, no polygon. The site's
+                'geographic identity is the Google-proven project point from
+                'INPUT!C8 / INPUT!C7 - never a guessed or invented location.
+                KeyText = "MANUAL|" & ReferenceText & "|" & ProjectID
+                StateText = CStr(mProcessed(KeyText) & "")
+                If Left$(StateText, 5) <> "MDONE" Then
+                    Attempts = DrawnLocationAttempts(StateText)
+                    If ResourceManualPoint(ManualLat, ManualLon, ErrorText) Then
+                        ResultText = FillResourceDbForSite(ProjectID, ManualLat, ManualLon, Attempts >= 2)
+                        If InStr(1, ResultText, "LOCPEND", vbBinaryCompare) > 0 Then
+                            Application.StatusBar = "Solar EPC: manual site " & ProjectID & _
+                                " filled from the proven project point; label offline, retry " & _
+                                CStr(Attempts + 1) & "/" & CStr(AUTO_LABEL_RETRIES)
+                            If Attempts < AUTO_LABEL_RETRIES Then _
+                                mProcessed(KeyText) = "LOCPEND:" & CStr(Attempts + 1)
+                        ElseIf ResultText = "NOROW" Then
+                            Application.StatusBar = "Solar EPC: no RESOURCE_DB row for manual site " & _
+                                ProjectID & " (" & CStr(Attempts + 1) & ") - " & _
+                                IIf(Attempts + 1 >= 2, "creating the row now...", "retrying...")
+                            If Attempts < AUTO_NOROW_RETRIES Then _
+                                mProcessed(KeyText) = "NOROW:" & CStr(Attempts + 1)
+                        Else
+                            mProcessed(KeyText) = "MDONE"
+                            If ResultText <> "SKIP-NO-BLANK" Then
+                                Application.StatusBar = "Solar EPC: manual site auto-filled from the " & _
+                                    "proven project point -> " & ProjectID & " | " & ResultText
+                                DrawnLocationDiag ProjectID, "MANUAL " & ResultText, _
+                                    ManualLat, ManualLon
+                            End If
+                        End If
+                        'NASA columns for the manual site, queued exactly once.
+                        If Not mManualNasaSent.Exists(KeyText) Then
+                            mManualNasaSent(KeyText) = True
+                            ResourceStartForPoint ProjectID, ManualLat, ManualLon
+                        End If
+                    Else
+                        Application.StatusBar = "Solar EPC: manual site " & ProjectID & _
+                            " carries no coordinates and no provable project point yet (" & _
+                            ErrorText & ") - retry " & CStr(Attempts + 1) & _
+                            "/" & CStr(MANUAL_POINT_RETRIES)
+                        If Attempts < MANUAL_POINT_RETRIES Then _
+                            mProcessed(KeyText) = "MANPT:" & CStr(Attempts + 1)
+                    End If
+                End If
             End If
         End If
     Next R
@@ -2853,15 +2949,375 @@ End Sub
 Private Function DrawnLocationPending() As Boolean
     Dim K As Variant
     Dim V As String
+    Dim N As Long
     If mProcessed Is Nothing Then Exit Function
     For Each K In mProcessed.Keys
         V = CStr(mProcessed(K) & "")
-        If Left$(V, 5) = "NOROW" Or Left$(V, 7) = "LOCPEND" Then
+        N = DrawnLocationAttempts(V)
+        'A state whose retries are exhausted is closed, not pending: the
+        'watcher relaxes back to the idle heartbeat instead of busy-ticking.
+        If Left$(V, 5) = "NOROW" And N < AUTO_NOROW_RETRIES Then
+            DrawnLocationPending = True
+            Exit Function
+        End If
+        If Left$(V, 7) = "LOCPEND" And N < AUTO_LABEL_RETRIES Then
+            DrawnLocationPending = True
+            Exit Function
+        End If
+        If Left$(V, 6) = "MANPT:" And N < MANUAL_POINT_RETRIES Then
             DrawnLocationPending = True
             Exit Function
         End If
     Next K
 End Function
+
+'--------------------------------------------------------------------------
+' v3.13 MANUAL BRIDGE helpers
+'--------------------------------------------------------------------------
+
+'Geographic identity of a coordinate-less (manual) SITE row: the proven
+'project point. Resolution order, no guessing at any step:
+'  1. INPUT!C8 direct "lat,lon" pair
+'  2. INPUT!C8 Google URL carrying @lat,lng or !3dlat!4dlng
+'  3. INPUT!C8 short link followed hop-by-hop via redirect Location headers
+'  4. forward geocode of INPUT!C7 (Google when a key exists, else Nominatim)
+'Every failure returns False with a human-readable reason for the status bar.
+Private Function ResourceManualPoint(ByRef LatOut As Double, ByRef LonOut As Double, _
+    ByRef ReasonText As String) As Boolean
+
+    Dim C7Text As String
+    Dim C8Text As String
+    Dim CacheKey As String
+
+    On Error GoTo Failed
+    C7Text = ResourceSettingCell(INPUT_SHEET, "C7")
+    C8Text = ResourceSettingCell(INPUT_SHEET, "C8")
+    CacheKey = C7Text & "|" & C8Text
+    If CacheKey = mManualPointCacheKey And mManualPointCacheOk Then
+        LatOut = mManualPointCacheLat
+        LonOut = mManualPointCacheLon
+        ResourceManualPoint = True
+        Exit Function
+    End If
+
+    If ResourcePointFromMapLink(C8Text, LatOut, LonOut, ReasonText) Then GoTo StoreOk
+    If ResourcePointFromPlaceText(C7Text, LatOut, LonOut, ReasonText) Then GoTo StoreOk
+    If Len(ReasonText) = 0 Then
+        ReasonText = "INPUT!C8 has no parsable coordinates and INPUT!C7 could not be geocoded"
+    End If
+    Exit Function
+StoreOk:
+    mManualPointCacheKey = CacheKey
+    mManualPointCacheLat = LatOut
+    mManualPointCacheLon = LonOut
+    mManualPointCacheOk = True
+    ResourceManualPoint = True
+    Exit Function
+Failed:
+    ReasonText = "VBA error " & CStr(Err.Number)
+End Function
+
+'Parses a point out of a Google Maps link: direct pair, @lat,lng, !3d/!4d, or
+'a short link followed through its redirect chain (max 5 hops).
+Private Function ResourcePointFromMapLink(ByVal LinkText As String, _
+    ByRef LatOut As Double, ByRef LonOut As Double, ByRef ReasonText As String) As Boolean
+
+    Dim S As String
+    Dim Hop As Long
+    Dim NextUrl As String
+    Dim HTTP As Object
+
+    On Error GoTo Failed
+    S = Trim$(LinkText)
+    If Len(S) = 0 Then
+        ReasonText = "INPUT!C8 is blank"
+        Exit Function
+    End If
+    If ResourcePointFromUrlText(S, LatOut, LonOut) Then
+        ResourcePointFromMapLink = True
+        Exit Function
+    End If
+    If InStr(1, S, "://", vbBinaryCompare) = 0 Then
+        ReasonText = "INPUT!C8 holds plain text, not a link or coordinate pair"
+        Exit Function
+    End If
+
+    NextUrl = S
+    For Hop = 1 To 5
+        Set HTTP = CreateObject("WinHttp.WinHttpRequest.5.1")
+        HTTP.Option(6) = False          'do not auto-follow: read every hop
+        HTTP.Open "GET", NextUrl, False
+        HTTP.setTimeouts 5000, 5000, 8000, 8000
+        HTTP.setRequestHeader "User-Agent", "Solar-EPC-Resource/1.0 (manual site point)"
+        HTTP.send
+        If HTTP.Status >= 300 And HTTP.Status < 400 Then
+            NextUrl = HTTP.GetResponseHeader("Location")
+            If Left$(NextUrl, 1) = "/" Then NextUrl = ResourceUrlOrigin(S) & NextUrl
+            If ResourcePointFromUrlText(NextUrl, LatOut, LonOut) Then
+                ResourcePointFromMapLink = True
+                Exit Function
+            End If
+        Else
+            Exit For
+        End If
+    Next Hop
+    ReasonText = "INPUT!C8 link carried no coordinates after " & CStr(Hop) & " hop(s)"
+    Exit Function
+Failed:
+    ReasonText = "INPUT!C8 link could not be followed (network/firewall)"
+End Function
+
+'Extracts lat/lon from one URL or from a bare "lat,lon" pair.
+Private Function ResourcePointFromUrlText(ByVal UrlText As String, _
+    ByRef LatOut As Double, ByRef LonOut As Double) As Boolean
+
+    Dim Re As Object
+    Dim M As Object
+    Dim Lat As Double
+    Dim Lon As Double
+    Dim Parts As Variant
+
+    On Error GoTo Failed
+    UrlText = Trim$(UrlText)
+    If Len(UrlText) = 0 Then Exit Function
+
+    'Bare pair: 18.5204,73.8567
+    If InStr(1, UrlText, "://", vbBinaryCompare) = 0 And InStr(1, UrlText, ",") > 0 Then
+        Parts = Split(UrlText, ",")
+        If UBound(Parts) = 1 Then
+            If IsNumeric(Trim$(CStr(Parts(0)))) And IsNumeric(Trim$(CStr(Parts(1)))) Then
+                Lat = CDbl(Trim$(CStr(Parts(0))))
+                Lon = CDbl(Trim$(CStr(Parts(1))))
+                If ResourcePointInRange(Lat, Lon) Then
+                    LatOut = Lat
+                    LonOut = Lon
+                    ResourcePointFromUrlText = True
+                End If
+            End If
+        End If
+        Exit Function
+    End If
+
+    Set Re = CreateObject("VBScript.RegExp")
+    Re.Global = False
+    Re.IgnoreCase = True
+    Re.Pattern = "@(-?[0-9]+(?:\.[0-9]+)?),(-?[0-9]+(?:\.[0-9]+)?)"
+    If Re.Test(UrlText) Then
+        Set M = Re.Execute(UrlText)
+        Lat = CDbl(M(0).SubMatches(0))
+        Lon = CDbl(M(0).SubMatches(1))
+    Else
+        Re.Pattern = "!3d(-?[0-9]+(?:\.[0-9]+)?)!4d(-?[0-9]+(?:\.[0-9]+)?)"
+        If Re.Test(UrlText) Then
+            Set M = Re.Execute(UrlText)
+            Lat = CDbl(M(0).SubMatches(0))
+            Lon = CDbl(M(0).SubMatches(1))
+        Else
+            Exit Function
+        End If
+    End If
+    If ResourcePointInRange(Lat, Lon) Then
+        LatOut = Lat
+        LonOut = Lon
+        ResourcePointFromUrlText = True
+    End If
+    Exit Function
+Failed:
+End Function
+
+Private Function ResourcePointInRange(ByVal Lat As Double, ByVal Lon As Double) As Boolean
+    ResourcePointInRange = (Lat >= -90# And Lat <= 90# And Lon >= -180# And Lon <= 180#)
+End Function
+
+Private Function ResourceUrlOrigin(ByVal UrlText As String) As String
+    Dim P As Long
+    Dim S As String
+    S = UrlText
+    P = InStr(1, S, "://", vbBinaryCompare)
+    If P = 0 Then
+        ResourceUrlOrigin = S
+        Exit Function
+    End If
+    P = InStr(P + 3, S, "/")
+    If P = 0 Then
+        ResourceUrlOrigin = S
+    Else
+        ResourceUrlOrigin = Left$(S, P - 1)
+    End If
+End Function
+
+'Forward-geocodes the verified project location text (INPUT!C7). Google when a
+'key exists (the same key chain as the label tier), otherwise Nominatim. The
+'first result is used verbatim - nothing is invented when both fail.
+Private Function ResourcePointFromPlaceText(ByVal PlaceText As String, _
+    ByRef LatOut As Double, ByRef LonOut As Double, ByRef ReasonText As String) As Boolean
+
+    Dim Key As String
+    Dim UrlText As String
+    Dim JSONText As String
+    Dim Re As Object
+    Dim M As Object
+    Dim Lat As Double
+    Dim Lon As Double
+
+    On Error GoTo Failed
+    PlaceText = Trim$(PlaceText)
+    If Len(PlaceText) = 0 Then
+        ReasonText = "INPUT!C7 is blank"
+        Exit Function
+    End If
+
+    Key = ResourceSettingCell(SETTINGS_SHEET, "B11")
+    If Len(Key) = 0 Then Key = ResourceSettingCell(SETTINGS_SHEET, "B4")
+    If Len(Key) = 0 Then Key = ResourceConfigCell("B5")
+    If Len(Key) > 0 Then
+        UrlText = "https://maps.googleapis.com/maps/api/geocode/json?address=" & _
+                  ResourceUrlEncode(PlaceText) & "&language=en&key=" & Key
+        JSONText = ResourceHttpGetJson(UrlText)
+        If Len(JSONText) > 0 Then
+            Set Re = CreateObject("VBScript.RegExp")
+            Re.Global = False
+            Re.Pattern = """location""\s*:\s*\{\s*""lat""\s*:\s*(-?[0-9]+(?:\.[0-9]+)?)\s*,\s*""lng""\s*:\s*(-?[0-9]+(?:\.[0-9]+)?)"
+            If Re.Test(JSONText) Then
+                Set M = Re.Execute(JSONText)
+                Lat = CDbl(M(0).SubMatches(0))
+                Lon = CDbl(M(0).SubMatches(1))
+                If ResourcePointInRange(Lat, Lon) Then
+                    LatOut = Lat
+                    LonOut = Lon
+                    ResourcePointFromPlaceText = True
+                    Exit Function
+                End If
+            End If
+        End If
+    End If
+
+    UrlText = "https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=" & _
+              ResourceUrlEncode(PlaceText)
+    JSONText = ResourceHttpGetJson(UrlText)
+    If Len(JSONText) > 0 Then
+        Set Re = CreateObject("VBScript.RegExp")
+        Re.Global = False
+        Re.Pattern = """lat""\s*:\s*""?(-?[0-9]+(?:\.[0-9]+)?)""?\s*,\s*""lon""\s*:\s*""?(-?[0-9]+(?:\.[0-9]+)?)""?"
+        If Re.Test(JSONText) Then
+            Set M = Re.Execute(JSONText)
+            Lat = CDbl(M(0).SubMatches(0))
+            Lon = CDbl(M(0).SubMatches(1))
+            If ResourcePointInRange(Lat, Lon) Then
+                LatOut = Lat
+                LonOut = Lon
+                ResourcePointFromPlaceText = True
+                Exit Function
+            End If
+        End If
+    End If
+    ReasonText = "no geocoder could resolve INPUT!C7"
+    Exit Function
+Failed:
+    ReasonText = "VBA error " & CStr(Err.Number)
+End Function
+
+'Minimal percent-encoding for query strings (letters/digits and - _ . ~ , kept).
+Private Function ResourceUrlEncode(ByVal TextValue As String) As String
+    Dim i As Long
+    Dim C As String
+    Dim OutText As String
+    Dim Safe As String
+    Safe = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.~,"
+    For i = 1 To Len(TextValue)
+        C = Mid$(TextValue, i, 1)
+        If InStr(1, Safe, C, vbBinaryCompare) > 0 Then
+            OutText = OutText & C
+        ElseIf C = " " Then
+            OutText = OutText & "%20"
+        Else
+            OutText = OutText & "%" & Right$("0" & Hex$(Asc(C)), 2)
+        End If
+    Next i
+    ResourceUrlEncode = OutText
+End Function
+
+'Tiny closed square around the proven point. Its area-weighted centroid
+'(Worker math and local VBA math alike) is exactly the centre point, and its
+'~490 m2 area passes the Worker's polygon validation comfortably.
+Private Function ResourceSquarePolygonJSON(ByVal Lat As Double, ByVal Lon As Double) As String
+    Dim dLat As Double
+    Dim dLon As Double
+    Dim CosLat As Double
+    CosLat = Cos(Lat * 3.14159265358979 / 180#)
+    If CosLat < 0.01 Then CosLat = 0.01
+    dLat = MANUAL_SQUARE_HALF_DEG
+    dLon = MANUAL_SQUARE_HALF_DEG / CosLat
+    ResourceSquarePolygonJSON = "[" & _
+        "[" & ResourceDecimal(Lat - dLat, 8) & "," & ResourceDecimal(Lon - dLon, 8) & "]," & _
+        "[" & ResourceDecimal(Lat - dLat, 8) & "," & ResourceDecimal(Lon + dLon, 8) & "]," & _
+        "[" & ResourceDecimal(Lat + dLat, 8) & "," & ResourceDecimal(Lon + dLon, 8) & "]," & _
+        "[" & ResourceDecimal(Lat + dLat, 8) & "," & ResourceDecimal(Lon - dLon, 8) & "]," & _
+        "[" & ResourceDecimal(Lat - dLat, 8) & "," & ResourceDecimal(Lon - dLon, 8) & "]]"
+End Function
+
+'Queues the NASA POWER fetch for a manual site: the same authenticated Worker
+'pipeline as drawn sites, fed the square polygon above. On success the summary
+'import lands on the very row the watcher just filled (Project ID + centroid
+'match), completing every remaining RESOURCE_DB column.
+Private Sub ResourceStartForPoint(ByVal ProjectID As String, ByVal Lat As Double, ByVal Lon As Double)
+    Dim ResourceStartDate As String
+    Dim ResourceEndDate As String
+    Dim Body As String
+    Dim ResponseText As String
+    Dim RequestID As String
+    Dim StatusCode As Long
+    Dim Attempt As Long
+
+    On Error GoTo Failed
+    If Not ResourceLoadConfiguration() Then
+        Application.StatusBar = "Solar EPC: manual site " & ProjectID & _
+            " filled; NASA fetch skipped (cloud configuration missing)."
+        Exit Sub
+    End If
+    If Not ResourceLoadConfiguredPeriod(ResourceStartDate, ResourceEndDate) Then
+        Application.StatusBar = "Solar EPC: manual site " & ProjectID & _
+            " filled; NASA fetch skipped (resource period not configured)."
+        Exit Sub
+    End If
+    Body = "{""projectId"":""" & ResourceJSONEscape(ProjectID) & _
+           """,""messageId"":""" & ResourceJSONEscape("MANUAL-" & Format$(Now, "yyyymmddhhnnss")) & _
+           """,""startDate"":""" & ResourceJSONEscape(ResourceStartDate) & _
+           """,""endDate"":""" & ResourceJSONEscape(ResourceEndDate) & _
+           """,""sitePolygon"":" & ResourceSquarePolygonJSON(Lat, Lon) & "}"
+    For Attempt = 1 To 3
+        ResponseText = ResourceRequest("POST", "/v1/resource/start", Body, StatusCode)
+        If StatusCode = 200 Or StatusCode = 201 Then Exit For
+        If StatusCode >= 400 And StatusCode < 500 And StatusCode <> 429 Then Exit For
+        If Attempt < 3 Then
+            DoEvents
+            Application.Wait Now + TimeSerial(0, 0, 1)
+        End If
+    Next Attempt
+    If StatusCode <> 200 And StatusCode <> 201 Then
+        ResourceSetLastError "MANUAL NASA START failed for project " & ProjectID & _
+            " (HTTP " & CStr(StatusCode) & "): " & Left$(ResponseText, 500)
+        Application.StatusBar = "Solar EPC: manual site " & ProjectID & _
+            " filled; NASA fetch could not start (see SolarEPC_ResourceShowLastError)."
+        Exit Sub
+    End If
+    RequestID = ResourceJSONValue(ResponseText, "requestId")
+    If Len(RequestID) < 20 Then
+        ResourceSetLastError "MANUAL NASA START: Worker returned no valid request ID for project " & ProjectID & "."
+        Exit Sub
+    End If
+    If InStr(1, ResponseText, """complete"":true", vbTextCompare) > 0 Then
+        ResourceImportSummary RequestID
+        Application.StatusBar = "Solar EPC: cached NASA resource imported for manual site " & ProjectID & "."
+        Exit Sub
+    End If
+    ResourceEnqueue RequestID
+    Application.StatusBar = "Solar EPC: NASA resource queued for manual site " & ProjectID & "."
+    If Not mBusy And mNextRun = 0 Then SolarEPC_ResourceProcessNext
+    Exit Sub
+Failed:
+    ResourceSetLastError "MANUAL NASA START VBA error " & CStr(Err.Number) & ": " & Err.Description
+End Sub
 
 'Extract the attempt count from states such as "NOROW:3" / "LOCPEND:1".
 Private Function DrawnLocationAttempts(ByVal StateText As String) As Long
