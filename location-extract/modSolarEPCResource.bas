@@ -27,7 +27,7 @@ Private Declare PtrSafe Sub GetSystemTime Lib "kernel32" (lpSystemTime As SYSTEM
 '     FillLocations, MakeVillageDb, AddVillage, Resume, Stop, ShowLastError,
 '     ResumePending, ProcessNext) - so ThisWorkbook, modSolarEPCCloudRelay
 '     and every sheet button continue to compile.
-'   - v4.0.5 CLEAN FINAL: this header carries no version-by-version history
+'   - v4.0.6 CLEAN FINAL: this header carries no version-by-version history
 '     any more; everything below is current behaviour only.
 '     * Automatic fill: after a map draw + SAVE the exact centroid lands in
 '       RESOURCE_DB (blank-only cells) and in the DRAWING_DATA site
@@ -48,6 +48,12 @@ Private Declare PtrSafe Sub GetSystemTime Lib "kernel32" (lpSystemTime As SYSTEM
 '       sub-second even on tables with hundreds of rows.
 '     * Detector: SolarEPC_ShowModuleVersion stamps the version of the copy
 '       that actually ran, catching stale duplicates in one click.
+'     * Every draw + SAVE during a session is a fresh event: the automatic
+'       path now appends its own row one-below-the-other (same as the manual
+'       macro) and queues the NASA POWER import for drawn sites too, so a
+'       saved site fills completely - coordinates, label, Date/Time and the
+'       NASA columns - with no macro run. Sites already present when the
+'       workbook opens keep the idempotent (no-duplicate) behaviour.
 '     * The watcher tick can no longer be killed by its start-up caches: an
 '       error-value cell or a missing sheet degrades silently instead of
 '       aborting the sweep; any sweep error is recorded in _CLOUD_CFG
@@ -70,7 +76,7 @@ Private Const AUTO_LABEL_RETRIES As Long = 15     'limited retries while the lab
 Private Const MANUAL_POINT_RETRIES As Long = 15   'retries while a manual site's point is unprovable
 Private Const MANUAL_SQUARE_HALF_DEG As Double = 0.0001  '~11 m half-side of the manual NASA square
 Private Const INPUT_SHEET As String = "INPUT"
-Private Const MODULE_VERSION As String = "4.0.5"   'single source of the version tag
+Private Const MODULE_VERSION As String = "4.0.6"   'single source of the version tag
 
 
 Private Const CONFIG_SHEET As String = "_CLOUD_CFG"
@@ -135,6 +141,8 @@ Private mAutoPending As Boolean         'a retry (missing row / offline label) i
 Private mManualBaseline As Object       'no-coordinate SITE rows present at watcher start
 Private mManualBaseDone As Boolean      'baseline captured once per session
 Private mManualNasaSent As Object       'manual key -> NASA start already queued
+Private mOpenKeys As Object             'site keys present at session start
+Private mOpenSnapshotTaken As Boolean   'first sweep has snapshotted open keys
 Private mManualPointCacheKey As String  'INPUT!C7+C8 text behind the cached manual point
 Private mManualPointCacheLat As Double
 Private mManualPointCacheLon As Double
@@ -2762,6 +2770,7 @@ Private Sub DrawnLocationSweep(Optional ByVal ForceFull As Boolean = False)
     Dim cProject As Long
     Dim cCoords As Long
     Dim RowsPresent As Boolean
+    Dim DrawnAppend As Boolean, ManualAppend As Boolean, SnapshotFirst As Boolean
     Dim ReferenceText As String
     Dim ProjectID As String
     Dim CoordinateText As String
@@ -2787,6 +2796,8 @@ Private Sub DrawnLocationSweep(Optional ByVal ForceFull As Boolean = False)
     If Tbl Is Nothing Then Exit Sub
     If mProcessed Is Nothing Then Set mProcessed = CreateObject("Scripting.Dictionary")
     If mManualNasaSent Is Nothing Then Set mManualNasaSent = CreateObject("Scripting.Dictionary")
+    If mOpenKeys Is Nothing Then Set mOpenKeys = CreateObject("Scripting.Dictionary")
+    SnapshotFirst = Not mOpenSnapshotTaken
     ResourceCheckManualPointHttp
 
     'Two bulk reads (headers + body) replace every per-row COM call.
@@ -2867,6 +2878,8 @@ Private Sub DrawnLocationSweep(Optional ByVal ForceFull As Boolean = False)
                 'The key includes the coordinates: re-drawing the site changes
                 'the key and the fill is attempted again.
                 KeyText = ReferenceText & "|" & CoordinateText
+                DrawnAppend = Not SnapshotFirst And Not mOpenKeys.Exists(KeyText)
+                mOpenKeys(KeyText) = True
                 If Not mProcessed.Exists(KeyText) Or _
                    Left$(CStr(mProcessed(KeyText)), 5) = "NOROW" Or _
                    Left$(CStr(mProcessed(KeyText)), 7) = "LOCPEND" Or _
@@ -2884,7 +2897,7 @@ Private Sub DrawnLocationSweep(Optional ByVal ForceFull As Boolean = False)
                                     mProcessed(KeyText) = "DONE"   'deleted by the user
                                 Else
                                 ResultText = FillResourceDbForSite(ProjectID, CentroidLatitude, _
-                                    CentroidLongitude, Attempts >= 2)
+                                    CentroidLongitude, Attempts >= 2, DrawnAppend)
                                 If InStr(1, ResultText, "LOCPEND", vbBinaryCompare) > 0 Then
                                     'lat/lon filled, label tier offline - limited retries.
                                     If Attempts < AUTO_LABEL_RETRIES Then _
@@ -2896,6 +2909,10 @@ Private Sub DrawnLocationSweep(Optional ByVal ForceFull As Boolean = False)
                                 Else
                                     mProcessed(KeyText) = "DONE"
                                     ResourcePersistPoint ProjectID, CentroidLatitude, CentroidLongitude
+                                    If Not mManualNasaSent.Exists(KeyText) Then
+                                        mManualNasaSent(KeyText) = True
+                                        ResourceStartForPoint ProjectID, CentroidLatitude, CentroidLongitude
+                                    End If
                                     If ResultText <> "SKIP-NO-BLANK" Then
                                         Application.StatusBar = "Solar EPC: " & ProjectID & " saved to RESOURCE_DB."
                                         DrawnLocationDiag ProjectID, ResultText, _
@@ -2918,6 +2935,8 @@ Private Sub DrawnLocationSweep(Optional ByVal ForceFull As Boolean = False)
                 'geographic identity is the Google-proven project point from
                 'INPUT!C8 / INPUT!C7 - never a guessed or invented location.
                 KeyText = "MANUAL|" & ReferenceText & "|" & ProjectID
+                ManualAppend = Not SnapshotFirst And Not mOpenKeys.Exists(KeyText)
+                mOpenKeys(KeyText) = True
                 StateText = CStr(mProcessed(KeyText) & "")
                 If Left$(StateText, 5) <> "MDONE" And StateText <> "MFAIL" Then
                     Attempts = DrawnLocationAttempts(StateText)
@@ -2926,7 +2945,7 @@ Private Sub DrawnLocationSweep(Optional ByVal ForceFull As Boolean = False)
                            Not ProjectExistsInCache(ProjectID) Then
                             mProcessed(KeyText) = "MDONE"  'deleted by the user
                         Else
-                        ResultText = FillResourceDbForSite(ProjectID, ManualLat, ManualLon, Attempts >= 2)
+                        ResultText = FillResourceDbForSite(ProjectID, ManualLat, ManualLon, Attempts >= 2, ManualAppend)
                         If InStr(1, ResultText, "LOCPEND", vbBinaryCompare) > 0 Then
                             If Attempts < AUTO_LABEL_RETRIES Then _
                                 mProcessed(KeyText) = "LOCPEND:" & CStr(Attempts + 1)
@@ -2980,6 +2999,7 @@ Private Sub DrawnLocationSweep(Optional ByVal ForceFull As Boolean = False)
         End If
     Next R
     End If
+    mOpenSnapshotTaken = True
     mAutoPending = DrawnLocationPending()
 Done:
     If Err.Number <> 0 Then
