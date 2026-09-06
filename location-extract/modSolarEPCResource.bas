@@ -30,6 +30,11 @@ Private Declare PtrSafe Sub GetSystemTime Lib "kernel32" (lpSystemTime As SYSTEM
 '     its reason on the status bar; SolarEPC_DrawnLocationDebug produces a
 '     read-only report of the whole chain.
 '   - v3.11 FINAL: every user-facing message, status-bar line and debug
+'   - v3.22.4: import hardening round 2 - the Manual Fill before/after proof
+'     now runs through ResourceDbReadBack (bulk ListColumns Value2 reads, the
+'     same line shapes ResourceBuildFilledMap has used since v3.12); every
+'     line shape that ever turned red in the user's VBE is gone from the
+'     module.
 '   - v3.22.3: import hardening - the shipped file now uses native VBE CRLF
 '     line endings, and the Manual Fill before/after proof is built by the new
 '     ResourceDbRowProof helper with single-line statements only (zero line
@@ -187,7 +192,7 @@ Private Const AUTO_LABEL_RETRIES As Long = 15     'limited retries while the lab
 Private Const MANUAL_POINT_RETRIES As Long = 15   'retries while a manual site's point is unprovable
 Private Const MANUAL_SQUARE_HALF_DEG As Double = 0.0001  '~11 m half-side of the manual NASA square
 Private Const INPUT_SHEET As String = "INPUT"
-Private Const MODULE_VERSION As String = "3.22.3"   'single source of the version tag
+Private Const MODULE_VERSION As String = "3.22.4"   'single source of the version tag
 
 
 Private Const CONFIG_SHEET As String = "_CLOUD_CFG"
@@ -3586,6 +3591,8 @@ Public Sub SolarEPC_ManualFillNow()
     TableFound = IIf(DbTbl Is Nothing, "NO", "YES")
     Dim SheetName As String
     Dim FilterText As String
+    Dim BeforeText As String
+    Dim AfterText As String
     SheetName = IIf(DbTbl Is Nothing, "(none)", DbTbl.Parent.Name)
     FilterText = "NO"
     On Error Resume Next
@@ -3657,27 +3664,11 @@ Public Sub SolarEPC_ManualFillNow()
         End If
     End If
 
-    Dim BeforeText As String
-    Dim AfterText As String
-    Dim cDbP As Long
-    Dim cDbL As Long
-    BeforeText = "table missing"
-    AfterText = "(no row)"
-    If Not DbTbl Is Nothing Then
-        cDbP = TableColumn(DbTbl, "Project ID")
-        cDbL = TableColumn(DbTbl, "Latitude (" & ChrW(176) & ")")
-        BeforeText = "rows=" & CStr(DbTbl.ListRows.Count)
-        If cDbP > 0 And cDbL > 0 Then
-            BeforeText = BeforeText & "; " & ResourceDbRowProof(DbTbl, cDbP, cDbL, ProjectID)
-        End If
-    End If
+    BeforeText = ResourceDbReadBack(ProjectID)
 
     ResultText = FillResourceDbForSite(ProjectID, Lat, Lon, True)
 
-    If Not DbTbl Is Nothing And cDbP > 0 And cDbL > 0 Then
-        AfterText = ResourceDbRowProof(DbTbl, cDbP, cDbL, ProjectID)
-        If Len(AfterText) = 0 Then AfterText = "(no row)"
-    End If
+    AfterText = ResourceDbReadBack(ProjectID)
 
     If Len(CoordText) = 0 Then
         Set CoordCell = Tbl.ListRows(RowFound).Range.Cells(1, cCoords)
@@ -3715,7 +3706,7 @@ Public Sub SolarEPC_ManualFillNow()
         "  Source  : " & TierText & vbCrLf & _
         "  Written : " & ResultText & vbCrLf & _
         "  DB before: " & BeforeText & vbCrLf & _
-        "  DB after : " & IIf(Len(AfterText) = 0, "(no row)", AfterText) & vbCrLf & _
+        "  DB after : " & AfterText & vbCrLf & _
         "  resource_db table: " & TableFound & vbCrLf & _
         "  Table lives on    : " & SheetName & vbCrLf & _
         "  Filter hiding rows: " & FilterText & vbCrLf & vbCrLf & _
@@ -3751,23 +3742,37 @@ Private Function ResourceProjectFilledInDb(ByVal Tbl As ListObject, ByVal Projec
     Next R
 End Function
 
-'One-line-per-row proof of what RESOURCE_DB currently holds for this project,
-'e.g. "row3 lat=[17.990241] row5 lat=[]". Written with single-line statements
-'only (no line continuations) for maximum importer robustness.
-Private Function ResourceDbRowProof(ByVal Tbl As ListObject, ByVal cProject As Long, ByVal cLat As Long, ByVal ProjectID As String) As String
-    Dim R As Long
-    Dim CellText As String
+'Code-eye read-back of every RESOURCE_DB row carrying this Project ID, e.g.
+'"rows=2; row1 lat=[17.990241] lon=[74.001234] loc=[Sonwadi]". Uses the same
+'bulk ListColumns Value2 read shape as ResourceBuildFilledMap (import-safe).
+Private Function ResourceDbReadBack(ByVal ProjectID As String) As String
+    Dim Rdb As ListObject
+    Dim cP As Long, cLat As Long, cLon As Long, cLoc As Long
+    Dim ProjArr As Variant, LatArr As Variant, LonArr As Variant, LocArr As Variant
+    Dim n As Long, i As Long
     Dim OutText As String
-    OutText = vbNullString
-    If Tbl Is Nothing Then Exit Function
-    If cProject = 0 Or cLat = 0 Then Exit Function
-    For R = 1 To Tbl.ListRows.Count
-        CellText = Trim$(CStr(Tbl.ListRows(R).Range.Cells(1, cProject).Value2 & ""))
-        If LCase$(CellText) = LCase$(ProjectID) Then
-            OutText = OutText & "row" & CStr(R) & " lat=[" & CStr(Tbl.ListRows(R).Range.Cells(1, cLat).Value2 & "") & "] "
+    OutText = "(no row)"
+    Set Rdb = ResourceDbTable()
+    If Rdb Is Nothing Then Exit Function
+    cP = TableColumn(Rdb, "Project ID")
+    cLat = TableColumn(Rdb, "Latitude (" & ChrW(176) & ")")
+    cLon = TableColumn(Rdb, "Longitude (" & ChrW(176) & ")")
+    cLoc = TableColumn(Rdb, "Location")
+    If cP = 0 Or cLat = 0 Then Exit Function
+    n = Rdb.ListRows.Count
+    If n = 0 Then Exit Function
+    ProjArr = Rdb.ListColumns(cP).Range.Value2
+    LatArr = Rdb.ListColumns(cLat).Range.Value2
+    LonArr = Rdb.ListColumns(cLon).Range.Value2
+    If cLoc > 0 Then LocArr = Rdb.ListColumns(cLoc).Range.Value2
+    OutText = "rows=" & CStr(n)
+    For i = 2 To n + 1
+        If LCase$(Trim$(CStr(ProjArr(i, 1) & ""))) = LCase$(ProjectID) Then
+            OutText = OutText & "; row" & CStr(i - 1) & " lat=[" & CStr(LatArr(i, 1) & "") & "] lon=[" & CStr(LonArr(i, 1) & "") & "]"
+            If cLoc > 0 Then OutText = OutText & " loc=[" & CStr(LocArr(i, 1) & "") & "]"
         End If
-    Next R
-    ResourceDbRowProof = OutText
+    Next i
+    ResourceDbReadBack = OutText
 End Function
 
 '--------------------------------------------------------------------------
