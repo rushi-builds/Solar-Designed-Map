@@ -27,7 +27,7 @@ Private Declare PtrSafe Sub GetSystemTime Lib "kernel32" (lpSystemTime As SYSTEM
 '     FillLocations, MakeVillageDb, AddVillage, Resume, Stop, ShowLastError,
 '     ResumePending, ProcessNext) - so ThisWorkbook, modSolarEPCCloudRelay
 '     and every sheet button continue to compile.
-'   - v4.0.1 CLEAN FINAL: this header carries no version-by-version history
+'   - v4.0.2 CLEAN FINAL: this header carries no version-by-version history
 '     any more; everything below is current behaviour only.
 '     * Automatic fill: after a map draw + SAVE the exact centroid lands in
 '       RESOURCE_DB (blank-only cells) and in the DRAWING_DATA site
@@ -61,7 +61,7 @@ Private Const AUTO_LABEL_RETRIES As Long = 15     'limited retries while the lab
 Private Const MANUAL_POINT_RETRIES As Long = 15   'retries while a manual site's point is unprovable
 Private Const MANUAL_SQUARE_HALF_DEG As Double = 0.0001  '~11 m half-side of the manual NASA square
 Private Const INPUT_SHEET As String = "INPUT"
-Private Const MODULE_VERSION As String = "4.0.1"   'single source of the version tag
+Private Const MODULE_VERSION As String = "4.0.2"   'single source of the version tag
 
 
 Private Const CONFIG_SHEET As String = "_CLOUD_CFG"
@@ -2540,6 +2540,8 @@ Private Function ResourceFindHeaderTable(ByVal ws As Worksheet) As ListObject
 End Function
 
 Private Function ResourceProjectTableRow(ByVal Tbl As ListObject, _
+    ByVal ProjectID As String, ByVal LatitudeText As String, _
+    ByVal LongitudeText As String) As Range
     Dim R As Long
     Dim cProject As Long, cLatitude As Long, cLongitude As Long
     Dim ProjArr As Variant, LatArr As Variant, LonArr As Variant
@@ -3324,11 +3326,11 @@ End Function
 'row whose polygon centroid is recomputed offline. No network, no guessing -
 'the same project keeps the same proven point across manual re-saves.
 Private Function ResourceProjectPointHistory(ByVal ProjectID As String, _
+    ByRef LatOut As Double, ByRef LonOut As Double) As Boolean
     Dim Tbl As ListObject
     Dim cProject As Long, cLat As Long, cLon As Long
     Dim ProjArr As Variant, LatArr As Variant, LonArr As Variant
     Dim n As Long, R As Long
-    Dim LatOut As Double, LonOut As Double
 
     On Error GoTo Failed
     Set Tbl = ResourceDbTable()
@@ -3941,6 +3943,9 @@ End Sub
 '"lat lon location(Sonwadi Bk., Phaltan, Satara)", or SKIP-NO-BLANK /
 'NOROW / LOCPEND.
 Private Function FillResourceDbForSite(ByVal ProjectID As String, _
+    ByVal CentroidLatitude As Double, ByVal CentroidLongitude As Double, _
+    Optional ByVal AllowCreate As Boolean = False, _
+    Optional ByVal AppendNew As Boolean = False) As String
 
     Dim Tbl As ListObject
     Dim R As Long
