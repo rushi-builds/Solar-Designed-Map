@@ -32,10 +32,13 @@ Private Declare PtrSafe Sub GetSystemTime Lib "kernel32" (lpSystemTime As SYSTEM
 '     its reason on the status bar; SolarEPC_DrawnLocationDebug produces a
 '     read-only report of the whole chain.
 '   - v3.11 FINAL: every user-facing message, status-bar line and debug
-'   - v3.22.7: the stale hand-written header title ("Version 3.22.2 (FINAL)")
-'     is gone - it misled a field check into believing an old module was
-'     running. The only version literals left are MODULE_VERSION itself and
-'     the changelog bullets; report boxes stamp the live version.
+'   - v3.22.7: the stale hand-written header title carrying an old version
+'     number is gone - it misled a field check into believing an old module
+'     was running. The only version literals left are MODULE_VERSION itself
+'     and the changelog bullets; report boxes stamp the live version.
+'   - v3.22.8: the changelog no longer quotes that old title text literally,
+'     so a Ctrl+F search for an old version string can never produce a false
+'     hit inside this module. Verify any download by searching "3.22.8".
 '   - v3.22.6: Manual Fill now appends one row below the previous one (ek ke
 '     niche ek) exactly like the automatic path: a blank stuck row for the
 '     project is still filled first, otherwise every run creates a fresh row
@@ -206,7 +209,7 @@ Private Const AUTO_LABEL_RETRIES As Long = 15     'limited retries while the lab
 Private Const MANUAL_POINT_RETRIES As Long = 15   'retries while a manual site's point is unprovable
 Private Const MANUAL_SQUARE_HALF_DEG As Double = 0.0001  '~11 m half-side of the manual NASA square
 Private Const INPUT_SHEET As String = "INPUT"
-Private Const MODULE_VERSION As String = "3.22.7"   'single source of the version tag
+Private Const MODULE_VERSION As String = "3.22.8"   'single source of the version tag
 
 
 Private Const CONFIG_SHEET As String = "_CLOUD_CFG"
