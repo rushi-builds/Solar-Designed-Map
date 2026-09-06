@@ -36,6 +36,10 @@ Private Declare PtrSafe Sub GetSystemTime Lib "kernel32" (lpSystemTime As SYSTEM
 '     number is gone - it misled a field check into believing an old module
 '     was running. The only version literals left are MODULE_VERSION itself
 '     and the changelog bullets; report boxes stamp the live version.
+'   - v3.22.11: RESOURCE_DB fills now take the FIRST completely blank row from
+'     the top of the table (row 1, then row 2, then row 3 ...), so new data
+'     stacks visibly one-below-the-other on screen; appending at the end of
+'     the table only happens when no blank row exists at all.
 '   - v3.22.10: a created RESOURCE_DB row is now inserted directly below the
 '     last row carrying content (ListRows.Add with Position), instead of at
 '     the very end of a table that may hold hundreds of blank template rows,
@@ -216,7 +220,7 @@ Private Const AUTO_LABEL_RETRIES As Long = 15     'limited retries while the lab
 Private Const MANUAL_POINT_RETRIES As Long = 15   'retries while a manual site's point is unprovable
 Private Const MANUAL_SQUARE_HALF_DEG As Double = 0.0001  '~11 m half-side of the manual NASA square
 Private Const INPUT_SHEET As String = "INPUT"
-Private Const MODULE_VERSION As String = "3.22.10"   'single source of the version tag
+Private Const MODULE_VERSION As String = "3.22.11"   'single source of the version tag
 
 
 Private Const CONFIG_SHEET As String = "_CLOUD_CFG"
@@ -4145,7 +4149,6 @@ Private Function FillResourceDbForSite(ByVal ProjectID As String, _
     Dim LabelText As String
     Dim DidText As String
     Dim LatBlank As Boolean, LonBlank As Boolean, LocBlank As Boolean
-    Dim LastUsed As Long
 
     On Error GoTo Failed
     Set Tbl = ResourceDbTable()
@@ -4182,6 +4185,21 @@ Private Function FillResourceDbForSite(ByVal ProjectID As String, _
             End If
         End If
     Next R
+    'v3.22.11: when no row of this project can take the values, use the FIRST
+    'completely blank row from the top of the table, so fills stack visibly
+    'one-below-the-other starting at row 1 (blank template rows below the
+    'last fill no longer push new data out of sight).
+    If Target Is Nothing Then
+        For R = 1 To Tbl.ListRows.Count
+            Set RowRange = Tbl.ListRows(R).Range
+            If Len(Trim$(CStr(RowRange.Cells(1, cProject).Value2 & ""))) = 0 And _
+               Len(Trim$(CStr(RowRange.Cells(1, cLat).Value2 & ""))) = 0 And _
+               Len(Trim$(CStr(RowRange.Cells(1, cLon).Value2 & ""))) = 0 Then
+                Set Target = RowRange
+                Exit For
+            End If
+        Next R
+    End If
     'v2.5: create the missing row - a drawn site must appear in RESOURCE_DB.
     'Remaining columns are filled by the NASA import or manually.
     If Target Is Nothing Then
@@ -4189,21 +4207,7 @@ Private Function FillResourceDbForSite(ByVal ProjectID As String, _
             FillResourceDbForSite = "NOROW"
             Exit Function
         End If
-        'Insert the new row directly below the last row that carries any
-        'content, so fresh fills stack one-below-the-other at the top of a
-        'table that still holds blank template rows further down.
-        LastUsed = 0
-        For R = 1 To Tbl.ListRows.Count
-            Set RowRange = Tbl.ListRows(R).Range
-            If Len(Trim$(CStr(RowRange.Cells(1, cProject).Value2 & ""))) > 0 Then LastUsed = R
-            If Len(Trim$(CStr(RowRange.Cells(1, cLat).Value2 & ""))) > 0 Then LastUsed = R
-            If Len(Trim$(CStr(RowRange.Cells(1, cLon).Value2 & ""))) > 0 Then LastUsed = R
-        Next R
-        If LastUsed = 0 Or LastUsed >= Tbl.ListRows.Count Then
-            Set Target = Tbl.ListRows.Add.Range
-        Else
-            Set Target = Tbl.ListRows.Add(LastUsed + 1).Range
-        End If
+        Set Target = Tbl.ListRows.Add.Range
         If cProject > 0 Then
             Set Cell = Target.Cells(1, cProject)
             If Len(Trim$(CStr(Cell.Value2))) = 0 And Not Cell.HasFormula Then Cell.Value2 = ProjectID
