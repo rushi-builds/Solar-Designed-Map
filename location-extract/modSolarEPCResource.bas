@@ -15,7 +15,7 @@ Private Declare PtrSafe Sub GetSystemTime Lib "kernel32" (lpSystemTime As SYSTEM
 
 '==========================================================================
 ' SOLAR EPC - NASA POWER HOURLY RESOURCE MODULE + AUTOMATIC LOCATION FILL
-' Version 3.19 (FINAL)
+' Version 3.20 (FINAL)
 '
 ' THIS FILE IS A COMPLETE REPLACEMENT FOR THE LEGACY modSolarEPCResource.
 '   - Every legacy capability keeps working unchanged: NASA POWER hourly
@@ -30,6 +30,14 @@ Private Declare PtrSafe Sub GetSystemTime Lib "kernel32" (lpSystemTime As SYSTEM
 '     its reason on the status bar; SolarEPC_DrawnLocationDebug produces a
 '     read-only report of the whole chain.
 '   - v3.11 FINAL: every user-facing message, status-bar line and debug
+'   - v3.20 FINAL: MANUAL AUTO-RESOLVE, NON-BLOCKING. When the offline tiers
+'     cannot prove a manual site's project point, the watcher now starts ONE
+'     background (asynchronous) HTTP request - C8 page scan, Google geocode or
+'     Nominatim geocode, rotating per attempt - and collects the result on a
+'     later tick. Excel is never blocked by it; on success the pair is stored
+'     in INPUT!C8 and the row fills on the next sweep. Status shows only
+'     "resolving project point (X)..." while in flight and a one-line
+'     "project point not resolved (X)." when retries exhaust.
 '   - v3.19 FINAL: the status-bar version tag is read from MODULE_VERSION
 '     instead of a hard-coded string, so it can never show a stale version
 '     again (v3.18 shipped with a v3.17 tag in that one line).
@@ -151,7 +159,7 @@ Private Const AUTO_LABEL_RETRIES As Long = 15     'limited retries while the lab
 Private Const MANUAL_POINT_RETRIES As Long = 15   'retries while a manual site's point is unprovable
 Private Const MANUAL_SQUARE_HALF_DEG As Double = 0.0001  '~11 m half-side of the manual NASA square
 Private Const INPUT_SHEET As String = "INPUT"
-Private Const MODULE_VERSION As String = "3.19"   'single source of the version tag
+Private Const MODULE_VERSION As String = "3.20"   'single source of the version tag
 
 
 Private Const CONFIG_SHEET As String = "_CLOUD_CFG"
@@ -219,6 +227,10 @@ Private mManualPointCacheLat As Double
 Private mManualPointCacheLon As Double
 Private mManualPointCacheOk As Boolean
 Private mSessionStart As Double           'Timer at first open-path contact
+Private mManualHttp As Object           'background request for the manual point
+Private mManualHttpKey As String        'manual key the background request serves
+Private mManualHttpKind As Long         '1 link scan, 2 Google geocode, 3 Nominatim
+Private mManualHttpStarted As Date
 Private mResumeDeferred As Boolean        'open-time pending check deferred once
 
 'One-time SYSTEM configuration. Dates are not added to customer INPUT fields.
@@ -2768,6 +2780,10 @@ End Sub
 Public Sub SolarEPC_DrawnLocationAutoStop()
     mAutoActive = False
     On Error Resume Next
+    If Not mManualHttp Is Nothing Then
+        mManualHttp.abort
+        Set mManualHttp = Nothing
+    End If
     If mAutoNextRun > 0 Then
         Application.OnTime EarliestTime:=mAutoNextRun, _
             Procedure:="SolarEPC_DrawnLocationTick", Schedule:=False
@@ -2856,6 +2872,7 @@ Private Sub DrawnLocationSweep(Optional ByVal ForceFull As Boolean = False)
     If Tbl Is Nothing Then Exit Sub
     If mProcessed Is Nothing Then Set mProcessed = CreateObject("Scripting.Dictionary")
     If mManualNasaSent Is Nothing Then Set mManualNasaSent = CreateObject("Scripting.Dictionary")
+    ResourceCheckManualPointHttp
 
     'Two bulk reads (headers + body) replace every per-row COM call.
     Headers = Tbl.HeaderRowRange.Value2
@@ -3012,13 +3029,19 @@ Private Sub DrawnLocationSweep(Optional ByVal ForceFull As Boolean = False)
                             ResourceStartForPoint ProjectID, ManualLat, ManualLon
                         End If
                     Else
-                        If Attempts < MANUAL_POINT_RETRIES Then
-                            mProcessed(KeyText) = "MANPT:" & CStr(Attempts + 1)
-                        Else
-                            'Retries exhausted: close quietly with one actionable line.
-                            mProcessed(KeyText) = "MFAIL"
-                            ResourceSettingDiag "A18", "MANUAL POINT LAST ERROR", "B18", _
-                                ProjectID & ": " & ErrorText
+                        'v3.20: asynchronous online resolution - the request runs
+                        'in the background and never blocks the workbook; its
+                        'result is collected on a later tick.
+                        If Len(StateText) = 0 Then mProcessed(KeyText) = "MANPT:" & CStr(Attempts)
+                        If mManualHttp Is Nothing Or mManualHttpKey <> KeyText Then
+                            If Attempts < MANUAL_POINT_RETRIES Then
+                                ResourceStartManualPointHttp ProjectID, KeyText, Attempts
+                            Else
+                                mProcessed(KeyText) = "MFAIL"
+                                ResourceSettingDiag "A18", "MANUAL POINT LAST ERROR", "B18", _
+                                    ProjectID & ": " & ErrorText
+                                Application.StatusBar = "Solar EPC: project point not resolved (" & ProjectID & ")."
+                            End If
                         End If
                     End If
                 End If
@@ -3370,19 +3393,9 @@ Private Function ResourcePointFromPlaceText(ByVal PlaceText As String, _
                   ResourceUrlEncode(PlaceText) & "&language=en&key=" & Key
         JSONText = ResourceHttpGetJson(UrlText)
         If Len(JSONText) > 0 Then
-            Set Re = CreateObject("VBScript.RegExp")
-            Re.Global = False
-            Re.Pattern = """location""\s*:\s*\{\s*""lat""\s*:\s*(-?[0-9]+(?:\.[0-9]+)?)\s*,\s*""lng""\s*:\s*(-?[0-9]+(?:\.[0-9]+)?)"
-            If Re.Test(JSONText) Then
-                Set M = Re.Execute(JSONText)
-                Lat = CDbl(M(0).SubMatches(0))
-                Lon = CDbl(M(0).SubMatches(1))
-                If ResourcePointInRange(Lat, Lon) Then
-                    LatOut = Lat
-                    LonOut = Lon
-                    ResourcePointFromPlaceText = True
-                    Exit Function
-                End If
+            If ResourcePointFromGoogleJson(JSONText, LatOut, LonOut) Then
+                ResourcePointFromPlaceText = True
+                Exit Function
             End If
         End If
     End If
@@ -3391,19 +3404,9 @@ Private Function ResourcePointFromPlaceText(ByVal PlaceText As String, _
               ResourceUrlEncode(PlaceText)
     JSONText = ResourceHttpGetJson(UrlText)
     If Len(JSONText) > 0 Then
-        Set Re = CreateObject("VBScript.RegExp")
-        Re.Global = False
-        Re.Pattern = """lat""\s*:\s*""?(-?[0-9]+(?:\.[0-9]+)?)""?\s*,\s*""lon""\s*:\s*""?(-?[0-9]+(?:\.[0-9]+)?)""?"
-        If Re.Test(JSONText) Then
-            Set M = Re.Execute(JSONText)
-            Lat = CDbl(M(0).SubMatches(0))
-            Lon = CDbl(M(0).SubMatches(1))
-            If ResourcePointInRange(Lat, Lon) Then
-                LatOut = Lat
-                LonOut = Lon
-                ResourcePointFromPlaceText = True
-                Exit Function
-            End If
+        If ResourcePointFromNominatimJson(JSONText, LatOut, LonOut) Then
+            ResourcePointFromPlaceText = True
+            Exit Function
         End If
     End If
     ReasonText = "no geocoder could resolve INPUT!C7"
@@ -3488,6 +3491,176 @@ Private Function ResourceProjectPointHistory(ByVal ProjectID As String, _
             End If
         End If
     Next R
+    Exit Function
+Failed:
+End Function
+
+'--------------------------------------------------------------------------
+' v3.20 ASYNC manual-point resolution (never blocks the workbook)
+'---------------------------------------------------------------------------
+
+'Starts one background HTTP request for a manual site's project point.
+'Kind 1 = fetch the INPUT!C8 link and scan the landed page for coordinates,
+'2 = Google forward geocode of INPUT!C7, 3 = Nominatim forward geocode.
+'The candidate rotates with the attempt count so every tier gets its turn.
+Private Sub ResourceStartManualPointHttp(ByVal ProjectID As String, _
+    ByVal KeyText As String, ByVal Attempts As Long)
+
+    Dim C7Text As String
+    Dim C8Text As String
+    Dim Key As String
+    Dim UrlText As String
+
+    On Error GoTo Failed
+    C7Text = ResourceSettingCell(INPUT_SHEET, "C7")
+    C8Text = ResourceSettingCell(INPUT_SHEET, "C8")
+    If (Attempts Mod 2) = 0 And InStr(1, C8Text, "://", vbBinaryCompare) > 0 Then
+        mManualHttpKind = 1
+        UrlText = C8Text
+    Else
+        Key = ResourceSettingCell(SETTINGS_SHEET, "B11")
+        If Len(Key) = 0 Then Key = ResourceSettingCell(SETTINGS_SHEET, "B4")
+        If Len(Key) = 0 Then Key = ResourceConfigCell("B5")
+        If Len(Key) > 0 And (Attempts Mod 4) <> 3 Then
+            mManualHttpKind = 2
+            UrlText = "https://maps.googleapis.com/maps/api/geocode/json?address=" & _
+                      ResourceUrlEncode(C7Text) & "&language=en&key=" & Key
+        Else
+            mManualHttpKind = 3
+            UrlText = "https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=" & _
+                      ResourceUrlEncode(C7Text)
+        End If
+    End If
+    Set mManualHttp = CreateObject("WinHttp.WinHttpRequest.5.1")
+    mManualHttp.Open "GET", UrlText, True
+    mManualHttp.setTimeouts 4000, 4000, 4000, 15000
+    mManualHttp.setRequestHeader "User-Agent", "Solar-EPC-Resource/1.0 (manual site point)"
+    mManualHttp.send
+    mManualHttpKey = KeyText
+    mManualHttpStarted = Now
+    Application.StatusBar = "Solar EPC: resolving project point (" & ProjectID & ")..."
+    Exit Sub
+Failed:
+    Set mManualHttp = Nothing
+End Sub
+
+'Collects a finished background request. Called at the start of every sweep;
+'a single readyState read costs nothing, so idle ticks stay sub-millisecond.
+Private Sub ResourceCheckManualPointHttp()
+    Dim BodyText As String
+    Dim Lat As Double
+    Dim Lon As Double
+    Dim KeyText As String
+    Dim ProjectID As String
+    Dim P As Long
+    Dim OkPoint As Boolean
+
+    On Error GoTo Done
+    If mManualHttp Is Nothing Then Exit Sub
+    KeyText = mManualHttpKey
+    If mManualHttp.readyState <> 4 Then
+        If DateDiff("s", mManualHttpStarted, Now) < 30 Then Exit Sub
+        On Error Resume Next
+        mManualHttp.abort
+        On Error GoTo Done
+        Set mManualHttp = Nothing
+        OkPoint = False
+    Else
+        If mManualHttp.Status = 200 Then
+            BodyText = mManualHttp.ResponseText
+            Select Case mManualHttpKind
+                Case 1: OkPoint = ResourcePointFromUrlText(BodyText, Lat, Lon)
+                Case 2: OkPoint = ResourcePointFromGoogleJson(BodyText, Lat, Lon)
+                Case 3: OkPoint = ResourcePointFromNominatimJson(BodyText, Lat, Lon)
+            End Select
+        End If
+        Set mManualHttp = Nothing
+    End If
+    P = InStrRev(KeyText, "|")
+    If P > 0 Then ProjectID = Mid$(KeyText, P + 1)
+    If OkPoint Then
+        ResourceStoreManualPoint Lat, Lon
+    Else
+        ResourceManualPointAttemptFailed ProjectID, KeyText
+    End If
+Done:
+End Sub
+
+'Stores a resolved point: persists it into INPUT!C8 when C8 carries nothing
+'parsable, and primes the offline cache so the very next sweep fills.
+Private Sub ResourceStoreManualPoint(ByVal Lat As Double, ByVal Lon As Double)
+    Dim C8Text As String
+    Dim TmpLat As Double
+    Dim TmpLon As Double
+    On Error GoTo Failed
+    C8Text = ResourceSettingCell(INPUT_SHEET, "C8")
+    If Not ResourcePointFromUrlText(C8Text, TmpLat, TmpLon) Then
+        With ThisWorkbook.Worksheets(INPUT_SHEET).Range("C8")
+            If Not .HasFormula Then .Value2 = ResourceDecimal(Lat, 6) & "," & ResourceDecimal(Lon, 6)
+        End With
+    End If
+    mManualPointCacheKey = ResourceSettingCell(INPUT_SHEET, "C7") & "|" & _
+        ResourceSettingCell(INPUT_SHEET, "C8")
+    mManualPointCacheLat = Lat
+    mManualPointCacheLon = Lon
+    mManualPointCacheOk = True
+    Exit Sub
+Failed:
+End Sub
+
+'Records one failed background attempt; exhausted retries close as MFAIL.
+Private Sub ResourceManualPointAttemptFailed(ByVal ProjectID As String, ByVal KeyText As String)
+    Dim Attempts As Long
+    On Error GoTo Failed
+    Attempts = DrawnLocationAttempts(CStr(mProcessed(KeyText) & "")) + 1
+    If Attempts < MANUAL_POINT_RETRIES Then
+        mProcessed(KeyText) = "MANPT:" & CStr(Attempts)
+    Else
+        mProcessed(KeyText) = "MFAIL"
+        ResourceSettingDiag "A18", "MANUAL POINT LAST ERROR", "B18", _
+            ProjectID & ": offline and online resolution both failed"
+        Application.StatusBar = "Solar EPC: project point not resolved (" & ProjectID & ")."
+    End If
+    Exit Sub
+Failed:
+End Sub
+
+Private Function ResourcePointFromGoogleJson(ByVal JSONText As String, _
+    ByRef LatOut As Double, ByRef LonOut As Double) As Boolean
+    Dim Re As Object
+    Dim M As Object
+    On Error GoTo Failed
+    Set Re = CreateObject("VBScript.RegExp")
+    Re.Global = False
+    Re.Pattern = """location""\s*:\s*\{\s*""lat""\s*:\s*(-?[0-9]+(?:\.[0-9]+)?)\s*,\s*""lng""\s*:\s*(-?[0-9]+(?:\.[0-9]+)?)"
+    If Re.Test(JSONText) Then
+        Set M = Re.Execute(JSONText)
+        If ResourcePointInRange(CDbl(M(0).SubMatches(0)), CDbl(M(0).SubMatches(1))) Then
+            LatOut = CDbl(M(0).SubMatches(0))
+            LonOut = CDbl(M(0).SubMatches(1))
+            ResourcePointFromGoogleJson = True
+        End If
+    End If
+    Exit Function
+Failed:
+End Function
+
+Private Function ResourcePointFromNominatimJson(ByVal JSONText As String, _
+    ByRef LatOut As Double, ByRef LonOut As Double) As Boolean
+    Dim Re As Object
+    Dim M As Object
+    On Error GoTo Failed
+    Set Re = CreateObject("VBScript.RegExp")
+    Re.Global = False
+    Re.Pattern = """lat""\s*:\s*""?(-?[0-9]+(?:\.[0-9]+)?)""?\s*,\s*""lon""\s*:\s*""?(-?[0-9]+(?:\.[0-9]+)?)""?"
+    If Re.Test(JSONText) Then
+        Set M = Re.Execute(JSONText)
+        If ResourcePointInRange(CDbl(M(0).SubMatches(0)), CDbl(M(0).SubMatches(1))) Then
+            LatOut = CDbl(M(0).SubMatches(0))
+            LonOut = CDbl(M(0).SubMatches(1))
+            ResourcePointFromNominatimJson = True
+        End If
+    End If
     Exit Function
 Failed:
 End Function
