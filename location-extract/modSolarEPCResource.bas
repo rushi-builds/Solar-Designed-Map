@@ -15,7 +15,7 @@ Private Declare PtrSafe Sub GetSystemTime Lib "kernel32" (lpSystemTime As SYSTEM
 
 '==========================================================================
 ' SOLAR EPC - NASA POWER HOURLY RESOURCE MODULE + AUTOMATIC LOCATION FILL
-' Version 3.21 (FINAL)
+' Version 3.21.1 (FINAL)
 '
 ' THIS FILE IS A COMPLETE REPLACEMENT FOR THE LEGACY modSolarEPCResource.
 '   - Every legacy capability keeps working unchanged: NASA POWER hourly
@@ -30,6 +30,9 @@ Private Declare PtrSafe Sub GetSystemTime Lib "kernel32" (lpSystemTime As SYSTEM
 '     its reason on the status bar; SolarEPC_DrawnLocationDebug produces a
 '     read-only report of the whole chain.
 '   - v3.11 FINAL: every user-facing message, status-bar line and debug
+'   - v3.21.1: restores the comment apostrophe on the SafeCellText
+'     header line that the v3.21 patch dropped (VBA read the comment as
+'     code: "Compile error: Syntax error" at import). No logic changed.
 '   - v3.21 FINAL: ROBUSTNESS + ONE-CLICK MANUAL FILL. Bulk-read cell values
 '     are now routed through SafeCellText so an error value (#N/A, #REF!) in
 '     DRAWING_DATA can never abort a sweep mid-loop. New user-triggered macro
@@ -165,7 +168,7 @@ Private Const AUTO_LABEL_RETRIES As Long = 15     'limited retries while the lab
 Private Const MANUAL_POINT_RETRIES As Long = 15   'retries while a manual site's point is unprovable
 Private Const MANUAL_SQUARE_HALF_DEG As Double = 0.0001  '~11 m half-side of the manual NASA square
 Private Const INPUT_SHEET As String = "INPUT"
-Private Const MODULE_VERSION As String = "3.21"   'single source of the version tag
+Private Const MODULE_VERSION As String = "3.21.1"   'single source of the version tag
 
 
 Private Const CONFIG_SHEET As String = "_CLOUD_CFG"
@@ -3881,7 +3884,7 @@ Failed:
     ResourceSetLastError "MANUAL NASA START VBA error " & CStr(Err.Number) & ": " & Err.Description
 End Sub
 
-Safe text of a bulk-read cell value: error values (#N/A, #REF!, ...) and
+'Safe text of a bulk-read cell value: error values (#N/A, #REF!, ...) and
 'Null become "" instead of raising, so one bad cell can never abort a sweep.
 Private Function SafeCellText(ByVal CellValue As Variant) As String
     On Error GoTo Failed
