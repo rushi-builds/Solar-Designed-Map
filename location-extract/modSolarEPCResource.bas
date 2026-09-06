@@ -15,7 +15,7 @@ Private Declare PtrSafe Sub GetSystemTime Lib "kernel32" (lpSystemTime As SYSTEM
 
 '==========================================================================
 ' SOLAR EPC - NASA POWER HOURLY RESOURCE MODULE + AUTOMATIC LOCATION FILL
-' Version 3.16 (FINAL)
+' Version 3.17 (FINAL)
 '
 ' THIS FILE IS A COMPLETE REPLACEMENT FOR THE LEGACY modSolarEPCResource.
 '   - Every legacy capability keeps working unchanged: NASA POWER hourly
@@ -30,6 +30,13 @@ Private Declare PtrSafe Sub GetSystemTime Lib "kernel32" (lpSystemTime As SYSTEM
 '     its reason on the status bar; SolarEPC_DrawnLocationDebug produces a
 '     read-only report of the whole chain.
 '   - v3.11 FINAL: every user-facing message, status-bar line and debug
+'   - v3.17 FINAL: OPEN-PATH SMOOTHNESS + MANUAL HISTORY TIER. The watcher's
+'     first sweep is now scheduled 2 s after open instead of running inside
+'     Auto_Open; the open-time cloud pending check defers itself 5 s when it
+'     fires during load; the synchronous HTTP receive timeout is capped at
+'     20 s. The manual bridge gained a final offline tier: the project's own
+'     proven coordinates from RESOURCE_DB / earlier SITE rows, so a manual
+'     re-save of an already-drawn project fills with zero network.
 '   - v3.16 FINAL: PROFESSIONAL STATUS BAR. All retry chatter, guidance
 '     text and progress narration were removed; the status bar now shows
 '     only short load/save confirmations (saved / queued / in progress /
@@ -199,6 +206,8 @@ Private mManualPointCacheKey As String  'INPUT!C7+C8 text behind the cached manu
 Private mManualPointCacheLat As Double
 Private mManualPointCacheLon As Double
 Private mManualPointCacheOk As Boolean
+Private mSessionStart As Double           'Timer at first open-path contact
+Private mResumeDeferred As Boolean        'open-time pending check deferred once
 
 'One-time SYSTEM configuration. Dates are not added to customer INPUT fields.
 'Nothing is saved unless both dates are explicitly entered and validated.
@@ -617,6 +626,16 @@ Public Sub SolarEPC_ResourceResumePending()
 
     On Error GoTo Failed
     If mBusy Or mNextRun > 0 Then Exit Sub
+    'v3.17: when the relay calls this during workbook open, defer the
+    'synchronous cloud round trip until after the load has finished.
+    If mSessionStart = 0 Then mSessionStart = Timer
+    If Timer - mSessionStart < 10 And Not mResumeDeferred Then
+        mResumeDeferred = True
+        On Error Resume Next
+        Application.OnTime Now + TimeSerial(0, 0, 5), "SolarEPC_ResourceResumePending"
+        On Error GoTo Failed
+        Exit Sub
+    End If
     If Not ResourceLoadConfiguration() Then Exit Sub
 
     ResponseText = ResourceRequest("GET", "/v1/resource/pending", vbNullString, StatusCode)
@@ -1124,7 +1143,7 @@ Private Function ResourceRequestClient(ByVal ProgID As String, _
     On Error GoTo Failed
     Set HTTP = CreateObject(ProgID)
     HTTP.Open MethodName, mRelayURL & Path, False
-    HTTP.setTimeouts 5000, 5000, 5000, 60000
+    HTTP.setTimeouts 4000, 4000, 4000, 20000
     HTTP.setRequestHeader "Content-Type", "application/json"
     HTTP.setRequestHeader "Cache-Control", "no-store"
     HTTP.setRequestHeader "X-Solar-EPC-Workbook", mWorkbookID
@@ -2698,9 +2717,10 @@ Public Sub SolarEPC_DrawnLocationAutoStart()
     If mAutoActive Then Exit Sub
     If mProcessed Is Nothing Then Set mProcessed = CreateObject("Scripting.Dictionary")
     mAutoActive = True
-    DrawnLocationSweep True
-    DrawnLocationSchedule DrawnLocationNextDelay()
-    Application.StatusBar = "Solar EPC: drawn-site auto-fill ON."
+    'v3.17: the first sweep is scheduled, not synchronous - opening the
+    'workbook never waits on the watcher.
+    DrawnLocationSchedule 2
+    Application.StatusBar = "Solar EPC: drawn-site auto-fill ON (v3.17)."
     Exit Sub
 Failed:
     mAutoActive = False
@@ -2921,7 +2941,7 @@ Private Sub DrawnLocationSweep(Optional ByVal ForceFull As Boolean = False)
                 StateText = CStr(mProcessed(KeyText) & "")
                 If Left$(StateText, 5) <> "MDONE" And StateText <> "MFAIL" Then
                     Attempts = DrawnLocationAttempts(StateText)
-                    If ResourceManualPoint(ManualLat, ManualLon, ErrorText) Then
+                    If ResourceManualPoint(ProjectID, ManualLat, ManualLon, ErrorText) Then
                         ResultText = FillResourceDbForSite(ProjectID, ManualLat, ManualLon, Attempts >= 2)
                         If InStr(1, ResultText, "LOCPEND", vbBinaryCompare) > 0 Then
                             If Attempts < AUTO_LABEL_RETRIES Then _
@@ -3017,7 +3037,7 @@ Public Sub SolarEPC_ResolveManualPointNow()
     On Error GoTo Failed
     C7Text = ResourceSettingCell(INPUT_SHEET, "C7")
     C8Text = ResourceSettingCell(INPUT_SHEET, "C8")
-    If ResourceManualPoint(Lat, Lon, Reason) Then GoTo Apply
+    If ResourceManualPoint(vbNullString, Lat, Lon, Reason) Then GoTo Apply
     If ResourcePointFromMapLink(C8Text, Lat, Lon, Reason) Then GoTo Apply
     If ResourcePointFromPlaceText(C7Text, Lat, Lon, Reason) Then GoTo Apply
     Application.StatusBar = "Solar EPC: manual point not resolved (" & Reason & ")."
@@ -3046,7 +3066,8 @@ End Sub
 '  3. INPUT!C8 short link followed hop-by-hop via redirect Location headers
 '  4. forward geocode of INPUT!C7 (Google when a key exists, else Nominatim)
 'Every failure returns False with a human-readable reason for the status bar.
-Private Function ResourceManualPoint(ByRef LatOut As Double, ByRef LonOut As Double, _
+Private Function ResourceManualPoint(ByVal ProjectID As String, _
+    ByRef LatOut As Double, ByRef LonOut As Double, _
     ByRef ReasonText As String) As Boolean
 
     Dim C7Text As String
@@ -3071,6 +3092,9 @@ Private Function ResourceManualPoint(ByRef LatOut As Double, ByRef LonOut As Dou
     If ResourceVillageDbPointByName(C7Text, LatOut, LonOut) Then GoTo StoreOk
     If ResourcePointFromUrlText(C8Text, LatOut, LonOut) Then GoTo StoreOk
     If ResourcePointFromUrlText(C7Text, LatOut, LonOut) Then GoTo StoreOk
+    If Len(ProjectID) > 0 Then
+        If ResourceProjectPointHistory(ProjectID, LatOut, LonOut) Then GoTo StoreOk
+    End If
     ReasonText = "offline tiers found nothing - add the village to VILLAGE_DB, or paste lat,lon or a full Google link containing @lat,lng into INPUT!C8, or run SolarEPC_ResolveManualPointNow once"
     Exit Function
 StoreOk:
@@ -3346,6 +3370,86 @@ Private Function ResourcePointFromPlaceText(ByVal PlaceText As String, _
     Exit Function
 Failed:
     ReasonText = "VBA error " & CStr(Err.Number)
+End Function
+
+'Last proven coordinates of this project from the workbook's own history:
+'an existing RESOURCE_DB row for the same Project ID, else an earlier SITE
+'row whose polygon centroid is recomputed offline. No network, no guessing -
+'the same project keeps the same proven point across manual re-saves.
+Private Function ResourceProjectPointHistory(ByVal ProjectID As String, _
+    ByRef LatOut As Double, ByRef LonOut As Double) As Boolean
+
+    Dim Tbl As ListObject
+    Dim R As Long
+    Dim cProject As Long
+    Dim cLat As Long
+    Dim cLon As Long
+    Dim cCoords As Long
+    Dim Body As Variant
+    Dim Latitudes() As Double
+    Dim Longitudes() As Double
+    Dim VertexCount As Long
+    Dim AreaM2 As Double
+    Dim ErrorText As String
+
+    On Error GoTo Failed
+    Set Tbl = ResourceDbTable()
+    If Not Tbl Is Nothing Then
+        cProject = TableColumn(Tbl, "Project ID")
+        cLat = TableColumn(Tbl, "Latitude (" & ChrW(176) & ")")
+        cLon = TableColumn(Tbl, "Longitude (" & ChrW(176) & ")")
+        If cProject > 0 And cLat > 0 And cLon > 0 Then
+            For R = 1 To Tbl.ListRows.Count
+                If StrComp(Trim$(CStr(Tbl.ListRows(R).Range.Cells(1, cProject).Value2)), _
+                           ProjectID, vbTextCompare) = 0 Then
+                    If IsNumeric(Tbl.ListRows(R).Range.Cells(1, cLat).Value2) And _
+                       IsNumeric(Tbl.ListRows(R).Range.Cells(1, cLon).Value2) Then
+                        LatOut = CDbl(Tbl.ListRows(R).Range.Cells(1, cLat).Value2)
+                        LonOut = CDbl(Tbl.ListRows(R).Range.Cells(1, cLon).Value2)
+                        If ResourcePointInRange(LatOut, LonOut) Then
+                            ResourceProjectPointHistory = True
+                            Exit Function
+                        End If
+                    End If
+                End If
+            Next R
+        End If
+    End If
+
+    Set Tbl = DrawnSiteTable()
+    If Tbl Is Nothing Then Exit Function
+    If Tbl.ListRows.Count = 0 Then Exit Function
+    Body = Tbl.DataBodyRange.Value2
+    If Not IsArray(Body) Then Exit Function
+    cProject = 0
+    cCoords = 0
+    Dim H As Long
+    Dim Headers As Variant
+    Headers = Tbl.HeaderRowRange.Value2
+    If Not IsArray(Headers) Then Exit Function
+    For H = 1 To Tbl.ListColumns.Count
+        Select Case Trim$(CStr(Headers(1, H)))
+            Case "Project ID": cProject = H
+            Case "Coordinates": cCoords = H
+        End Select
+    Next H
+    If cProject = 0 Or cCoords = 0 Then Exit Function
+    For R = 1 To UBound(Body, 1)
+        If StrComp(Trim$(CStr(Body(R, cProject) & "")), ProjectID, vbTextCompare) = 0 Then
+            If ParsePolygon(Trim$(CStr(Body(R, cCoords) & "")), Latitudes, Longitudes, _
+                            VertexCount, ErrorText) Then
+                If CentroidLocalProjection(Latitudes, Longitudes, VertexCount, _
+                                           LatOut, LonOut, AreaM2, ErrorText) Then
+                    If ResourcePointInRange(LatOut, LonOut) Then
+                        ResourceProjectPointHistory = True
+                        Exit Function
+                    End If
+                End If
+            End If
+        End If
+    Next R
+    Exit Function
+Failed:
 End Function
 
 'Minimal percent-encoding for query strings (letters/digits and - _ . ~ , kept).
