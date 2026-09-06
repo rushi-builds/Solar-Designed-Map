@@ -15,7 +15,7 @@ Private Declare PtrSafe Sub GetSystemTime Lib "kernel32" (lpSystemTime As SYSTEM
 
 '==========================================================================
 ' SOLAR EPC - NASA POWER HOURLY RESOURCE MODULE + AUTOMATIC LOCATION FILL
-' Version 3.13 (FINAL)
+' Version 3.14 (FINAL)
 '
 ' THIS FILE IS A COMPLETE REPLACEMENT FOR THE LEGACY modSolarEPCResource.
 '   - Every legacy capability keeps working unchanged: NASA POWER hourly
@@ -30,6 +30,16 @@ Private Declare PtrSafe Sub GetSystemTime Lib "kernel32" (lpSystemTime As SYSTEM
 '     its reason on the status bar; SolarEPC_DrawnLocationDebug produces a
 '     read-only report of the whole chain.
 '   - v3.11 FINAL: every user-facing message, status-bar line and debug
+'   - v3.14 FINAL: manual-bridge fixes from field testing. The proven point
+'     now resolves through a VILLAGE_DB name match first, then INPUT!C8, then
+'     a direct pair/link inside INPUT!C7, then forward geocoding; the resolved
+'     point is written back into the BLANK Coordinates cell (square polygon
+'     whose centroid IS the point) so DRAWING_DATA carries it too; exhausted
+'     retries close quietly as MFAIL with one actionable status line; manual
+'     rows of the project currently open in INPUT!C5 are never baselined, so
+'     an older unfilled manual row of this project still fills; every SITE
+'     row (drawn or manual) participates in the adaptive signature, so a
+'     fresh manual row opens the gate within one heartbeat.
 '   - v3.13 FINAL: MANUAL BRIDGE. A SITE row saved without coordinates
 '     (manual dimensions entry) is now bridged automatically: its identity is
 '     the Google-proven project point (INPUT!C8 pair/link, redirect-resolved,
@@ -2768,6 +2778,8 @@ Private Sub DrawnLocationSweep(Optional ByVal ForceFull As Boolean = False)
     Dim ResultText As String
     Dim ManualLat As Double
     Dim ManualLon As Double
+    Dim CurrentProject As String
+    Dim CoordCell As Range
 
     On Error GoTo Done
     Set Tbl = DrawnSiteTable()
@@ -2793,7 +2805,9 @@ Private Sub DrawnLocationSweep(Optional ByVal ForceFull As Boolean = False)
         If Not IsArray(Body) Then Exit Sub
         For R = 1 To UBound(Body, 1)
             ReferenceText = Trim$(CStr(Body(R, cRef) & ""))
-            If UCase$(Left$(ReferenceText, 9)) = "SITE-MAP-" Then
+            'Every SITE row (drawn or manual) participates in the signature, so
+            'a freshly saved manual row opens the gate within one heartbeat.
+            If Len(Trim$(CStr(Body(R, cProject) & ""))) > 0 Then
                 Signature = Signature & ReferenceText & "|" & _
                     Trim$(CStr(Body(R, cProject) & "")) & "|" & _
                     Trim$(CStr(Body(R, cCoords) & "")) & vbLf
@@ -2820,10 +2834,15 @@ Private Sub DrawnLocationSweep(Optional ByVal ForceFull As Boolean = False)
     If Not mManualBaseDone Then
         mManualBaseDone = True
         If mManualBaseline Is Nothing Then Set mManualBaseline = CreateObject("Scripting.Dictionary")
+        CurrentProject = ResourceSettingCell(INPUT_SHEET, "C5")
         If RowsPresent Then
             For R = 1 To UBound(Body, 1)
+                'The manual row of the project currently open in INPUT!C5 is
+                'NOT baselined: its C7/C8 are exactly the right point, so an
+                'older unfilled manual row of this project still gets filled.
                 If Len(Trim$(CStr(Body(R, cProject) & ""))) > 0 And _
-                   Len(Trim$(CStr(Body(R, cCoords) & ""))) = 0 Then
+                   Len(Trim$(CStr(Body(R, cCoords) & ""))) = 0 And _
+                   StrComp(Trim$(CStr(Body(R, cProject) & "")), CurrentProject, vbTextCompare) <> 0 Then
                     mManualBaseline(Trim$(CStr(Body(R, cRef) & "")) & "|" & _
                         Trim$(CStr(Body(R, cProject) & ""))) = True
                 End If
@@ -2896,7 +2915,7 @@ Private Sub DrawnLocationSweep(Optional ByVal ForceFull As Boolean = False)
                 'INPUT!C8 / INPUT!C7 - never a guessed or invented location.
                 KeyText = "MANUAL|" & ReferenceText & "|" & ProjectID
                 StateText = CStr(mProcessed(KeyText) & "")
-                If Left$(StateText, 5) <> "MDONE" Then
+                If Left$(StateText, 5) <> "MDONE" And StateText <> "MFAIL" Then
                     Attempts = DrawnLocationAttempts(StateText)
                     If ResourceManualPoint(ManualLat, ManualLon, ErrorText) Then
                         ResultText = FillResourceDbForSite(ProjectID, ManualLat, ManualLon, Attempts >= 2)
@@ -2921,18 +2940,35 @@ Private Sub DrawnLocationSweep(Optional ByVal ForceFull As Boolean = False)
                                     ManualLat, ManualLon
                             End If
                         End If
+                        'Record the proven point back into the BLANK Coordinates
+                        'cell so the manual row becomes a first-class polygon row
+                        '(blank-only; the square's centroid IS the proven point).
+                        If ResultText <> "NOROW" Then
+                            Set CoordCell = Tbl.ListRows(R).Range.Cells(1, cCoords)
+                            If Len(Trim$(CStr(CoordCell.Value2))) = 0 And Not CoordCell.HasFormula Then
+                                CoordCell.Value2 = ResourceSquarePolygonText(ManualLat, ManualLon)
+                            End If
+                        End If
                         'NASA columns for the manual site, queued exactly once.
                         If Not mManualNasaSent.Exists(KeyText) Then
                             mManualNasaSent(KeyText) = True
                             ResourceStartForPoint ProjectID, ManualLat, ManualLon
                         End If
                     Else
-                        Application.StatusBar = "Solar EPC: manual site " & ProjectID & _
-                            " carries no coordinates and no provable project point yet (" & _
-                            ErrorText & ") - retry " & CStr(Attempts + 1) & _
-                            "/" & CStr(MANUAL_POINT_RETRIES)
-                        If Attempts < MANUAL_POINT_RETRIES Then _
+                        If Attempts < MANUAL_POINT_RETRIES Then
+                            Application.StatusBar = "Solar EPC: manual site " & ProjectID & _
+                                " carries no coordinates and no provable project point yet (" & _
+                                ErrorText & ") - retry " & CStr(Attempts + 1) & _
+                                "/" & CStr(MANUAL_POINT_RETRIES)
                             mProcessed(KeyText) = "MANPT:" & CStr(Attempts + 1)
+                        Else
+                            'Retries exhausted: close quietly with one actionable line.
+                            mProcessed(KeyText) = "MFAIL"
+                            Application.StatusBar = "Solar EPC: manual site " & ProjectID & _
+                                " left unfilled - no provable project point (" & ErrorText & _
+                                "). Put a Google link or lat,lon in INPUT!C8, or add the village " & _
+                                "to VILLAGE_DB, then save the site again."
+                        End If
                     End If
                 End If
             End If
@@ -3000,7 +3036,9 @@ Private Function ResourceManualPoint(ByRef LatOut As Double, ByRef LonOut As Dou
         Exit Function
     End If
 
+    If ResourceVillageDbPointByName(C7Text, LatOut, LonOut) Then GoTo StoreOk
     If ResourcePointFromMapLink(C8Text, LatOut, LonOut, ReasonText) Then GoTo StoreOk
+    If ResourcePointFromUrlText(C7Text, LatOut, LonOut) Then GoTo StoreOk
     If ResourcePointFromPlaceText(C7Text, LatOut, LonOut, ReasonText) Then GoTo StoreOk
     If Len(ReasonText) = 0 Then
         ReasonText = "INPUT!C8 has no parsable coordinates and INPUT!C7 could not be geocoded"
@@ -3015,6 +3053,70 @@ StoreOk:
     Exit Function
 Failed:
     ReasonText = "VBA error " & CStr(Err.Number)
+End Function
+
+'Offline tier zero for the manual bridge: the user's own VILLAGE_DB. When the
+'project location text names (or starts with the name of) a stored village,
+'that village's own coordinates are the proven point - free, offline and the
+'only source that carries Indian revenue-village names.
+Private Function ResourceVillageDbPointByName(ByVal PlaceText As String, _
+    ByRef LatOut As Double, ByRef LonOut As Double) As Boolean
+
+    Dim ws As Worksheet
+    Dim R As Long
+    Dim LastRow As Long
+    Dim Village As String
+    Dim FirstPart As String
+    Dim P As Long
+
+    On Error GoTo Failed
+    PlaceText = Trim$(PlaceText)
+    If Len(PlaceText) = 0 Then Exit Function
+    P = InStr(1, PlaceText, ",")
+    If P > 1 Then
+        FirstPart = Trim$(Left$(PlaceText, P - 1))
+    Else
+        FirstPart = PlaceText
+    End If
+
+    Set ws = ThisWorkbook.Worksheets(VILLAGE_SHEET)
+    LastRow = ws.Cells(ws.Rows.Count, "A").End(xlUp).Row
+    For R = 2 To LastRow
+        Village = Trim$(CStr(ws.Cells(R, "A").Value2))
+        If Len(Village) > 0 Then
+            If StrComp(Village, PlaceText, vbTextCompare) = 0 Or _
+               StrComp(Village, FirstPart, vbTextCompare) = 0 Then
+                If IsNumeric(ws.Cells(R, "D").Value2) And IsNumeric(ws.Cells(R, "E").Value2) Then
+                    LatOut = CDbl(ws.Cells(R, "D").Value2)
+                    LonOut = CDbl(ws.Cells(R, "E").Value2)
+                    If ResourcePointInRange(LatOut, LonOut) Then
+                        ResourceVillageDbPointByName = True
+                        Exit Function
+                    End If
+                End If
+            End If
+        End If
+    Next R
+    Exit Function
+Failed:
+End Function
+
+'The proven point as a closed square in the workbook's own Coordinates format
+'("lat,lon;lat,lon;..."). Its area-weighted centroid is exactly the centre.
+Private Function ResourceSquarePolygonText(ByVal Lat As Double, ByVal Lon As Double) As String
+    Dim dLat As Double
+    Dim dLon As Double
+    Dim CosLat As Double
+    CosLat = Cos(Lat * 3.14159265358979 / 180#)
+    If CosLat < 0.01 Then CosLat = 0.01
+    dLat = MANUAL_SQUARE_HALF_DEG
+    dLon = MANUAL_SQUARE_HALF_DEG / CosLat
+    ResourceSquarePolygonText = _
+        ResourceDecimal(Lat - dLat, 8) & "," & ResourceDecimal(Lon - dLon, 8) & ";" & _
+        ResourceDecimal(Lat - dLat, 8) & "," & ResourceDecimal(Lon + dLon, 8) & ";" & _
+        ResourceDecimal(Lat + dLat, 8) & "," & ResourceDecimal(Lon + dLon, 8) & ";" & _
+        ResourceDecimal(Lat + dLat, 8) & "," & ResourceDecimal(Lon - dLon, 8) & ";" & _
+        ResourceDecimal(Lat - dLat, 8) & "," & ResourceDecimal(Lon - dLon, 8)
 End Function
 
 'Parses a point out of a Google Maps link: direct pair, @lat,lng, !3d/!4d, or

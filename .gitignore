@@ -67,11 +67,3 @@ node_modules/
 
 # dataconnect generated files
 .dataconnect
-
-# Python bytecode (parity harness in location-extract/verify)
-__pycache__/
-*.pyc
-
-# scratch download server used for the Arena preview (not part of the patch)
-downloads-server.js
-downloads/
