@@ -14,14 +14,14 @@ End Type
 Private Declare PtrSafe Sub GetSystemTime Lib "kernel32" (lpSystemTime As SYSTEMTIME)
 
 '==========================================================================
-' SOLAR EPC RESOURCE MODULE  v4.0.1
+' SOLAR EPC RESOURCE MODULE  v4.1.0
 ' Single replacement for modSolarEPCResource.
 ' Fast watcher, no hourglass cursor, RESOURCE_DB fills stack top-down
 ' (next completely blank row). Manual Fill always appends a new row when
 ' the project already has lat/lon. Watcher labels stay OFFLINE (VILLAGE_DB
 ' only); online reverse-geocode runs only on user macros.
 ' Import: remove old modSolarEPCResource + modSolarEPCDrawnLocation, then
-' Import File this .bas. Run SolarEPC_ShowModuleVersion -> v4.0.1
+' Import File this .bas. Run SolarEPC_ShowModuleVersion -> v4.1.0
 '==========================================================================
 
 'Watcher tuning (all other constants already exist inside the module).
@@ -33,7 +33,7 @@ Private Const AUTO_LABEL_RETRIES As Long = 15     'limited retries while the lab
 Private Const MANUAL_POINT_RETRIES As Long = 15   'retries while a manual site's point is unprovable
 Private Const MANUAL_SQUARE_HALF_DEG As Double = 0.0001  '~11 m half-side of the manual NASA square
 Private Const INPUT_SHEET As String = "INPUT"
-Private Const MODULE_VERSION As String = "4.0.1"     'single source of the version tag
+Private Const MODULE_VERSION As String = "4.1.0"     'single source of the version tag
 
 
 Private Const CONFIG_SHEET As String = "_CLOUD_CFG"
@@ -1072,7 +1072,7 @@ Private Function ResourceHttpGetJson(ByVal UrlText As String) As String
     On Error GoTo TryFallback
     Set HTTP = CreateObject("WinHttp.WinHttpRequest.5.1")
     HTTP.Open "GET", UrlText, False
-    HTTP.setTimeouts 4000, 4000, 6000, 6000
+    HTTP.setTimeouts 8000, 8000, 20000, 20000
     HTTP.setRequestHeader "User-Agent", "Solar-EPC-Resource/1.0 (Excel workbook location label)"
     HTTP.setRequestHeader "Accept", "application/json"
     HTTP.send
@@ -1084,7 +1084,7 @@ TryFallback:
     On Error GoTo Failed
     Set HTTP = CreateObject("MSXML2.ServerXMLHTTP.6.0")
     HTTP.Open "GET", UrlText, False
-    HTTP.setTimeouts 4000, 4000, 6000, 6000
+    HTTP.setTimeouts 8000, 8000, 20000, 20000
     HTTP.setRequestHeader "User-Agent", "Solar-EPC-Resource/1.0 (Excel workbook location label)"
     HTTP.setRequestHeader "Accept", "application/json"
     HTTP.send
@@ -2645,6 +2645,7 @@ End Function
 Public Sub Auto_Open()
     On Error Resume Next
     SolarEPC_DrawnLocationAutoStart
+    If mNextRun = 0 Then ResourceSchedule 3
 End Sub
 
 Public Sub Auto_Close()
@@ -2661,7 +2662,7 @@ Public Sub SolarEPC_DrawnLocationAutoStart()
     'v3.17: the first sweep is scheduled, not synchronous - opening the
     'workbook never waits on the watcher.
     Application.Cursor = xlDefault
-    DrawnLocationSchedule 5
+    DrawnLocationSchedule 2
     Application.StatusBar = "Solar EPC: auto-fill ON (v" & MODULE_VERSION & ")."
     Exit Sub
 Failed:
@@ -2875,6 +2876,7 @@ Private Sub DrawnLocationSweep(Optional ByVal ForceFull As Boolean = False)
                                         DrawnLocationDiag ProjectID, ResultText, _
                                             CentroidLatitude, CentroidLongitude
                                     End If
+                                    ResourceEnsureNasaFill ProjectID, CentroidLatitude, CentroidLongitude
                                 End If
                             Else
                                 mProcessed(KeyText) = "DONE"
@@ -2922,10 +2924,7 @@ Private Sub DrawnLocationSweep(Optional ByVal ForceFull As Boolean = False)
                             End If
                         End If
                         'NASA columns for the manual site, queued exactly once.
-                        If Not mManualNasaSent.Exists(KeyText) Then
-                            mManualNasaSent(KeyText) = True
-                            ResourceStartForPoint ProjectID, ManualLat, ManualLon
-                        End If
+                        ResourceEnsureNasaFill ProjectID, ManualLat, ManualLon
                     Else
                         'v3.20: asynchronous online resolution - the request runs
                         'in the background and never blocks the workbook; its
@@ -3579,10 +3578,7 @@ Public Sub SolarEPC_ManualFillNow()
     End If
 
     mProcessed(KeyText) = "MDONE"
-    If Not mManualNasaSent.Exists(KeyText) Then
-        mManualNasaSent(KeyText) = True
-        ResourceStartForPoint ProjectID, Lat, Lon
-    End If
+    ResourceEnsureNasaFill ProjectID, Lat, Lon
     MsgBox "Manual site filled." & vbCrLf & vbCrLf & _
         "  Module  : v" & MODULE_VERSION & vbCrLf & _
         "  Workbook: " & ThisWorkbook.Name & vbCrLf & _
@@ -4622,6 +4618,147 @@ End Sub
 'v3.10: NumberFormat can be blocked (sheet protection / table column
 'setting). Try the format first; if Excel refuses, write clean text - the
 'VALUE always lands, we never depend on the format.
+
+'Fill remaining RESOURCE_DB NASA columns without Alt+F8.
+'1) NASA POWER climatology (works even if the cloud worker is offline).
+'2) Cloud worker queue (fills the same row when the summary returns).
+Private Sub ResourceEnsureNasaFill(ByVal ProjectID As String, _
+    ByVal Lat As Double, ByVal Lon As Double)
+
+    Dim KeyText As String
+    On Error Resume Next
+    If mManualNasaSent Is Nothing Then Set mManualNasaSent = CreateObject("Scripting.Dictionary")
+    KeyText = ProjectID & "|" & Format$(Lat, "0.000000") & "|" & Format$(Lon, "0.000000")
+    If mManualNasaSent.Exists(KeyText) Then Exit Sub
+    mManualNasaSent(KeyText) = True
+    On Error GoTo 0
+    ResourceNasaPowerFill ProjectID, Lat, Lon
+    ResourceStartForPoint ProjectID, Lat, Lon
+End Sub
+
+Private Sub ResourceNasaPowerFill(ByVal ProjectID As String, _
+    ByVal Lat As Double, ByVal Lon As Double)
+
+    Dim Tbl As ListObject
+    Dim Target As Range
+    Dim UrlText As String
+    Dim JsonText As String
+    Dim StartText As String
+    Dim EndText As String
+    Dim Ghi As String, Dni As String, Dhi As String
+    Dim T2M As String, TMin As String, TMax As String
+    Dim Ws As String, Wd As String, Rh As String
+    Dim Ps As String, Prec As String, Alb As String
+
+    On Error GoTo Failed
+    Set Tbl = ResourceDbTable()
+    If Tbl Is Nothing Then Exit Sub
+    Set Target = ResourceProjectTableRow(Tbl, ProjectID, CStr(Lat), CStr(Lon))
+    If Target Is Nothing Then Exit Sub
+
+    UrlText = "https://power.larc.nasa.gov/api/temporal/climatology/point" & _
+        "?parameters=ALLSKY_SFC_SW_DWN,ALLSKY_SFC_SW_DNI,ALLSKY_SFC_SW_DIFF," & _
+        "T2M,T2M_MIN,T2M_MAX,WS10M,WD10M,RH2M,PS,PRECTOTCORR,ALLSKY_SRF_ALB" & _
+        "&community=RE&longitude=" & Replace$(CStr(Lon), ",", ".") & _
+        "&latitude=" & Replace$(CStr(Lat), ",", ".") & "&format=JSON"
+
+    JsonText = ResourceHttpGetJson(UrlText)
+    If Len(JsonText) < 40 Then Exit Sub
+
+    Ghi = NasaJsonAnn(JsonText, "ALLSKY_SFC_SW_DWN")
+    Dni = NasaJsonAnn(JsonText, "ALLSKY_SFC_SW_DNI")
+    Dhi = NasaJsonAnn(JsonText, "ALLSKY_SFC_SW_DIFF")
+    T2M = NasaJsonAnn(JsonText, "T2M")
+    TMin = NasaJsonAnn(JsonText, "T2M_MIN")
+    TMax = NasaJsonAnn(JsonText, "T2M_MAX")
+    Ws = NasaJsonAnn(JsonText, "WS10M")
+    Wd = NasaJsonAnn(JsonText, "WD10M")
+    Rh = NasaJsonAnn(JsonText, "RH2M")
+    Ps = NasaJsonAnn(JsonText, "PS")
+    Prec = NasaJsonAnn(JsonText, "PRECTOTCORR")
+    Alb = NasaJsonAnn(JsonText, "ALLSKY_SRF_ALB")
+    If Len(Ghi) = 0 And Len(T2M) = 0 Then Exit Sub
+
+    If Not ResourceLoadConfiguredPeriod(StartText, EndText) Then
+        StartText = "CLIMATOLOGY"
+        EndText = "CLIMATOLOGY"
+    End If
+
+    ResourceWriteTableField Tbl, Target, "Sr.No", CStr(ResourceSerialForTable(Tbl, Target))
+    ResourceWriteTableField Tbl, Target, "Project ID", ProjectID
+    ResourceWriteTableField Tbl, Target, "Source", "NASA POWER"
+    ResourceWriteTableField Tbl, Target, "Dataset / Product", "POWER Climatology (RE)"
+    ResourceWriteTableField Tbl, Target, "Retrieval Date", Format$(Now, "yyyy-mm-dd")
+    ResourceWriteTableField Tbl, Target, "Data Period Start", StartText
+    ResourceWriteTableField Tbl, Target, "Data Period End", EndText
+    ResourceWriteTableField Tbl, Target, "Resolution", "0.5 x 0.625 deg"
+    If Len(Ghi) > 0 Then ResourceWriteTableField Tbl, Target, "GHI", Ghi, True
+    If Len(Dni) > 0 Then ResourceWriteTableField Tbl, Target, "DNI", Dni, True
+    If Len(Dhi) > 0 Then ResourceWriteTableField Tbl, Target, "DHI", Dhi, True
+    ResourceWriteTableField Tbl, Target, "GTI / POA Irradiance", "DERIVED"
+    If Len(T2M) > 0 Then ResourceWriteTableField Tbl, Target, "Ambient Temperature", T2M, True
+    If Len(TMin) > 0 Then ResourceWriteTableField Tbl, Target, "Min Temperature", TMin, True
+    If Len(TMax) > 0 Then ResourceWriteTableField Tbl, Target, "Max Temperature", TMax, True
+    If Len(Ws) > 0 Then ResourceWriteTableField Tbl, Target, "Wind Speed", Ws, True
+    If Len(Wd) > 0 Then ResourceWriteTableField Tbl, Target, "Wind Direction", Wd, True
+    If Len(Rh) > 0 Then ResourceWriteTableField Tbl, Target, "Relative Humidity", Rh, True
+    If Len(Ps) > 0 Then ResourceWriteTableField Tbl, Target, "Surface Pressure", Ps, True
+    If Len(Prec) > 0 Then ResourceWriteTableField Tbl, Target, "Precipitation", Prec, True
+    If Len(Alb) > 0 Then ResourceWriteTableField Tbl, Target, "Albedo", Alb, True
+    ResourceWriteTableField Tbl, Target, "Data Status", "COMPLETE"
+    ResourceWriteTableField Tbl, Target, "Source Reference", "NASA/POWER climatology/point"
+    ResourceWriteTableField Tbl, Target, "Remarks", "Auto-filled v" & MODULE_VERSION
+    Application.StatusBar = "Solar EPC: NASA POWER saved for " & ProjectID & "."
+    Exit Sub
+Failed:
+End Sub
+
+'Read the ANN (annual) value of a POWER climatology parameter from raw JSON.
+Private Function NasaJsonAnn(ByVal JsonText As String, ByVal ParamName As String) As String
+    Dim P As Long
+    Dim Q As Long
+    Dim Chunk As String
+    Dim Token As String
+    Dim i As Long
+    Dim Ch As String
+    Dim OutText As String
+
+    P = InStr(1, JsonText, """" & ParamName & """", vbTextCompare)
+    If P = 0 Then Exit Function
+    Chunk = Mid$(JsonText, P, 800)
+    Q = InStr(1, Chunk, """ANN""", vbTextCompare)
+    If Q = 0 Then Q = InStr(1, Chunk, """ann""", vbTextCompare)
+    If Q = 0 Then Exit Function
+    Token = Mid$(Chunk, Q + 5)
+    i = 1
+    Do While i <= Len(Token)
+        Ch = Mid$(Token, i, 1)
+        If Ch = ":" Then
+            i = i + 1
+            Exit Do
+        End If
+        i = i + 1
+    Loop
+    Do While i <= Len(Token)
+        Ch = Mid$(Token, i, 1)
+        If Ch = " " Or Ch = vbTab Then
+            i = i + 1
+        Else
+            Exit Do
+        End If
+    Loop
+    Do While i <= Len(Token)
+        Ch = Mid$(Token, i, 1)
+        If (Ch >= "0" And Ch <= "9") Or Ch = "." Or Ch = "-" Then
+            OutText = OutText & Ch
+            i = i + 1
+        Else
+            Exit Do
+        End If
+    Loop
+    NasaJsonAnn = OutText
+End Function
+
 Private Sub ResourceWriteDateTimeCell(ByVal Cell As Range, ByVal WhenTime As Date)
     Dim FmtOk As Boolean
     On Error Resume Next
