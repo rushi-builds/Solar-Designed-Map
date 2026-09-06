@@ -27,7 +27,7 @@ Private Declare PtrSafe Sub GetSystemTime Lib "kernel32" (lpSystemTime As SYSTEM
 '     FillLocations, MakeVillageDb, AddVillage, Resume, Stop, ShowLastError,
 '     ResumePending, ProcessNext) - so ThisWorkbook, modSolarEPCCloudRelay
 '     and every sheet button continue to compile.
-   - v4.0.0 CLEAN FINAL: this header carries no version-by-version history
+'   - v4.0.1 CLEAN FINAL: this header carries no version-by-version history
 '     any more; everything below is current behaviour only.
 '     * Automatic fill: after a map draw + SAVE the exact centroid lands in
 '       RESOURCE_DB (blank-only cells) and in the DRAWING_DATA site
@@ -61,7 +61,7 @@ Private Const AUTO_LABEL_RETRIES As Long = 15     'limited retries while the lab
 Private Const MANUAL_POINT_RETRIES As Long = 15   'retries while a manual site's point is unprovable
 Private Const MANUAL_SQUARE_HALF_DEG As Double = 0.0001  '~11 m half-side of the manual NASA square
 Private Const INPUT_SHEET As String = "INPUT"
-Private Const MODULE_VERSION As String = "4.0.0"   'single source of the version tag
+Private Const MODULE_VERSION As String = "4.0.1"   'single source of the version tag
 
 
 Private Const CONFIG_SHEET As String = "_CLOUD_CFG"
