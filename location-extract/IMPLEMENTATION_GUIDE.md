@@ -409,3 +409,17 @@ sirf wo rows badlengi jaha naya label purane ka exact "village + " version
 hai (e.g. "Sonwadi Bk., Phaltan, Satara"). Manual entries kabhi nahi chhute.
 Single row test: us row ka Location cell CLEAR karo -> 15s me watcher
 khud naya label bhar dega.
+
+### v3.4 LEAN (final single module)
+- **GeoNames tier hataya** - unke database me Indian revenue villages hain hi
+  nahi (test karke prove hua). Module ab patla aur fast hai.
+- **"Date/Time" column**: RESOURCE_DB me user ka apna "Date/Time" column ho to
+  har NASA import pe usme **local Now** (real date value, format
+  dd-mm-yyyy hh:nn:ss) stamp hota hai. Column na ho to "Run Date-Time (Local)"
+  apne aap ban jaati hai.
+- **NASA accuracy**: har request us row ke APNE centroid coordinates se jaati
+  hai (cache key me centroid hai) - same town/village/city ho tab bhi alag
+  coordinates = alag fetch = alag result. Values NASA POWER native resolution
+  se bina touch kiye likhi jaati hain (validated hourly, missing=0).
+- Label tiers ab: VILLAGE_DB (aapka own) -> Google (key+billing ho to) ->
+  OSM Nominatim -> BigDataCloud. Bas.
