@@ -14,14 +14,14 @@ End Type
 Private Declare PtrSafe Sub GetSystemTime Lib "kernel32" (lpSystemTime As SYSTEMTIME)
 
 '==========================================================================
-' SOLAR EPC RESOURCE MODULE  v4.1.0
+' SOLAR EPC RESOURCE MODULE  v4.2.0
 ' Single replacement for modSolarEPCResource.
 ' Fast watcher, no hourglass cursor, RESOURCE_DB fills stack top-down
 ' (next completely blank row). Manual Fill always appends a new row when
 ' the project already has lat/lon. Watcher labels stay OFFLINE (VILLAGE_DB
 ' only); online reverse-geocode runs only on user macros.
 ' Import: remove old modSolarEPCResource + modSolarEPCDrawnLocation, then
-' Import File this .bas. Run SolarEPC_ShowModuleVersion -> v4.1.0
+' Import File this .bas. Run SolarEPC_ShowModuleVersion -> v4.2.0
 '==========================================================================
 
 'Watcher tuning (all other constants already exist inside the module).
@@ -33,7 +33,7 @@ Private Const AUTO_LABEL_RETRIES As Long = 15     'limited retries while the lab
 Private Const MANUAL_POINT_RETRIES As Long = 15   'retries while a manual site's point is unprovable
 Private Const MANUAL_SQUARE_HALF_DEG As Double = 0.0001  '~11 m half-side of the manual NASA square
 Private Const INPUT_SHEET As String = "INPUT"
-Private Const MODULE_VERSION As String = "4.1.0"     'single source of the version tag
+Private Const MODULE_VERSION As String = "4.2.0"     'single source of the version tag
 
 
 Private Const CONFIG_SHEET As String = "_CLOUD_CFG"
@@ -2656,17 +2656,16 @@ End Sub
 'Start the watcher and run one immediate sweep (already-drawn sites are filled too).
 Public Sub SolarEPC_DrawnLocationAutoStart()
     On Error GoTo Failed
-    If mAutoActive Then Exit Sub
     If mProcessed Is Nothing Then Set mProcessed = CreateObject("Scripting.Dictionary")
     mAutoActive = True
-    'v3.17: the first sweep is scheduled, not synchronous - opening the
-    'workbook never waits on the watcher.
     Application.Cursor = xlDefault
-    DrawnLocationSchedule 2
+    DrawnLocationSchedule 1
     Application.StatusBar = "Solar EPC: auto-fill ON (v" & MODULE_VERSION & ")."
     Exit Sub
 Failed:
-    mAutoActive = False
+    mAutoActive = True
+    On Error Resume Next
+    DrawnLocationSchedule 2
 End Sub
 
 'Stop the watcher (cancels the scheduled OnTime).
@@ -2706,6 +2705,7 @@ Public Sub SolarEPC_DrawnLocationTick()
     If mProcessed Is Nothing Then Set mProcessed = CreateObject("Scripting.Dictionary")
     mLabelOnlineOk = False
     DrawnLocationSweep
+    ResourceBackfillMissingNasa
     DrawnLocationSchedule DrawnLocationNextDelay()
     Application.Cursor = xlDefault
 End Sub
@@ -3395,8 +3395,11 @@ Failed:
 End Function
 
 Public Sub SolarEPC_ShowModuleVersion()
+    On Error Resume Next
+    SolarEPC_DrawnLocationAutoStart
     MsgBox "Running module version: v" & MODULE_VERSION & vbCrLf & _
-        "Workbook: " & ThisWorkbook.Name, vbInformation, "Solar EPC - Module Version"
+        "Workbook: " & ThisWorkbook.Name & vbCrLf & _
+        "Auto-fill watcher is ON.", vbInformation, "Solar EPC - Module Version"
 End Sub
 
 Public Sub SolarEPC_ManualFillNow()
@@ -3578,6 +3581,7 @@ Public Sub SolarEPC_ManualFillNow()
     End If
 
     mProcessed(KeyText) = "MDONE"
+    SolarEPC_DrawnLocationAutoStart
     ResourceEnsureNasaFill ProjectID, Lat, Lon
     MsgBox "Manual site filled." & vbCrLf & vbCrLf & _
         "  Module  : v" & MODULE_VERSION & vbCrLf & _
@@ -4619,22 +4623,119 @@ End Sub
 'setting). Try the format first; if Excel refuses, write clean text - the
 'VALUE always lands, we never depend on the format.
 
+
 'Fill remaining RESOURCE_DB NASA columns without Alt+F8.
-'1) NASA POWER climatology (works even if the cloud worker is offline).
-'2) Cloud worker queue (fills the same row when the summary returns).
 Private Sub ResourceEnsureNasaFill(ByVal ProjectID As String, _
     ByVal Lat As Double, ByVal Lon As Double)
 
     Dim KeyText As String
     On Error Resume Next
+    SolarEPC_DrawnLocationAutoStart
     If mManualNasaSent Is Nothing Then Set mManualNasaSent = CreateObject("Scripting.Dictionary")
-    KeyText = ProjectID & "|" & Format$(Lat, "0.000000") & "|" & Format$(Lon, "0.000000")
-    If mManualNasaSent.Exists(KeyText) Then Exit Sub
-    mManualNasaSent(KeyText) = True
-    On Error GoTo 0
+    KeyText = ProjectID & "|" & Format$(Lat, "0.0000") & "|" & Format$(Lon, "0.0000")
     ResourceNasaPowerFill ProjectID, Lat, Lon
-    ResourceStartForPoint ProjectID, Lat, Lon
+    If ResourceProjectHasGhi(ProjectID, Lat, Lon) Then
+        mManualNasaSent(KeyText) = True
+    Else
+        ResourceStartForPoint ProjectID, Lat, Lon
+    End If
 End Sub
+
+'Every idle tick: any RESOURCE_DB row with lat/lon but empty GHI gets NASA.
+Private Sub ResourceBackfillMissingNasa()
+    Dim Tbl As ListObject
+    Dim R As Long
+    Dim cProject As Long, cLat As Long, cLon As Long, cGhi As Long
+    Dim ProjectID As String
+    Dim Lat As Double, Lon As Double
+    Dim Filled As Long
+
+    On Error GoTo Done
+    Set Tbl = ResourceDbTable()
+    If Tbl Is Nothing Then Exit Sub
+    cProject = TableColumn(Tbl, "Project ID")
+    cLat = TableColumn(Tbl, "Latitude (" & ChrW(176) & ")")
+    If cLat = 0 Then cLat = TableColumnFuzzy(Tbl, "Latitude")
+    cLon = TableColumn(Tbl, "Longitude (" & ChrW(176) & ")")
+    If cLon = 0 Then cLon = TableColumnFuzzy(Tbl, "Longitude")
+    cGhi = TableColumn(Tbl, "GHI")
+    If cProject = 0 Or cLat = 0 Or cLon = 0 Or cGhi = 0 Then Exit Sub
+
+    For R = Tbl.ListRows.Count To 1 Step -1
+        ProjectID = Trim$(CStr(Tbl.ListRows(R).Range.Cells(1, cProject).Value2 & ""))
+        If Len(ProjectID) = 0 Then GoTo NextRow
+        If Not IsNumeric(Tbl.ListRows(R).Range.Cells(1, cLat).Value2) Then GoTo NextRow
+        If Not IsNumeric(Tbl.ListRows(R).Range.Cells(1, cLon).Value2) Then GoTo NextRow
+        If Len(Trim$(CStr(Tbl.ListRows(R).Range.Cells(1, cGhi).Value2 & ""))) > 0 Then GoTo NextRow
+        Lat = CDbl(Tbl.ListRows(R).Range.Cells(1, cLat).Value2)
+        Lon = CDbl(Tbl.ListRows(R).Range.Cells(1, cLon).Value2)
+        ResourceNasaPowerFill ProjectID, Lat, Lon
+        Filled = Filled + 1
+        If Filled >= 1 Then Exit For
+NextRow:
+    Next R
+Done:
+End Sub
+
+Private Function TableColumnFuzzy(ByVal Tbl As ListObject, ByVal PrefixText As String) As Long
+    Dim Col As ListColumn
+    On Error Resume Next
+    For Each Col In Tbl.ListColumns
+        If InStr(1, LCase$(Trim$(CStr(Col.Name))), LCase$(PrefixText), vbTextCompare) = 1 Then
+            TableColumnFuzzy = Col.Index
+            Exit Function
+        End If
+    Next Col
+End Function
+
+Private Function ResourceProjectHasGhi(ByVal ProjectID As String, _
+    ByVal Lat As Double, ByVal Lon As Double) As Boolean
+    Dim Tbl As ListObject
+    Dim Target As Range
+    Dim cGhi As Long
+    On Error Resume Next
+    Set Tbl = ResourceDbTable()
+    If Tbl Is Nothing Then Exit Function
+    Set Target = ResourceFindExistingSiteRow(Tbl, ProjectID, Lat, Lon)
+    If Target Is Nothing Then Exit Function
+    cGhi = TableColumn(Tbl, "GHI")
+    If cGhi = 0 Then Exit Function
+    ResourceProjectHasGhi = (Len(Trim$(CStr(Target.Cells(1, cGhi).Value2 & ""))) > 0)
+End Function
+
+'The RESOURCE_DB row that already has this project + centroid. Never inserts.
+Private Function ResourceFindExistingSiteRow(ByVal Tbl As ListObject, _
+    ByVal ProjectID As String, ByVal Lat As Double, ByVal Lon As Double) As Range
+
+    Dim R As Long
+    Dim cProject As Long, cLat As Long, cLon As Long
+    Dim RowProject As String
+    Dim RowLat As String, RowLon As String
+    Dim LastSame As Range
+
+    cProject = TableColumn(Tbl, "Project ID")
+    cLat = TableColumn(Tbl, "Latitude (" & ChrW(176) & ")")
+    If cLat = 0 Then cLat = TableColumnFuzzy(Tbl, "Latitude")
+    cLon = TableColumn(Tbl, "Longitude (" & ChrW(176) & ")")
+    If cLon = 0 Then cLon = TableColumnFuzzy(Tbl, "Longitude")
+    If cProject = 0 Or cLat = 0 Or cLon = 0 Then Exit Function
+
+    For R = 1 To Tbl.ListRows.Count
+        RowProject = Trim$(CStr(Tbl.ListRows(R).Range.Cells(1, cProject).Value2 & ""))
+        If StrComp(RowProject, ProjectID, vbTextCompare) = 0 Then
+            Set LastSame = Tbl.ListRows(R).Range
+            RowLat = Trim$(CStr(Tbl.ListRows(R).Range.Cells(1, cLat).Value2 & ""))
+            RowLon = Trim$(CStr(Tbl.ListRows(R).Range.Cells(1, cLon).Value2 & ""))
+            If IsNumeric(RowLat) And IsNumeric(RowLon) Then
+                If Abs(CDbl(RowLat) - Lat) < 0.001 And Abs(CDbl(RowLon) - Lon) < 0.001 Then
+                    Set ResourceFindExistingSiteRow = Tbl.ListRows(R).Range
+                    Exit Function
+                End If
+            End If
+        End If
+    Next R
+    Set ResourceFindExistingSiteRow = LastSame
+End Function
 
 Private Sub ResourceNasaPowerFill(ByVal ProjectID As String, _
     ByVal Lat As Double, ByVal Lon As Double)
@@ -4649,12 +4750,17 @@ Private Sub ResourceNasaPowerFill(ByVal ProjectID As String, _
     Dim T2M As String, TMin As String, TMax As String
     Dim Ws As String, Wd As String, Rh As String
     Dim Ps As String, Prec As String, Alb As String
+    Dim cGhi As Long
 
     On Error GoTo Failed
     Set Tbl = ResourceDbTable()
     If Tbl Is Nothing Then Exit Sub
-    Set Target = ResourceProjectTableRow(Tbl, ProjectID, CStr(Lat), CStr(Lon))
+    Set Target = ResourceFindExistingSiteRow(Tbl, ProjectID, Lat, Lon)
     If Target Is Nothing Then Exit Sub
+    cGhi = TableColumn(Tbl, "GHI")
+    If cGhi > 0 Then
+        If Len(Trim$(CStr(Target.Cells(1, cGhi).Value2 & ""))) > 0 Then Exit Sub
+    End If
 
     UrlText = "https://power.larc.nasa.gov/api/temporal/climatology/point" & _
         "?parameters=ALLSKY_SFC_SW_DWN,ALLSKY_SFC_SW_DNI,ALLSKY_SFC_SW_DIFF," & _
@@ -4663,7 +4769,10 @@ Private Sub ResourceNasaPowerFill(ByVal ProjectID As String, _
         "&latitude=" & Replace$(CStr(Lat), ",", ".") & "&format=JSON"
 
     JsonText = ResourceHttpGetJson(UrlText)
-    If Len(JsonText) < 40 Then Exit Sub
+    If Len(JsonText) < 40 Then
+        ResourceWriteNamed Tbl, Target, "Data Status", "NASA HTTP EMPTY"
+        Exit Sub
+    End If
 
     Ghi = NasaJsonAnn(JsonText, "ALLSKY_SFC_SW_DWN")
     Dni = NasaJsonAnn(JsonText, "ALLSKY_SFC_SW_DNI")
@@ -4677,43 +4786,64 @@ Private Sub ResourceNasaPowerFill(ByVal ProjectID As String, _
     Ps = NasaJsonAnn(JsonText, "PS")
     Prec = NasaJsonAnn(JsonText, "PRECTOTCORR")
     Alb = NasaJsonAnn(JsonText, "ALLSKY_SRF_ALB")
-    If Len(Ghi) = 0 And Len(T2M) = 0 Then Exit Sub
+    If Len(Ghi) = 0 And Len(T2M) = 0 Then
+        ResourceWriteNamed Tbl, Target, "Data Status", "NASA PARSE FAIL"
+        ResourceWriteNamed Tbl, Target, "Remarks", Left$(JsonText, 80)
+        Exit Sub
+    End If
 
     If Not ResourceLoadConfiguredPeriod(StartText, EndText) Then
         StartText = "CLIMATOLOGY"
         EndText = "CLIMATOLOGY"
     End If
 
-    ResourceWriteTableField Tbl, Target, "Sr.No", CStr(ResourceSerialForTable(Tbl, Target))
-    ResourceWriteTableField Tbl, Target, "Project ID", ProjectID
-    ResourceWriteTableField Tbl, Target, "Source", "NASA POWER"
-    ResourceWriteTableField Tbl, Target, "Dataset / Product", "POWER Climatology (RE)"
-    ResourceWriteTableField Tbl, Target, "Retrieval Date", Format$(Now, "yyyy-mm-dd")
-    ResourceWriteTableField Tbl, Target, "Data Period Start", StartText
-    ResourceWriteTableField Tbl, Target, "Data Period End", EndText
-    ResourceWriteTableField Tbl, Target, "Resolution", "0.5 x 0.625 deg"
-    If Len(Ghi) > 0 Then ResourceWriteTableField Tbl, Target, "GHI", Ghi, True
-    If Len(Dni) > 0 Then ResourceWriteTableField Tbl, Target, "DNI", Dni, True
-    If Len(Dhi) > 0 Then ResourceWriteTableField Tbl, Target, "DHI", Dhi, True
-    ResourceWriteTableField Tbl, Target, "GTI / POA Irradiance", "DERIVED"
-    If Len(T2M) > 0 Then ResourceWriteTableField Tbl, Target, "Ambient Temperature", T2M, True
-    If Len(TMin) > 0 Then ResourceWriteTableField Tbl, Target, "Min Temperature", TMin, True
-    If Len(TMax) > 0 Then ResourceWriteTableField Tbl, Target, "Max Temperature", TMax, True
-    If Len(Ws) > 0 Then ResourceWriteTableField Tbl, Target, "Wind Speed", Ws, True
-    If Len(Wd) > 0 Then ResourceWriteTableField Tbl, Target, "Wind Direction", Wd, True
-    If Len(Rh) > 0 Then ResourceWriteTableField Tbl, Target, "Relative Humidity", Rh, True
-    If Len(Ps) > 0 Then ResourceWriteTableField Tbl, Target, "Surface Pressure", Ps, True
-    If Len(Prec) > 0 Then ResourceWriteTableField Tbl, Target, "Precipitation", Prec, True
-    If Len(Alb) > 0 Then ResourceWriteTableField Tbl, Target, "Albedo", Alb, True
-    ResourceWriteTableField Tbl, Target, "Data Status", "COMPLETE"
-    ResourceWriteTableField Tbl, Target, "Source Reference", "NASA/POWER climatology/point"
-    ResourceWriteTableField Tbl, Target, "Remarks", "Auto-filled v" & MODULE_VERSION
+    ResourceWriteNamed Tbl, Target, "Sr.No", CStr(ResourceSerialForTable(Tbl, Target))
+    ResourceWriteNamed Tbl, Target, "Project ID", ProjectID
+    ResourceWriteNamed Tbl, Target, "Source", "NASA POWER"
+    ResourceWriteNamed Tbl, Target, "Dataset / Product", "POWER Climatology (RE)"
+    ResourceWriteNamed Tbl, Target, "Retrieval Date", Format$(Now, "yyyy-mm-dd")
+    ResourceWriteNamed Tbl, Target, "Data Period Start", StartText
+    ResourceWriteNamed Tbl, Target, "Data Period End", EndText
+    ResourceWriteNamed Tbl, Target, "Resolution", "0.5 x 0.625 deg"
+    If Len(Ghi) > 0 Then ResourceWriteNamed Tbl, Target, "GHI", Ghi, True
+    If Len(Dni) > 0 Then ResourceWriteNamed Tbl, Target, "DNI", Dni, True
+    If Len(Dhi) > 0 Then ResourceWriteNamed Tbl, Target, "DHI", Dhi, True
+    ResourceWriteNamed Tbl, Target, "GTI / POA Irradiance", "DERIVED"
+    If Len(T2M) > 0 Then ResourceWriteNamed Tbl, Target, "Ambient Temperature", T2M, True
+    If Len(TMin) > 0 Then ResourceWriteNamed Tbl, Target, "Min Temperature", TMin, True
+    If Len(TMax) > 0 Then ResourceWriteNamed Tbl, Target, "Max Temperature", TMax, True
+    If Len(Ws) > 0 Then ResourceWriteNamed Tbl, Target, "Wind Speed", Ws, True
+    If Len(Wd) > 0 Then ResourceWriteNamed Tbl, Target, "Wind Direction", Wd, True
+    If Len(Rh) > 0 Then ResourceWriteNamed Tbl, Target, "Relative Humidity", Rh, True
+    If Len(Ps) > 0 Then ResourceWriteNamed Tbl, Target, "Surface Pressure", Ps, True
+    If Len(Prec) > 0 Then ResourceWriteNamed Tbl, Target, "Precipitation", Prec, True
+    If Len(Alb) > 0 Then ResourceWriteNamed Tbl, Target, "Albedo", Alb, True
+    ResourceWriteNamed Tbl, Target, "Data Status", "COMPLETE"
+    ResourceWriteNamed Tbl, Target, "Source Reference", "NASA/POWER climatology/point"
+    ResourceWriteNamed Tbl, Target, "Remarks", "Auto-filled v" & MODULE_VERSION
     Application.StatusBar = "Solar EPC: NASA POWER saved for " & ProjectID & "."
     Exit Sub
 Failed:
+    On Error Resume Next
+    ResourceWriteNamed Tbl, Target, "Data Status", "NASA VBA " & CStr(Err.Number)
 End Sub
 
-'Read the ANN (annual) value of a POWER climatology parameter from raw JSON.
+Private Sub ResourceWriteNamed(ByVal Tbl As ListObject, ByVal Target As Range, _
+    ByVal HeaderText As String, ByVal ValueText As String, Optional ByVal Numeric As Boolean = False)
+    Dim Idx As Long
+    Dim Cell As Range
+    On Error Resume Next
+    Idx = TableColumn(Tbl, HeaderText)
+    If Idx = 0 Then Exit Sub
+    Set Cell = Target.Cells(1, Idx)
+    If Cell.HasFormula Then Exit Sub
+    If Numeric Then
+        If Len(Trim$(ValueText)) > 0 Then Cell.Value2 = Val(Replace$(ValueText, ",", "."))
+    Else
+        Cell.Value2 = ValueText
+    End If
+End Sub
+
 Private Function NasaJsonAnn(ByVal JsonText As String, ByVal ParamName As String) As String
     Dim P As Long
     Dim Q As Long
@@ -4725,9 +4855,8 @@ Private Function NasaJsonAnn(ByVal JsonText As String, ByVal ParamName As String
 
     P = InStr(1, JsonText, """" & ParamName & """", vbTextCompare)
     If P = 0 Then Exit Function
-    Chunk = Mid$(JsonText, P, 800)
+    Chunk = Mid$(JsonText, P, 1200)
     Q = InStr(1, Chunk, """ANN""", vbTextCompare)
-    If Q = 0 Then Q = InStr(1, Chunk, """ann""", vbTextCompare)
     If Q = 0 Then Exit Function
     Token = Mid$(Chunk, Q + 5)
     i = 1
