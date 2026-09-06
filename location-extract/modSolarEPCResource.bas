@@ -15,7 +15,7 @@ Private Declare PtrSafe Sub GetSystemTime Lib "kernel32" (lpSystemTime As SYSTEM
 
 '==========================================================================
 ' SOLAR EPC - NASA POWER HOURLY RESOURCE MODULE + AUTOMATIC LOCATION FILL
-' Version 3.17 (FINAL)
+' Version 3.18 (FINAL)
 '
 ' THIS FILE IS A COMPLETE REPLACEMENT FOR THE LEGACY modSolarEPCResource.
 '   - Every legacy capability keeps working unchanged: NASA POWER hourly
@@ -30,6 +30,14 @@ Private Declare PtrSafe Sub GetSystemTime Lib "kernel32" (lpSystemTime As SYSTEM
 '     its reason on the status bar; SolarEPC_DrawnLocationDebug produces a
 '     read-only report of the whole chain.
 '   - v3.11 FINAL: every user-facing message, status-bar line and debug
+'   - v3.18 FINAL: HONEST IMPORT REPORTING. The NASA summary import and the
+'     RESOURCE_DB write now return success/failure instead of swallowing
+'     errors: every failed stage records its reason, readable via
+'     SolarEPC_ResourceShowLastError, and the status bar says "not written"
+'     instead of "saved" when the write did not happen. The debug macro gained
+'     a manual-bridge section (baseline size, per-key states, last manual
+'     point error) and a manual row whose project is already complete reports
+'     "already complete" once, instead of staying silent.
 '   - v3.17 FINAL: OPEN-PATH SMOOTHNESS + MANUAL HISTORY TIER. The watcher's
 '     first sweep is now scheduled 2 s after open instead of running inside
 '     Auto_Open; the open-time cloud pending check defers itself 5 s when it
@@ -474,10 +482,13 @@ Public Sub SolarEPC_ResourceQueueImportedSite(ByVal MessageID As String)
     'A completed cache hit already has a durable validated summary. Import it
     'immediately instead of waiting for an unnecessary scheduler round trip.
     If InStr(1, ResponseText, """complete"":true", vbTextCompare) > 0 Then
-        ResourceImportSummary RequestID
-        mStoppedAfterFailure = False
-        ResourceSetLastError vbNullString
-        Application.StatusBar = "Solar EPC: NASA data saved (" & ProjectID & ")."
+        If ResourceImportSummary(RequestID) Then
+            mStoppedAfterFailure = False
+            ResourceSetLastError vbNullString
+            Application.StatusBar = "Solar EPC: NASA data saved (" & ProjectID & ")."
+        Else
+            Application.StatusBar = "Solar EPC: NASA data not written (" & ProjectID & ")."
+        End If
         Exit Sub
     End If
 
@@ -946,7 +957,8 @@ Failed:
 End Sub
 
 Private Sub ResourceFinishCurrent(ByVal RequestID As String)
-    ResourceImportSummary RequestID
+    Dim Written As Boolean
+    Written = ResourceImportSummary(RequestID)
     If Not mQueue Is Nothing Then
         If mQueue.Count > 0 Then mQueue.Remove 1
     End If
@@ -957,7 +969,11 @@ Private Sub ResourceFinishCurrent(ByVal RequestID As String)
     mFastRangeMode = False
     mFastRangeFallback = False
     ResourceClearFastRequests False
-    Application.StatusBar = "Solar EPC: NASA data saved to RESOURCE_DB."
+    If Written Then
+        Application.StatusBar = "Solar EPC: NASA data saved to RESOURCE_DB."
+    Else
+        Application.StatusBar = "Solar EPC: NASA data not written - run SolarEPC_ResourceShowLastError."
+    End If
     If Not mQueue Is Nothing Then
         If mQueue.Count > 0 Then
             ResourceSchedule 1
@@ -2435,7 +2451,7 @@ Private Function ResourceJSONValue(ByVal JSONText As String, ByVal KeyName As St
     End If
 End Function
 
-Private Sub ResourceImportSummary(ByVal RequestID As String)
+Private Function ResourceImportSummary(ByVal RequestID As String) As Boolean
     Dim StatusCode As Long
     Dim Text As String
     Dim Values As Object
@@ -2443,13 +2459,22 @@ Private Sub ResourceImportSummary(ByVal RequestID As String)
     On Error GoTo Failed
     Text = ResourceRequest("GET", "/v1/resource/summary/" & RequestID, _
                            vbNullString, StatusCode)
-    If StatusCode <> 200 Then Exit Sub
+    If StatusCode <> 200 Then
+        ResourceSetLastError "NASA SUMMARY: HTTP " & CStr(StatusCode) & _
+            " while fetching request " & RequestID & "."
+        Exit Function
+    End If
     Set Values = ResourceParseSummary(Text)
-    If Values Is Nothing Then Exit Sub
-    ResourceWriteToDatabase Values
-    Exit Sub
+    If Values Is Nothing Then
+        ResourceSetLastError "NASA SUMMARY: the response for request " & RequestID & _
+            " could not be parsed."
+        Exit Function
+    End If
+    ResourceImportSummary = ResourceWriteToDatabase(Values)
+    Exit Function
 Failed:
-End Sub
+    ResourceSetLastError "NASA SUMMARY VBA error " & CStr(Err.Number) & ": " & Err.Description
+End Function
 
 Private Function ResourceParseSummary(ByVal Text As String) As Object
     Dim D As Object
@@ -2475,7 +2500,7 @@ Private Function ResourceParseSummary(ByVal Text As String) As Object
     Set ResourceParseSummary = D
 End Function
 
-Private Sub ResourceWriteToDatabase(ByVal D As Object)
+Private Function ResourceWriteToDatabase(ByVal D As Object) As Boolean
     Dim ws As Worksheet
     Dim Tbl As ListObject
     Dim Target As Range
@@ -2484,13 +2509,19 @@ Private Sub ResourceWriteToDatabase(ByVal D As Object)
     On Error GoTo Failed
     Set ws = ThisWorkbook.Worksheets(RESOURCE_SHEET)
     ProjectID = ResourceValue(D, "project_id")
-    If Len(ProjectID) = 0 Then Exit Sub
+    If Len(ProjectID) = 0 Then
+        ResourceSetLastError "RESOURCE_DB WRITE: summary carried no project_id."
+        Exit Function
+    End If
 
     Set Tbl = ResourceFindHeaderTable(ws)
-    If Tbl Is Nothing Then Exit Sub
+    If Tbl Is Nothing Then Exit Function
     Set Target = ResourceProjectTableRow(Tbl, ProjectID, _
         ResourceValue(D, "latitude"), ResourceValue(D, "longitude"))
-    If Target Is Nothing Then Exit Sub
+    If Target Is Nothing Then
+        ResourceSetLastError "RESOURCE_DB WRITE: no usable row for project " & ProjectID & "."
+        Exit Function
+    End If
     ResourceWriteTableField Tbl, Target, "Sr.No", CStr(ResourceSerialForTable(Tbl, Target))
     ResourceWriteTableField Tbl, Target, "Project ID", ProjectID
     'v1.9.2: descriptive Location auto-fill (blank cells only, never overwrite).
@@ -2521,9 +2552,12 @@ Private Sub ResourceWriteToDatabase(ByVal D As Object)
     ResourceWriteTableField Tbl, Target, "Remarks", ResourceValue(D, "remarks")
     'v3.0: exact local run stamp (new column, auto-created once).
     ResourceStampLocalRunTime Tbl, Target
-    Exit Sub
+    ResourceWriteToDatabase = True
+    Exit Function
 Failed:
-End Sub
+    ResourceSetLastError "RESOURCE_DB WRITE failed for project " & ProjectID & _
+        ": error " & CStr(Err.Number) & " " & Err.Description
+End Function
 
 Private Function ResourceHeaders() As Variant
     ResourceHeaders = Array("Sr.No", "Project ID", "Latitude (" & ChrW(176) & ")", "Longitude (" & ChrW(176) & ")", _
@@ -2955,6 +2989,8 @@ Private Sub DrawnLocationSweep(Optional ByVal ForceFull As Boolean = False)
                                 Application.StatusBar = "Solar EPC: " & ProjectID & " saved to RESOURCE_DB."
                                 DrawnLocationDiag ProjectID, "MANUAL " & ResultText, _
                                     ManualLat, ManualLon
+                            Else
+                                Application.StatusBar = "Solar EPC: " & ProjectID & " already complete."
                             End If
                         End If
                         'Record the proven point back into the BLANK Coordinates
@@ -3539,8 +3575,11 @@ Private Sub ResourceStartForPoint(ByVal ProjectID As String, ByVal Lat As Double
         Exit Sub
     End If
     If InStr(1, ResponseText, """complete"":true", vbTextCompare) > 0 Then
-        ResourceImportSummary RequestID
-        Application.StatusBar = "Solar EPC: NASA data saved (" & ProjectID & ")."
+        If ResourceImportSummary(RequestID) Then
+            Application.StatusBar = "Solar EPC: NASA data saved (" & ProjectID & ")."
+        Else
+            Application.StatusBar = "Solar EPC: NASA data not written (" & ProjectID & ")."
+        End If
         Exit Sub
     End If
     ResourceEnqueue RequestID
@@ -3782,6 +3821,18 @@ Public Sub SolarEPC_DrawnLocationDebug()
         P1 = P1 & "   >> Watcher is OFF. Run SolarEPC_DrawnLocationAutoStart" & vbCrLf & _
                   "      or save and REOPEN the workbook (Auto_Open starts it)." & vbCrLf
     End If
+    P1 = P1 & "   manual bridge: baseline " & _
+         CStr(IIf(mManualBaseline Is Nothing, 0, mManualBaseline.Count)) & _
+         " row(s), point cache " & IIf(mManualPointCacheOk, "OK", "empty") & vbCrLf
+    If Not mProcessed Is Nothing Then
+        Dim KMan As Variant
+        For Each KMan In mProcessed.Keys
+            If Left$(CStr(KMan), 7) = "MANUAL|" Then
+                P1 = P1 & "   " & CStr(KMan) & " = " & CStr(mProcessed(KMan) & "") & vbCrLf
+            End If
+        Next KMan
+    End If
+    P1 = P1 & "   manual point last error: " & ResourceConfigCell("B18") & vbCrLf
 
     Set Tbl = DrawnSiteTable()
     If Tbl Is Nothing Then
