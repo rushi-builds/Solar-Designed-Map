@@ -15,7 +15,7 @@ Private Declare PtrSafe Sub GetSystemTime Lib "kernel32" (lpSystemTime As SYSTEM
 
 '==========================================================================
 ' SOLAR EPC - NASA POWER HOURLY RESOURCE MODULE + AUTOMATIC LOCATION FILL
-' Version 3.14 (FINAL)
+' Version 3.15 (FINAL)
 '
 ' THIS FILE IS A COMPLETE REPLACEMENT FOR THE LEGACY modSolarEPCResource.
 '   - Every legacy capability keeps working unchanged: NASA POWER hourly
@@ -30,6 +30,15 @@ Private Declare PtrSafe Sub GetSystemTime Lib "kernel32" (lpSystemTime As SYSTEM
 '     its reason on the status bar; SolarEPC_DrawnLocationDebug produces a
 '     read-only report of the whole chain.
 '   - v3.11 FINAL: every user-facing message, status-bar line and debug
+'   - v3.15 FINAL: SMOOTHNESS FIX - the watcher is now 100% OFFLINE. v3.14
+'     let the manual bridge perform synchronous HTTP (short-link redirect
+'     hops, forward geocoding) inside the sweep; on a slow or blocked
+'     connection that froze the workbook on every retry tick. All online
+'     point resolution moved to the user-triggered macro
+'     SolarEPC_ResolveManualPointNow, which stores the resolved pair in
+'     INPUT!C8 so every later session resolves offline. Label-tier HTTP
+'     timeouts were halved (6 s worst case). Drawn-site behaviour and
+'     accuracy are unchanged.
 '   - v3.14 FINAL: manual-bridge fixes from field testing. The proven point
 '     now resolves through a VILLAGE_DB name match first, then INPUT!C8, then
 '     a direct pair/link inside INPUT!C7, then forward geocoding; the resolved
@@ -1134,7 +1143,7 @@ Private Function ResourceHttpGetJson(ByVal UrlText As String) As String
     On Error GoTo TryFallback
     Set HTTP = CreateObject("WinHttp.WinHttpRequest.5.1")
     HTTP.Open "GET", UrlText, False
-    HTTP.setTimeouts 6000, 6000, 15000, 15000
+    HTTP.setTimeouts 4000, 4000, 6000, 6000
     HTTP.setRequestHeader "User-Agent", "Solar-EPC-Resource/1.0 (Excel workbook location label)"
     HTTP.setRequestHeader "Accept", "application/json"
     HTTP.send
@@ -1146,7 +1155,7 @@ TryFallback:
     On Error GoTo Failed
     Set HTTP = CreateObject("MSXML2.ServerXMLHTTP.6.0")
     HTTP.Open "GET", UrlText, False
-    HTTP.setTimeouts 6000, 6000, 15000, 15000
+    HTTP.setTimeouts 4000, 4000, 6000, 6000
     HTTP.setRequestHeader "User-Agent", "Solar-EPC-Resource/1.0 (Excel workbook location label)"
     HTTP.setRequestHeader "Accept", "application/json"
     HTTP.send
@@ -2965,9 +2974,7 @@ Private Sub DrawnLocationSweep(Optional ByVal ForceFull As Boolean = False)
                             'Retries exhausted: close quietly with one actionable line.
                             mProcessed(KeyText) = "MFAIL"
                             Application.StatusBar = "Solar EPC: manual site " & ProjectID & _
-                                " left unfilled - no provable project point (" & ErrorText & _
-                                "). Put a Google link or lat,lon in INPUT!C8, or add the village " & _
-                                "to VILLAGE_DB, then save the site again."
+                                " left unfilled - no provable project point (" & ErrorText & ")"
                         End If
                     End If
                 End If
@@ -3011,6 +3018,45 @@ End Function
 ' v3.13 MANUAL BRIDGE helpers
 '--------------------------------------------------------------------------
 
+'User-triggered ONE-TIME online resolution for a manual site's project point
+'(short-link redirect hops, then forward geocoding). The watcher itself stays
+'100% offline; this macro is the only place online point resolution lives.
+'On success the point is stored in INPUT!C8 as a plain "lat,lon" pair, so every
+'later session resolves it offline with zero network I/O.
+Public Sub SolarEPC_ResolveManualPointNow()
+    Dim Lat As Double
+    Dim Lon As Double
+    Dim Reason As String
+    Dim C7Text As String
+    Dim C8Text As String
+
+    On Error GoTo Failed
+    C7Text = ResourceSettingCell(INPUT_SHEET, "C7")
+    C8Text = ResourceSettingCell(INPUT_SHEET, "C8")
+    If ResourceManualPoint(Lat, Lon, Reason) Then GoTo Apply
+    If ResourcePointFromMapLink(C8Text, Lat, Lon, Reason) Then GoTo Apply
+    If ResourcePointFromPlaceText(C7Text, Lat, Lon, Reason) Then GoTo Apply
+    Application.StatusBar = "Solar EPC: the manual project point could not be " & _
+        "resolved online either (" & Reason & "). Paste lat,lon into INPUT!C8 " & _
+        "or add the village to VILLAGE_DB."
+    Exit Sub
+Apply:
+    'Persist the pair when C8 itself carries no offline-parsable point, so all
+    'future sessions resolve offline instantly.
+    If Not ResourcePointFromUrlText(C8Text, Lat, Lon) Then
+        With ThisWorkbook.Worksheets(INPUT_SHEET).Range("C8")
+            If Not .HasFormula Then .Value2 = ResourceDecimal(Lat, 6) & "," & ResourceDecimal(Lon, 6)
+        End With
+    End If
+    mManualPointCacheKey = vbNullString
+    mManualPointCacheOk = False
+    Application.StatusBar = "Solar EPC: manual project point resolved and stored in INPUT!C8."
+    SolarEPC_DrawnLocationAutoNow
+    Exit Sub
+Failed:
+    Application.StatusBar = "Solar EPC: manual point resolution failed: " & Err.Description
+End Sub
+
 'Geographic identity of a coordinate-less (manual) SITE row: the proven
 'project point. Resolution order, no guessing at any step:
 '  1. INPUT!C8 direct "lat,lon" pair
@@ -3036,13 +3082,14 @@ Private Function ResourceManualPoint(ByRef LatOut As Double, ByRef LonOut As Dou
         Exit Function
     End If
 
+    'OFFLINE ONLY - the watcher never performs network I/O, so a slow or
+    'blocked connection can never freeze the workbook. Online resolution
+    '(short-link redirects, forward geocoding) lives in the user-triggered
+    'macro SolarEPC_ResolveManualPointNow instead.
     If ResourceVillageDbPointByName(C7Text, LatOut, LonOut) Then GoTo StoreOk
-    If ResourcePointFromMapLink(C8Text, LatOut, LonOut, ReasonText) Then GoTo StoreOk
+    If ResourcePointFromUrlText(C8Text, LatOut, LonOut) Then GoTo StoreOk
     If ResourcePointFromUrlText(C7Text, LatOut, LonOut) Then GoTo StoreOk
-    If ResourcePointFromPlaceText(C7Text, LatOut, LonOut, ReasonText) Then GoTo StoreOk
-    If Len(ReasonText) = 0 Then
-        ReasonText = "INPUT!C8 has no parsable coordinates and INPUT!C7 could not be geocoded"
-    End If
+    ReasonText = "offline tiers found nothing - add the village to VILLAGE_DB, or paste lat,lon or a full Google link containing @lat,lng into INPUT!C8, or run SolarEPC_ResolveManualPointNow once"
     Exit Function
 StoreOk:
     mManualPointCacheKey = CacheKey
