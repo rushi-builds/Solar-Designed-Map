@@ -400,3 +400,12 @@ Source: https://power.larc.nasa.gov/docs/methodology/data/sources/
 - Status/diagnosis: _CLOUD_CFG **B20** (NO_USER / NO_MATCH / TOO_FAR / OK - ...)
   aur `SolarEPC_DrawnLocationDebug` report me "GeoNames tier" line.
 - Username na ho to tier chupchaap skip - baaki sab pehle jaisa.
+
+### v3.2 - SolarEPC_ResourceRefreshLabels (purani rows ka upgrade)
+Auto-fill hamesha BLANK-only hai (safety). Isliye jo rows pehle se
+"Phaltan, Satara" thi unpe naya GeoNames/VILLAGE_DB tier apne aap nahi lagta.
+Ek baar manual chalao: Alt+F8 -> `SolarEPC_ResourceRefreshLabels` ->
+sirf wo rows badlengi jaha naya label purane ka exact "village + " version
+hai (e.g. "Sonwadi Bk., Phaltan, Satara"). Manual entries kabhi nahi chhute.
+Single row test: us row ka Location cell CLEAR karo -> 15s me watcher
+khud naya label bhar dega.
