@@ -15,7 +15,7 @@ Private Declare PtrSafe Sub GetSystemTime Lib "kernel32" (lpSystemTime As SYSTEM
 
 '==========================================================================
 ' SOLAR EPC - NASA POWER HOURLY RESOURCE MODULE + AUTOMATIC LOCATION FILL
-' Version 3.9
+' Version 3.10
 '
 ' YE FILE TUMHARE PURANE modSolarEPCResource KA POORA REPLACEMENT HAI.
 '   - v2.1/v2.2 ka SARA kaam waise hi chalta hai: NASA POWER hourly import,
@@ -3150,8 +3150,7 @@ Private Sub ResourceStampLocalRunTime(ByVal Tbl As ListObject, ByVal Target As R
             "NOT BLANK row " & CStr(Target.Row) & ": value=[" & Left$(CStr(Cell.Value2), 40) & "]"
         Exit Sub
     End If
-    Cell.NumberFormat = "dd-mm-yyyy hh:nn:ss"
-    Cell.Value2 = Now                                      'real date value
+    ResourceWriteDateTimeCell Cell, Now
     ResourceSettingDiag "A21", "DATE/TIME STAMP", "B21", _
         "OK row " & CStr(Target.Row) & " = " & Format$(Now, "dd-mm-yyyy hh:nn:ss")
 End Sub
@@ -3354,8 +3353,7 @@ Public Sub SolarEPC_FillAndStampNow()
                 If cRet > 0 Then
                     RetText = Trim$(CStr(Tbl.ListRows(R).Range.Cells(1, cRet).Value2))
                     If ResourceTryUtcToLocal(RetText, LocalTime) Then
-                        Cell.NumberFormat = "dd-mm-yyyy hh:nn:ss"
-                        Cell.Value2 = LocalTime
+                        ResourceWriteDateTimeCell Cell, LocalTime
                         Stamped = Stamped + 1
                     Else
                         LeftBlank = LeftBlank + 1
@@ -3379,4 +3377,21 @@ Public Sub SolarEPC_FillAndStampNow()
     Exit Sub
 Failed:
     MsgBox "FillAndStampNow failed: " & Err.Description, vbExclamation, "Solar EPC Resource"
+End Sub
+
+'v3.10: NumberFormat kabhi-kabhi blocked hota hai (sheet protection / table
+'column setting). Isliye pehle try karo, fail ho to text likh do - value
+' hamesha pahunchti hai, format ki bheek nahi maangte.
+Private Sub ResourceWriteDateTimeCell(ByVal Cell As Range, ByVal WhenTime As Date)
+    Dim FmtOk As Boolean
+    On Error Resume Next
+    Cell.NumberFormat = "dd-mm-yyyy hh:nn:ss"
+    FmtOk = (Err.Number = 0)
+    Err.Clear
+    On Error GoTo 0
+    If FmtOk Then
+        Cell.Value2 = WhenTime
+    Else
+        Cell.Value2 = Format$(WhenTime, "dd-mm-yyyy hh:nn:ss")
+    End If
 End Sub
