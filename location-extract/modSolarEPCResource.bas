@@ -15,72 +15,76 @@ Private Declare PtrSafe Sub GetSystemTime Lib "kernel32" (lpSystemTime As SYSTEM
 
 '==========================================================================
 ' SOLAR EPC - NASA POWER HOURLY RESOURCE MODULE + AUTOMATIC LOCATION FILL
-' Version 3.10
+' Version 3.11 (FINAL)
 '
-' YE FILE TUMHARE PURANE modSolarEPCResource KA POORA REPLACEMENT HAI.
-'   - v2.1/v2.2 ka SARA kaam waise hi chalta hai: NASA POWER hourly import,
-'     range/month scheduler, RESOURCE_DB write, Location auto-fill,
-'     VILLAGE_DB/Google/Nominatim/BigDataCloud tiers, sab public macros
-'     (ConfigurePeriod, QueueImportedSite, RetryLatestSite, FillLocations,
-'     MakeVillageDb, AddVillage, Resume, Stop, ShowLastError,
-'     ResumePending, ProcessNext) - isliye tumhara ThisWorkbook,
-'     modSolarEPCCloudRelay aur sheet buttons sab compile hote hain.
-'   - v2.5: RESOURCE_DB me project ki row na ho to watcher wo row APNE AAP
-'     bana deta hai (blank-only rules phir bhi lagute hain), status bar pe har
-'     step ka reason dikhta hai, aur ek diagnostic macro hai:
-'         SolarEPC_DrawnLocationDebug  -> poori chain ka report (read-only)
-'   - v3.8: SolarEPC_FillAndStampNow - THE BIG RED BUTTON: ek click me
-'     watcher ON + turant sweep + purani rows ka Date/Time Retrieval Date
-'     (UTC) se LOCAL time me backfill + B21 report. Koi reopen nahi.
-'   - v3.5: Date/Time stamp ab BLANK-ONLY hai aur HAR pehle fill pe
-'     lagta hai (watcher auto-fill YA NASA import, jo pehle ho). Column
-'     candidates: Date/Time, Run Date-Time (Local), Date-Time, DateTime.
-'     Debug macro batata hai column table ke andar mili ya nahi.
-'   - v3.4 LEAN: GeoNames tier HATAYA (unke database me Indian
-'     revenue villages hain hi nahi - prove ho gaya). Ab user ka apna
-'     "Date/Time" column bharta hai (local Now, real date value);
-'     column na ho to "Run Date-Time (Local)" apne aap banti hai.
-'     NASA fetch hamesha us row ke APNE centroid se hota hai - same
-'     town/village ho tab bhi coordinates se alag result aata hai.
-'   - v3.2: SolarEPC_ResourceRefreshLabels - purani bhari hui Location
-'     rows ko village-level label pe safely upgrade karo (suffix-rule,
-'     manual entries kabhi nahi chhute). Blank-only auto-fill waisa hi.
-'   - v3.0: SINGLE MODULE - NASA pipeline + watcher + auto row-create +
-'     debug, sab ek hi file me. Nayi RESOURCE_DB column
-'     "Run Date-Time (Local)" har NASA summary import pe aapke computer
-'     ka exact din + samay stamp karti hai (column khud ban jaati hai).
-'   - PLUS v2.3 ka AUTOMATIC watcher: workbook khulte hi chalu, har 5s
-'     DRAWING_DATA.autoLWHTbl dekhta hai; nayi ya dobara-draw hui SITE row pe
-'     RESOURCE_DB ke BLANK Latitude(deg)/Longitude(deg) me exact centroid
-'     (Worker-identical, offline) aur BLANK Location me "Exact Area, Taluka,
-'     District" apne aap likh deta hai. Koi Alt+F8 nahi, koi popup nahi -
-'     sirf status bar pe ek line.
+' THIS FILE IS A COMPLETE REPLACEMENT FOR THE LEGACY modSolarEPCResource.
+'   - Every legacy capability keeps working unchanged: NASA POWER hourly
+'     import, range/month scheduler, RESOURCE_DB writes, Location auto-fill,
+'     the VILLAGE_DB / Google / Nominatim / BigDataCloud label tiers and all
+'     public macros (ConfigurePeriod, QueueImportedSite, RetryLatestSite,
+'     FillLocations, MakeVillageDb, AddVillage, Resume, Stop, ShowLastError,
+'     ResumePending, ProcessNext) - so ThisWorkbook, modSolarEPCCloudRelay
+'     and every sheet button continue to compile.
+'   - v2.5: when RESOURCE_DB has no row for a project, the watcher creates
+'     it automatically (blank-only rules still apply); every step reports
+'     its reason on the status bar; SolarEPC_DrawnLocationDebug produces a
+'     read-only report of the whole chain.
+'   - v3.11 FINAL: every user-facing message, status-bar line and debug
+'     report is now professional English; the per-tick RESOURCE_DB scan
+'     was replaced by one bulk column read per sweep (faster ticks);
+'     K=12 range mode verified active (_CLOUD_CFG B12 = RANGE12).
+'   - v3.8: SolarEPC_FillAndStampNow - one click starts the watcher, runs an
+'     immediate sweep and back-fills Date/Time on existing rows from the
+'     NASA Retrieval Date (UTC converted to local time). No reopen needed.
+'   - v3.5: the Date/Time stamp is BLANK-ONLY and is applied on the FIRST
+'     fill of a row (watcher auto-fill or NASA import, whichever happens
+'     first). Accepted column names: Date/Time, Run Date-Time (Local),
+'     Date-Time, DateTime. The debug macro reports whether the column was
+'     found inside the table.
+'   - v3.4: the GeoNames tier was REMOVED (its database provably contains no
+'     Indian revenue villages). The user's own "Date/Time" column is filled
+'     with the local run date/time; if absent, "Run Date-Time (Local)" is
+'     created automatically. Every NASA fetch uses that row's OWN centroid -
+'     two sites in the same town still receive independently fetched values.
+'   - v3.2: SolarEPC_ResourceRefreshLabels safely upgrades previously filled
+'     Location cells to village-level labels (suffix rule; manual entries
+'     are never touched). Blank-only auto-fill is unchanged.
+'   - v3.0: SINGLE MODULE - NASA pipeline + watcher + auto row creation +
+'     diagnostics in one file.
+'   - PLUS the v2.3 AUTOMATIC watcher: starts when the workbook opens and
+'     inspects DRAWING_DATA.autoLWHTbl every 5 s; for every new or re-drawn
+'     SITE row it writes the exact centroid (Worker-identical, computed
+'     offline) into BLANK Latitude/Longitude cells and a descriptive
+'     "Exact Area, Taluka, District" label into the BLANK Location cell.
+'     No Alt+F8, no popups - a single status-bar line is the only feedback.
 '
-' IMPORT KA TAREEKA (zaroori - warna compile error):
-'   1. VBE me agar "modSolarEPCDrawnLocation" naam ka module ho to REMOVE karo.
-'   2. Purana "modSolarEPCResource" module REMOVE karo (backup export optional).
-'   3. Right-click project -> Import File... -> ye .bas file.
-'   4. Save karke workbook dobara kholo.
+' IMPORT PROCEDURE (required - otherwise compile errors):
+'   1. In the VBE, REMOVE any module named "modSolarEPCDrawnLocation".
+'   2. REMOVE the old "modSolarEPCResource" module (export a backup first
+'      if desired).
+'   3. Right-click the project -> Import File... -> this .bas file.
+'   4. Save and reopen the workbook.
 '
-' SAFETY (auto-fill ke rules):
-'   - sirf BLANK cells bharte hain; manual entry / formula / NASA ke values
-'     kabhi overwrite nahi hote
-'   - NASA numbers, Data Status, cache_key, polygon_hash - unchanged
-'   - label offline na mile to lat/lon phir bhi bharte hain; label limited
-'     retry ke baad ruk jaata hai, galat value kabhi nahi likhi jaati
-'   - rokna ho: SolarEPC_DrawnLocationAutoStop ; turant sweep:
-'     SolarEPC_DrawnLocationAutoNow ; manual dekhna ho:
+' SAFETY RULES OF THE AUTO-FILL:
+'   - only BLANK cells are written; manual entries, formulas and NASA
+'     values are never overwritten
+'   - NASA numbers, Data Status, cache_key and polygon_hash are untouched
+'   - if no label can be resolved offline/online the lat/lon are still
+'     filled; label retries are limited and no incorrect value is ever
+'     written
+'   - stop anytime: SolarEPC_DrawnLocationAutoStop ; immediate sweep:
+'     SolarEPC_DrawnLocationAutoNow ; manual inspection:
 '     SolarEPC_ResourceShowDrawnLocation
 '
-' CENTROID MATH = WORKER KA MATH (polygonCentroidLocalProjection port):
-' 5000 generated polygons + 7 edge cases pe byte-for-byte verified
+' CENTROID MATH = WORKER MATH (port of polygonCentroidLocalProjection):
+' verified byte-for-byte on 5000 generated polygons + 7 edge cases
 ' (location-extract/verify/run_parity_check.sh).
 '==========================================================================
 
-'Watcher tuning (baaki sab constants module ke andar pehle se hain).
+'Watcher tuning (all other constants already exist inside the module).
 Private Const AUTO_TICK_SECONDS As Long = 5
-Private Const AUTO_NOROW_RETRIES As Long = 12    'RESOURCE_DB row na mile to ~1 min retry
-Private Const AUTO_LABEL_RETRIES As Long = 6     'label offline ho to limited retry
+Private Const AUTO_NOROW_RETRIES As Long = 12    'retry ~1 min when the RESOURCE_DB row is missing
+Private Const AUTO_LABEL_RETRIES As Long = 6     'limited retries while the label tier is offline
 
 
 Private Const CONFIG_SHEET As String = "_CLOUD_CFG"
@@ -136,6 +140,7 @@ Private mLastLocLabel As String
 Private mAutoActive As Boolean
 Private mAutoNextRun As Date
 Private mProcessed As Object          'key = ReferenceID|Coordinates -> state
+Private mFilledCache As Object          'ProjectID -> row already carries lat/lon
 
 'One-time SYSTEM configuration. Dates are not added to customer INPUT fields.
 'Nothing is saved unless both dates are explicitly entered and validated.
@@ -1659,7 +1664,7 @@ End Sub
 '==========================================================================
 ' v2.2 - EXACT DRAWN-SITE LOCATION (OFFLINE EXTRACTION)
 '
-' Answers: "jis jagah maine map par draw kiya, uski EXACT location kya hai?"
+' Answers: "what is the EXACT location of the place I drew on the map?"
 '
 ' Everything below is READ-ONLY and works with no cloud configuration, no
 ' internet and no NASA/Worker call. The centroid algebra is the Worker's own
@@ -2589,22 +2594,22 @@ Private Function ResourceValue(ByVal D As Object, ByVal KeyName As String) As St
 End Function
 
 '--------------------------------------------------------------------------
-' v2.3 - AUTOMATIC LOCATION FILL (koi Alt+F8 nahi, koi popup nahi)
+' v2.3 - AUTOMATIC LOCATION FILL (no Alt+F8, no popups)
 '
-' Workbook khulte hi (Auto_Open) ye watcher chalu ho jata hai aur har
-' AUTO_TICK_SECONDS me DRAWING_DATA.autoLWHTbl dekhta hai. Nayi ya badli hui
-' SITE row milte hi:
-'   1. exact area-weighted centroid offline calculate hota hai
-'   2. RESOURCE_DB me us Project ID ki row dhundhi jaati hai
-'   3. BLANK Latitude (deg) / Longitude (deg) cells me exact centroid likha
-'      jaata hai (Worker wale centroid se identical)
-'   4. BLANK Location cell me descriptive label likha jaata hai
-'      ("Exact Area, Taluka, District") - VILLAGE_DB -> Google -> Nominatim
-'      -> BigDataCloud, bilkul isi workbook ke existing rules se
+' The watcher starts when the workbook opens (Auto_Open) and inspects
+' DRAWING_DATA.autoLWHTbl every AUTO_TICK_SECONDS. As soon as a new or
+' modified SITE row appears:
+'   1. the exact area-weighted centroid is computed offline
+'   2. the RESOURCE_DB row for that Project ID is located
+'   3. the exact centroid (identical to the Worker's) is written into the
+'      BLANK Latitude / Longitude cells
+'   4. a descriptive label ("Exact Area, Taluka, District") is written into
+'      the BLANK Location cell - VILLAGE_DB -> Google -> Nominatim ->
+'      BigDataCloud, using this workbook's existing rules
 '
-' Kabhi bhi koi bhara hua cell overwrite NAHI hota, formula cells chhod diye
-' jaate hain, aur RESOURCE_DB me NASA ke numbers/status ko ye code chhoota
-' hi nahi. Feedback sirf status bar pe ek line me aata hai.
+' Filled cells are NEVER overwritten, formula cells are skipped, and the
+' NASA numbers/status inside RESOURCE_DB are never touched. The only
+' feedback is a single status-bar line.
 '--------------------------------------------------------------------------
 
 Public Sub Auto_Open()
@@ -2617,7 +2622,7 @@ Public Sub Auto_Close()
     SolarEPC_DrawnLocationAutoStop
 End Sub
 
-'Watcher chalu karo + turant ek sweep (already-drawn sites bhi bhar jaayen).
+'Start the watcher and run one immediate sweep (already-drawn sites are filled too).
 Public Sub SolarEPC_DrawnLocationAutoStart()
     On Error GoTo Failed
     If mAutoActive Then Exit Sub
@@ -2625,14 +2630,14 @@ Public Sub SolarEPC_DrawnLocationAutoStart()
     mAutoActive = True
     DrawnLocationSweep
     DrawnLocationSchedule AUTO_TICK_SECONDS
-    Application.StatusBar = "Solar EPC: drawn-site location AUTO-fill ON (har " & _
-        CStr(AUTO_TICK_SECONDS) & "s DRAWING_DATA dekhta hai)."
+    Application.StatusBar = "Solar EPC: drawn-site location AUTO-fill ON (scanning DRAWING_DATA every " & _
+        CStr(AUTO_TICK_SECONDS) & " s)."
     Exit Sub
 Failed:
     mAutoActive = False
 End Sub
 
-'Watcher band karo (OnTime cancel ke saath).
+'Stop the watcher (cancels the scheduled OnTime).
 Public Sub SolarEPC_DrawnLocationAutoStop()
     mAutoActive = False
     On Error Resume Next
@@ -2644,7 +2649,7 @@ Public Sub SolarEPC_DrawnLocationAutoStop()
     Application.StatusBar = "Solar EPC: drawn-site location AUTO-fill OFF."
 End Sub
 
-'Bina wait kiye turant ek sweep - kisi button pe laga sakte ho, zaroori nahi.
+'Run one sweep immediately without waiting - may be attached to a button.
 Public Sub SolarEPC_DrawnLocationAutoNow()
     On Error GoTo Failed
     If mProcessed Is Nothing Then Set mProcessed = CreateObject("Scripting.Dictionary")
@@ -2653,7 +2658,7 @@ Public Sub SolarEPC_DrawnLocationAutoNow()
 Failed:
 End Sub
 
-'Internal scheduler entry point (OnTime ko Public naam chahiye).
+'Internal scheduler entry point (OnTime requires a Public name).
 Public Sub SolarEPC_DrawnLocationTick()
     mAutoNextRun = 0
     If Not mAutoActive Then Exit Sub
@@ -2674,7 +2679,7 @@ Private Sub DrawnLocationSchedule(ByVal SecondsFromNow As Long)
         Procedure:="SolarEPC_DrawnLocationTick", Schedule:=True
 End Sub
 
-'Ek baar saari SITE rows dekho; nayi/badli hui drawing pe auto-fill karo.
+'Inspect all SITE rows once; auto-fill any new or re-drawn site.
 Private Sub DrawnLocationSweep()
     Dim Tbl As ListObject
     Dim R As Long
@@ -2697,6 +2702,7 @@ Private Sub DrawnLocationSweep()
     Set Tbl = DrawnSiteTable()
     If Tbl Is Nothing Then Exit Sub
     If mProcessed Is Nothing Then Set mProcessed = CreateObject("Scripting.Dictionary")
+    Set mFilledCache = ResourceBuildFilledMap()
 
     For R = 1 To Tbl.ListRows.Count
         ReferenceText = RowCellText(Tbl, R, "Reference id")
@@ -2704,13 +2710,13 @@ Private Sub DrawnLocationSweep()
             ProjectID = RowCellText(Tbl, R, "Project ID")
             CoordinateText = RowCellText(Tbl, R, "Coordinates")
             If Len(ProjectID) > 0 And Len(CoordinateText) > 0 Then
-                'Key me coordinates bhi hain: site dobara draw hui to key badal
-                'jaati hai aur fill dobara attempt hota hai.
+                'The key includes the coordinates: re-drawing the site changes
+                'the key and the fill is attempted again.
                 KeyText = ReferenceText & "|" & CoordinateText
                 If Not mProcessed.Exists(KeyText) Or _
                    Left$(CStr(mProcessed(KeyText)), 5) = "NOROW" Or _
                    Left$(CStr(mProcessed(KeyText)), 7) = "LOCPEND" Or _
-                   Not ResourceProjectRowFilled(ProjectID) Then
+                   Not ProjectFilledInCache(ProjectID) Then
 
                     StateText = CStr(mProcessed(KeyText) & "")
                     Attempts = DrawnLocationAttempts(StateText)
@@ -2722,18 +2728,18 @@ Private Sub DrawnLocationSweep()
                                 ResultText = FillResourceDbForSite(ProjectID, CentroidLatitude, _
                                     CentroidLongitude, Attempts >= 2)
                                 If InStr(1, ResultText, "LOCPEND", vbBinaryCompare) > 0 Then
-                                    'lat/lon bhar gaye, label offline tha - limited retries.
+                                    'lat/lon filled, label tier offline - limited retries.
                                     Application.StatusBar = "Solar EPC: " & ProjectID & _
-                                        " ke lat/lon bhar gaye; Location label offline hai, retry " & _
+                                        " lat/lon filled; Location label offline, retry " & _
                                         CStr(Attempts + 1) & "/" & CStr(AUTO_LABEL_RETRIES) & _
-                                        " (internet / VILLAGE_DB / geocoding key dekho)"
+                                        " (check internet / VILLAGE_DB / geocoding key)"
                                     If Attempts < AUTO_LABEL_RETRIES Then _
                                         mProcessed(KeyText) = "LOCPEND:" & CStr(Attempts + 1)
                                 ElseIf ResultText = "NOROW" Then
-                                    'RESOURCE_DB row abhi bani nahi - retry, phir auto-create.
-                                    Application.StatusBar = "Solar EPC: RESOURCE_DB me " & ProjectID & _
-                                        " ki row nahi mili (" & CStr(Attempts + 1) & ") - " & _
-                                        IIf(Attempts + 1 >= 2, "ab row bana ke bhar raha hoon...", "retry...")
+                                    'RESOURCE_DB row does not exist yet - retry, then auto-create.
+                                    Application.StatusBar = "Solar EPC: no RESOURCE_DB row for " & ProjectID & _
+                                        " (" & CStr(Attempts + 1) & ") - " & _
+                                        IIf(Attempts + 1 >= 2, "creating the row now...", "retrying...")
                                     If Attempts < AUTO_NOROW_RETRIES Then _
                                         mProcessed(KeyText) = "NOROW:" & CStr(Attempts + 1)
                                 Else
@@ -2761,15 +2767,15 @@ Private Sub DrawnLocationSweep()
 Done:
 End Sub
 
-'"NOROW:3" / "LOCPEND:1" jaisi state me se attempt count nikaalo.
+'Extract the attempt count from states such as "NOROW:3" / "LOCPEND:1".
 Private Function DrawnLocationAttempts(ByVal StateText As String) As Long
     Dim P As Long
     P = InStr(1, StateText, ":", vbBinaryCompare)
     If P > 0 Then DrawnLocationAttempts = Val(Mid$(StateText, P + 1))
 End Function
 
-'Hidden _CLOUD_CFG me last auto-fill ka record (diagnostic only; sheet na ho
-'to chupchaap skip).
+'Record of the last auto-fill in the hidden _CLOUD_CFG sheet
+'(diagnostic only; silently skipped when the sheet is absent).
 Private Sub DrawnLocationDiag(ByVal ProjectID As String, ByVal ResultText As String, _
     ByVal CentroidLatitude As Double, ByVal CentroidLongitude As Double)
 
@@ -2784,9 +2790,10 @@ Private Sub DrawnLocationDiag(ByVal ProjectID As String, ByVal ResultText As Str
     On Error GoTo 0
 End Sub
 
-'RESOURCE_DB me us Project ID ki row dhundh ke BLANK lat/lon + BLANK Location
-'bharo. Return: kya bhara ("lat lon location(Sonwadi Bk., Phaltan, Satara)"),
-'ya SKIP-NO-BLANK / NOROW / LOCPEND...
+'Locate the RESOURCE_DB row for this Project ID and fill BLANK lat/lon +
+'BLANK Location. Returns what was filled, e.g.
+'"lat lon location(Sonwadi Bk., Phaltan, Satara)", or SKIP-NO-BLANK /
+'NOROW / LOCPEND.
 Private Function FillResourceDbForSite(ByVal ProjectID As String, _
     ByVal CentroidLatitude As Double, ByVal CentroidLongitude As Double, _
     Optional ByVal AllowCreate As Boolean = False) As String
@@ -2819,7 +2826,7 @@ Private Function FillResourceDbForSite(ByVal ProjectID As String, _
     End If
 
     'Row match: same Project ID jiske lat/lon blank hain, ya same Project ID
-    'jiske lat/lon already isi centroid ke barabar hain (Location blank ho sakta hai).
+    'whose lat/lon already equal this centroid (Location may still be blank).
     For R = 1 To Tbl.ListRows.Count
         Set RowRange = Tbl.ListRows(R).Range
         RowProject = Trim$(CStr(RowRange.Cells(1, cProject).Value2))
@@ -2838,8 +2845,8 @@ Private Function FillResourceDbForSite(ByVal ProjectID As String, _
             End If
         End If
     Next R
-    'v2.5: row hai hi nahi to bana do - draw kiya hai to location RESOURCE_DB
-    'me dikhni chahiye. Baaki columns NASA import / manual bharenge.
+    'v2.5: create the missing row - a drawn site must appear in RESOURCE_DB.
+    'Remaining columns are filled by the NASA import or manually.
     If Target Is Nothing Then
         If Not AllowCreate Then
             FillResourceDbForSite = "NOROW"
@@ -2891,7 +2898,7 @@ Failed:
     FillResourceDbForSite = "NOROW"
 End Function
 
-'resource_db Excel Table (naam se), warna Nothing.
+'The resource_db Excel Table by name, or Nothing.
 Private Function ResourceDbTable() As ListObject
     Dim ws As Worksheet
     On Error Resume Next
@@ -2903,7 +2910,7 @@ Private Function ResourceDbTable() As ListObject
     On Error GoTo 0
 End Function
 
-'Column index by header name, 0 agar column nahi hai.
+'Column index by header name; 0 when the column does not exist.
 Private Function TableColumn(ByVal Tbl As ListObject, ByVal HeaderText As String) As Long
     Dim Col As ListColumn
     On Error GoTo Failed
@@ -2919,8 +2926,8 @@ Failed:
 End Function
 
 '--------------------------------------------------------------------------
-' v2.4 adapters - watcher ke naampari helpers ko complete module ke proven
-' helpers se jodte hain (koi logic duplicate nahi).
+ v2.4 adapters - connect the watcher's named helpers to the proven
+' helpers of the complete module (no duplicated logic).
 '--------------------------------------------------------------------------
 Private Function DrawnSiteTable() As ListObject
     On Error GoTo Failed
@@ -2959,9 +2966,9 @@ Private Function CentroidLocalProjection(ByRef Latitudes() As Double, _
 End Function
 
 '--------------------------------------------------------------------------
-' v2.5 - DIAGNOSTIC: chain kaha atki hai, ek click me batata hai.
+' v2.5 - DIAGNOSTIC: reports where the chain is stuck, in one click.
 '   Alt+F8 -> SolarEPC_DrawnLocationDebug
-' Kuch bhi change NAHI karta (sirf padhta hai + report dikhata hai).
+' Changes NOTHING (read-only report).
 '--------------------------------------------------------------------------
 Public Sub SolarEPC_DrawnLocationDebug()
     Dim P1 As String, P2 As String
@@ -2988,14 +2995,14 @@ Public Sub SolarEPC_DrawnLocationDebug()
     P1 = "1) WATCHER: " & IIf(mAutoActive, "ON", "OFF") & _
          "   (next tick: " & IIf(mAutoNextRun > 0, Format$(mAutoNextRun, "hh:nn:ss"), "-") & ")" & vbCrLf
     If Not mAutoActive Then
-        P1 = P1 & "   >> Watcher OFF hai! SolarEPC_DrawnLocationAutoStart chalao" & vbCrLf & _
-                  "      ya workbook save karke DOBARA kholo (Auto_Open se chalu hota hai)." & vbCrLf
+        P1 = P1 & "   >> Watcher is OFF. Run SolarEPC_DrawnLocationAutoStart" & vbCrLf & _
+                  "      or save and REOPEN the workbook (Auto_Open starts it)." & vbCrLf
     End If
 
     Set Tbl = DrawnSiteTable()
     If Tbl Is Nothing Then
-        P1 = P1 & "2) DRAWING_DATA / '" & SITE_TABLE & "' table NAHIN MILA." & vbCrLf & _
-                  "   >> Sheet/table ka naam check karo." & vbCrLf
+        P1 = P1 & "2) DRAWING_DATA / '" & SITE_TABLE & "' table NOT FOUND." & vbCrLf & _
+                  "   >> Check the sheet/table name." & vbCrLf
     Else
         P1 = P1 & "2) DRAWING_DATA." & SITE_TABLE & ": " & CStr(Tbl.ListRows.Count) & " row(s)" & vbCrLf
         For R = Tbl.ListRows.Count To 1 Step -1
@@ -3007,11 +3014,11 @@ Public Sub SolarEPC_DrawnLocationDebug()
             End If
         Next R
         If Len(ProjectID) = 0 Then
-            P1 = P1 & "   >> Koi SITE-MAP-* row nahi mili - map me SAVE hua tha kya?" & vbCrLf
+            P1 = P1 & "   >> No SITE-MAP-* row found - was the drawing SAVED on the map?" & vbCrLf
         Else
             P1 = P1 & "3) Latest SITE: " & ProjectID & "  (" & CStr(Len(CoordinateText)) & " char coordinates)" & vbCrLf
             If Len(CoordinateText) = 0 Then
-                P1 = P1 & "   >> Coordinates cell BLANK hai - map SAVE adhoora raha." & vbCrLf
+                P1 = P1 & "   >> Coordinates cell is BLANK - the map SAVE was incomplete." & vbCrLf
             ElseIf ParsePolygon(CoordinateText, Latitudes, Longitudes, VertexCount, ErrorText) Then
                 If CentroidLocalProjection(Latitudes, Longitudes, VertexCount, _
                        CentroidLatitude, CentroidLongitude, AreaM2, ErrorText) Then
@@ -3030,8 +3037,8 @@ Public Sub SolarEPC_DrawnLocationDebug()
     '--- PART 2: RESOURCE_DB + label -----------------------------------
     Set Rdb = ResourceDbTable()
     If Rdb Is Nothing Then
-        P2 = "4) RESOURCE_DB ka 'resource_db' table NAHIN MILA." & vbCrLf & _
-             "   >> Table ka naam exactly 'resource_db' hona chahiye." & vbCrLf
+        P2 = "4) The 'resource_db' table was NOT FOUND in RESOURCE_DB." & vbCrLf & _
+             "   >> The table name must be exactly 'resource_db'." & vbCrLf
     Else
         cProject = TableColumn(Rdb, "Project ID")
         cLat = TableColumn(Rdb, "Latitude (" & ChrW(176) & ")")
@@ -3042,8 +3049,8 @@ Public Sub SolarEPC_DrawnLocationDebug()
              IIf(cProject > 0, "P", "-") & IIf(cLat > 0, "Lat", "-") & _
              IIf(cLon > 0, "Lon", "-") & IIf(cLoc > 0, "Loc", "-") & vbCrLf
         P2 = P2 & "   Date/Time column: " & IIf(cDT > 0, _
-             "mil gayi (" & Rdb.ListColumns(cDT).Name & ")", _
-             "TABLE KE ANDAR NAHIN - header row ke andar add karo") & vbCrLf
+             "found (" & Rdb.ListColumns(cDT).Name & ")", _
+             "NOT INSIDE THE TABLE - add it inside the header row") & vbCrLf
         If cProject = 0 Or cLat = 0 Or cLon = 0 Then
             P2 = P2 & "   >> Required columns missing (Project ID / Latitude / Longitude)." & vbCrLf
         ElseIf Len(ProjectID) > 0 And CentroidLatitude <> 0 Then
@@ -3063,8 +3070,8 @@ Public Sub SolarEPC_DrawnLocationDebug()
                 End If
             Next R
             If MatchRow = 0 Then
-                P2 = P2 & "5) >> " & ProjectID & " ki koi BLANK-lat/lon row nahi mili." & vbCrLf & _
-                          "   (v2.5 ab aisi halat me row APNE AAP bana deta hai - watcher ON ho to)" & vbCrLf
+                P2 = P2 & "5) >> No BLANK-lat/lon row found for " & ProjectID & "." & vbCrLf & _
+                          "   (v2.5+ creates such a row automatically while the watcher is ON)" & vbCrLf
             Else
                 RowLat = Trim$(CStr(Rdb.ListRows(MatchRow).Range.Cells(1, cLat).Value2))
                 RowLon = Trim$(CStr(Rdb.ListRows(MatchRow).Range.Cells(1, cLon).Value2))
@@ -3080,7 +3087,7 @@ Public Sub SolarEPC_DrawnLocationDebug()
     If CentroidLatitude <> 0 Then
         LabelText = ResourceLocationLabel(Decimal8(CentroidLatitude), Decimal8(CentroidLongitude))
         P2 = P2 & "6) Label test: " & IIf(Len(LabelText) > 0, LabelText, _
-             "KOI TIER NAHIN MILA (VILLAGE_DB sheet / internet / geocoding key)") & vbCrLf
+             "NO TIER RESOLVED (VILLAGE_DB sheet / internet / geocoding key)") & vbCrLf
         Set ws = ThisWorkbook.Worksheets(CONFIG_SHEET)
         If Not ws Is Nothing Then
             GoogleStatus = CStr(ws.Range("B14").Value2)
@@ -3094,7 +3101,7 @@ Public Sub SolarEPC_DrawnLocationDebug()
         P2 = P2 & "   Date/Time stamp: " & CStr(ws.Range("B21").Value2) & vbCrLf
         End If
     End If
-    P2 = P2 & vbCrLf & "Ye report copy ho gayi hai clipboard pe."
+    P2 = P2 & vbCrLf & "This report has been copied to the clipboard."
 
     ResourceCopyToClipboard P1 & vbCrLf & P2
     MsgBox P1, vbInformation, "Solar EPC Debug 1/2"
@@ -3104,9 +3111,9 @@ End Sub
 '--------------------------------------------------------------------------
 ' v3.0: RESOURCE_DB me ek extra column "Run Date-Time (Local)" -
 ' jis DIN aur TIME (aapke computer ki local ghadi) pe NASA summary import
-' hua, exact stamp. Worker ka "Retrieval Date" UTC fetch-time rakhta hai;
-' ye column aapka apna local run-time hai, har import pe fresh update.
-' Column na ho to pehli import par apne aap ban jaata hai (table ke end me).
+' stamp. The Worker's "Retrieval Date" keeps the UTC fetch time;
+' this column is your own local run-time, refreshed on every import.
+' If the column is absent it is created on the first import (end of table).
 '--------------------------------------------------------------------------
 Private Function ResourceDateTimeColumn(ByVal Tbl As ListObject) As Long
     Dim Names As Variant
@@ -3119,9 +3126,9 @@ Private Function ResourceDateTimeColumn(ByVal Tbl As ListObject) As Long
     Next i
 End Function
 
-'v3.5: BLANK-ONLY local run stamp. Jis event ne row pe pehla data likha
-'(watcher auto-fill ya NASA import), wahi din+samay stamp hota hai.
-'Kabhi overwrite nahi karta - manual date entry sacred hai.
+'v3.5: BLANK-ONLY local run stamp. Whichever event writes the first data
+'into a row (watcher auto-fill or NASA import) stamps the local date and
+'time. Never overwrites - a manual date entry is sacred.
 Private Sub ResourceStampLocalRunTime(ByVal Tbl As ListObject, ByVal Target As Range)
     Dim C As Long
     Dim Col As ListColumn
@@ -3157,13 +3164,13 @@ End Sub
 
 
 '--------------------------------------------------------------------------
-' v3.2: PURANI bhari hui Location rows ko safely upgrade karo jab ek better
-' tier (VILLAGE_DB / GeoNames) available ho jaye. Blank-only rule manual
-' cells ke liye sacred hai, isliye ye macro sirf USER-ON-DEMAND chalta hai
-' aur sirf tab likhta hai jab naya label purane label ka "village-plus"
-' version ho (naya label ", " & purana label pe khatam hota ho).
+' v3.2: safely upgrade previously filled Location rows when a better tier
+' (VILLAGE_DB) becomes available. The blank-only rule is sacred for manual
+' cells, so this macro runs ONLY on user demand and writes only when the
+' new label is exactly the "village-plus" version of the old one (the new
+' label ends with ", " & old label).
 '   "Phaltan, Satara" -> "Sonwadi Bk., Phaltan, Satara"   = upgrade OK
-'   "My Farm, Phaltan" (manual)                          = skip, kabhi nahi chhuta
+'   "My Farm, Phaltan" (manual)                          = skipped, never touched
 '--------------------------------------------------------------------------
 Public Sub SolarEPC_ResourceRefreshLabels()
     Dim ws As Worksheet
@@ -3202,7 +3209,7 @@ Public Sub SolarEPC_ResourceRefreshLabels()
            Not Cell.HasFormula Then
             Checked = Checked + 1
             Application.StatusBar = "Solar EPC: label refresh " & CStr(R) & _
-                "/" & CStr(Total) & " (manual entries kabhi overwrite nahi hote)..."
+                "/" & CStr(Total) & " (manual entries are never overwritten)..."
             DoEvents
             mLastLocKey = vbNullString
             mLastLocLabel = vbNullString
@@ -3224,8 +3231,8 @@ Public Sub SolarEPC_ResourceRefreshLabels()
     MsgBox "Label refresh complete." & vbCrLf & vbCrLf & _
         "Rows checked : " & CStr(Checked) & vbCrLf & _
         "Village-level upgrades : " & CStr(Upgraded) & vbCrLf & vbCrLf & _
-        "Sirf wo rows badli hain jaha naya label purane label ka exact " & _
-        "'village + ' version tha. Manual entries aur baaki sab untouched.", _
+        "Only rows were changed where the new label is the exact " & _
+        "'village + ' version of the old one. Manual entries and everything else untouched.", _
         vbInformation, "Solar EPC Resource"
     Exit Sub
 Failed:
@@ -3233,48 +3240,60 @@ Failed:
     MsgBox "Label refresh failed: " & Err.Description, vbExclamation, "Solar EPC Resource"
 End Sub
 
-'v3.7: watcher ki session-memory self-heal: agar koi site DONE mark hai par
-'uski RESOURCE_DB row me lat/lon phir se BLANK hain (user ne clear kiya, ya
-'pehla fill kisi aur session me adhoora tha), to key hata do -> dobara fill +
-'Date/Time stamp lagega. Reopen ki zaroorat nahi.
-Private Function ResourceProjectRowFilled(ByVal ProjectID As String) As Boolean
+'v3.11: watcher session-memory self-heal, FAST edition. One bulk column read
+'per sweep builds a ProjectID -> filled map; a DONE key is re-processed only
+'when its row's lat/lon are blank again (user cleared them or an earlier
+'session left them empty). No per-cell COM calls, no reopen needed.
+Private Function ResourceBuildFilledMap() As Object
+    Dim D As Object
     Dim Rdb As ListObject
-    Dim R As Long
     Dim cP As Long, cLat As Long, cLon As Long
-    Dim RowProject As String
+    Dim ProjArr As Variant, LatArr As Variant, LonArr As Variant
+    Dim n As Long, i As Long
 
+    Set D = CreateObject("Scripting.Dictionary")
+    D.CompareMode = 1                                  'vbTextCompare
     On Error GoTo Failed
     Set Rdb = ResourceDbTable()
-    If Rdb Is Nothing Then Exit Function
+    If Rdb Is Nothing Then GoTo DoneMap
     cP = TableColumn(Rdb, "Project ID")
     cLat = TableColumn(Rdb, "Latitude (" & ChrW(176) & ")")
     cLon = TableColumn(Rdb, "Longitude (" & ChrW(176) & ")")
-    If cP = 0 Or cLat = 0 Or cLon = 0 Then Exit Function
-    For R = 1 To Rdb.ListRows.Count
-        RowProject = Trim$(CStr(Rdb.ListRows(R).Range.Cells(1, cP).Value2))
-        If StrComp(RowProject, ProjectID, vbTextCompare) = 0 Then
-            If Len(Trim$(CStr(Rdb.ListRows(R).Range.Cells(1, cLat).Value2))) > 0 And _
-               Len(Trim$(CStr(Rdb.ListRows(R).Range.Cells(1, cLon).Value2))) > 0 Then
-                ResourceProjectRowFilled = True
-                Exit Function
+    If cP = 0 Or cLat = 0 Or cLon = 0 Then GoTo DoneMap
+    n = Rdb.ListRows.Count
+    If n = 0 Then GoTo DoneMap
+    ProjArr = Rdb.ListColumns(cP).Range.Value2         'one bulk read (incl. header)
+    LatArr = Rdb.ListColumns(cLat).Range.Value2
+    LonArr = Rdb.ListColumns(cLon).Range.Value2
+    For i = 2 To n + 1
+        If Len(Trim$(CStr(ProjArr(i, 1)))) > 0 Then
+            If Len(Trim$(CStr(LatArr(i, 1)))) > 0 And _
+               Len(Trim$(CStr(LonArr(i, 1)))) > 0 Then
+                D(CStr(ProjArr(i, 1))) = True
             End If
         End If
-    Next R
-    ResourceProjectRowFilled = False
+    Next i
+DoneMap:
+    Set ResourceBuildFilledMap = D
     Exit Function
 Failed:
-    ResourceProjectRowFilled = False
+    Set ResourceBuildFilledMap = D
+End Function
+
+Private Function ProjectFilledInCache(ByVal ProjectID As String) As Boolean
+    If mFilledCache Is Nothing Then Exit Function
+    ProjectFilledInCache = mFilledCache.Exists(ProjectID)
 End Function
 
 '--------------------------------------------------------------------------
-' v3.8: THE BIG RED BUTTON. Ek click, sab kaam, usi waqt - koi session
-' memory nahi, koi reopen nahi, koi wait nahi:
-'   1. watcher ON na ho to ON karta hai
-'   2. sweep TURANT chalata hai (blank lat/lon + Location + Date/Time stamp)
-'   3. purani bhari hui rows jinka Date/Time khaali hai, unhe NASA ke
-'      "Retrieval Date" (UTC) se tumhare LOCAL time me convert karke bhar
-'      deta hai (sach waala time, jhootha Now nahi)
-'   4. B21 + MsgBox me poori report deta hai
+' v3.8: THE BIG RED BUTTON. One click performs everything immediately -
+' no session memory, no reopen, no waiting:
+'   1. starts the watcher if it is OFF
+'   2. runs an immediate sweep (blank lat/lon + Location + Date/Time stamp)
+'   3. back-fills Date/Time on previously filled rows by converting the
+'      NASA "Retrieval Date" (UTC) into the user's LOCAL time (the true
+'      run time, not a fake Now)
+'   4. reports everything in _CLOUD_CFG B21 and a MsgBox
 '--------------------------------------------------------------------------
 
 Private Function ResourceLocalUtcOffset() As Double
@@ -3324,7 +3343,7 @@ Public Sub SolarEPC_FillAndStampNow()
 
     Set Tbl = ResourceDbTable()
     If Tbl Is Nothing Then
-        MsgBox "resource_db table nahi mila.", vbExclamation, "Solar EPC"
+        MsgBox "The resource_db table was not found.", vbExclamation, "Solar EPC"
         Exit Sub
     End If
     cDT = ResourceDateTimeColumn(Tbl)
@@ -3339,7 +3358,7 @@ Public Sub SolarEPC_FillAndStampNow()
     cLon = TableColumn(Tbl, "Longitude (" & ChrW(176) & ")")
     cRet = TableColumn(Tbl, "Retrieval Date")
     If cDT = 0 Or cLat = 0 Or cLon = 0 Then
-        MsgBox "Date/Time ya Latitude/Longitude columns nahi mili.", _
+        MsgBox "The Date/Time or Latitude/Longitude columns were not found.", _
             vbExclamation, "Solar EPC"
         Exit Sub
     End If
@@ -3371,17 +3390,17 @@ Public Sub SolarEPC_FillAndStampNow()
         CStr(LeftBlank)
     MsgBox "Fill + Stamp NOW complete." & vbCrLf & vbCrLf & _
         "Date/Time backfilled (Retrieval Date UTC -> local): " & CStr(Stamped) & vbCrLf & _
-        "Blank chhodi (lat/lon ya Retrieval Date missing): " & CStr(LeftBlank) & vbCrLf & vbCrLf & _
-        "Watcher ON hai - nayi draws ab apne aap bhar + stamp hongi.", _
+        "Left blank (lat/lon or Retrieval Date missing): " & CStr(LeftBlank) & vbCrLf & vbCrLf & _
+        "The watcher is ON - new drawings will fill and stamp automatically.", _
         vbInformation, "Solar EPC Resource"
     Exit Sub
 Failed:
     MsgBox "FillAndStampNow failed: " & Err.Description, vbExclamation, "Solar EPC Resource"
 End Sub
 
-'v3.10: NumberFormat kabhi-kabhi blocked hota hai (sheet protection / table
-'column setting). Isliye pehle try karo, fail ho to text likh do - value
-' hamesha pahunchti hai, format ki bheek nahi maangte.
+'v3.10: NumberFormat can be blocked (sheet protection / table column
+'setting). Try the format first; if Excel refuses, write clean text - the
+'VALUE always lands, we never depend on the format.
 Private Sub ResourceWriteDateTimeCell(ByVal Cell As Range, ByVal WhenTime As Date)
     Dim FmtOk As Boolean
     On Error Resume Next
