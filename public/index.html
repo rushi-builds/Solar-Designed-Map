@@ -204,11 +204,13 @@ button.wide{width:100%}
   bottom:12px;
   z-index:1080;
   display:flex;
-  align-items:center
+  flex-direction:column;
+  align-items:flex-start;
+  gap:6px
 }
 
 .labels-switch{
-  width:115px;
+  width:138px;
   height:28px;
   display:flex;
   align-items:center;
@@ -294,7 +296,7 @@ button.wide{width:100%}
   }
 
   .labels-switch{
-    width:105px;
+    width:132px;
     height:26px
   }
 
@@ -434,6 +436,7 @@ button.wide{width:100%}
 }
 .legend-swatch{width:14px;height:10px;border-radius:2px;border:1px solid rgba(0,0,0,.15)}
 
+.pro-tools-section details>summary{cursor:pointer;font:850 11px Segoe UI;color:#0b5277;text-transform:uppercase;letter-spacing:.35px;list-style:none}.pro-tools-section details>summary:after{content:"▾";float:right}.pro-tools-section details[open]>summary:after{content:"▴"}.pro-tools-body{display:flex;flex-direction:column;gap:8px;margin-top:9px}.pro-tool-group{border:1px solid #d8e2e7;border-radius:7px;padding:8px;background:#f8fbfc}.pro-tool-group>b{display:block;color:#244b5d;font-size:10px;margin-bottom:6px;text-transform:uppercase}.pro-tool-group label{display:flex;align-items:center;justify-content:space-between;gap:7px;font-size:10px;color:#526d79;margin:5px 0}.pro-tool-group input,.pro-tool-group select{width:92px;padding:5px;border:1px solid #c7d5dc;border-radius:5px;font-size:10px}.pro-tool-group label span{display:flex;gap:4px}.pro-tool-buttons{display:grid;grid-template-columns:1fr 1fr;gap:5px}.pro-tool-buttons button{min-height:28px;padding:5px;font-size:9px}.pro-tool-state{margin-top:5px;padding:5px 6px;border-radius:5px;background:#eaf3f7;color:#315766;font-size:9px;font-weight:750}.excel-save-timer{display:none;margin-top:7px;padding:7px;border-radius:6px;background:#e9f4fa;color:#0b5277;font-size:10px;font-weight:850}.excel-save-timer.show{display:block}.excel-save-timer.success{background:#e6f6eb;color:#17683a}.excel-save-timer.error{background:#fdeaea;color:#a22d2d}
 @media(max-width:1100px){
   .workspace{grid-template-columns:1fr 340px}
 }
@@ -461,6 +464,7 @@ button.wide{width:100%}
 .three-d-canvas-wrap{position:relative;flex:1;min-height:0;background:radial-gradient(circle at 50% 35%,#1e4e5c,#07151d 72%)}
 #threeDCanvas{display:block;width:100%;height:100%}
 .three-d-overlay{position:absolute;left:12px;bottom:10px;padding:6px 9px;border-radius:5px;background:rgba(5,20,28,.76);font-size:10px;color:#d5e9ef;pointer-events:none}
+#mapWorkspace.dimensions-hidden .side-label,#mapWorkspace.dimensions-hidden .live-label,#mapWorkspace.dimensions-hidden .angle-label,#mapWorkspace.dimensions-hidden .dimension-guide,#mapWorkspace.dimensions-hidden .site-dimension-hud,#mapWorkspace.dimensions-hidden .obstacle-dimension-hud{display:none!important}
 .three-d-footer{padding:8px 12px;background:#0d202a;color:#93adb7;font-size:10px;border-top:1px solid rgba(255,255,255,.08)}
 @media(max-width:700px){.three-d-card{height:calc(100vh - 12px);width:calc(100vw - 12px)}#threeDDataStatus{width:100%;margin-left:0}.three-d-toolbar input[type=range]{width:100px}}
 
@@ -490,6 +494,14 @@ button.wide{width:100%}
     <div class="map-pane primary-pane" id="primaryPane">
       <div id="map" aria-label="Primary HD satellite map"></div>
       <div class="map-bottom-controls">
+        <button id="dimensionsToggle" class="labels-switch on" type="button" aria-pressed="true" title="Show or hide dimension labels and angle guides">
+          <svg class="labels-map-icon" viewBox="0 0 28 28" aria-hidden="true">
+            <rect x="3" y="8" width="22" height="12" rx="2" fill="#1e4b91"/>
+            <path d="M7 9v5m4-5v3m4-3v5m4-5v3m4-3v5" stroke="#fff" stroke-width="1.5"/>
+          </svg>
+          <span class="labels-caption">DIMENSIONS</span>
+          <span class="labels-track"><span class="labels-knob"></span><span id="dimensionsState">ON</span></span>
+        </button>
         <button id="labelsToggle" class="labels-switch off" type="button" aria-pressed="false" title="Show or hide place-name and road labels">
           <svg class="labels-map-icon" viewBox="0 0 28 28" aria-hidden="true">
             <path d="M14 2.2c-4.5 0-8.1 3.4-8.1 7.7 0 5.3 8.1 15.3 8.1 15.3s8.1-10 8.1-15.3c0-4.3-3.6-7.7-8.1-7.7z" fill="#1e4b91"/>
@@ -718,6 +730,23 @@ button.wide{width:100%}
       </div>
     </section>
 
+    <!-- PROFESSIONAL ADVANCED TOOLS -->
+    <section class="sidebar-section pro-tools-section">
+      <details id="professionalToolsPanel">
+        <summary>Advanced Geometry Tools</summary>
+        <div id="professionalToolsBody" class="pro-tools-body">
+          <div class="pro-tool-group"><b>Angle Control</b>
+            <label>Corner angle (°)<span><input id="proAngleInput" type="number" min="0.1" max="179.9" step="0.1" placeholder="Enter angle"><select id="proAngleSide"><option>LEFT</option><option>RIGHT</option></select></span></label>
+            <div class="pro-tool-buttons"><button id="proAngleApply" type="button">APPLY / SAVE SETTING</button><button id="proAngleClear" type="button">CLEAR</button></div>
+            <div id="proPrecisionState" class="pro-tool-state">ANGLE: FREE • draw next point or select a SITE point</div>
+          </div>
+          <div class="pro-tool-group"><b>Drawing assistance</b><div id="professionalActionButtons" class="pro-tool-buttons"></div><div id="snapFeedback" class="pro-tool-state">SNAP: OFF</div></div>
+          <div class="pro-tool-group"><b>Coordinates & files</b><div id="professionalImportButtons" class="pro-tool-buttons"></div></div>
+          <div class="pro-tool-group"><b>History & quality</b><div class="pro-tool-buttons"><button id="historyUndoButton" type="button" disabled>↶ UNDO</button><button id="historyRedoButton" type="button" disabled>↷ REDO</button></div><div id="professionalOtherButtons" class="pro-tool-buttons"></div></div>
+        </div>
+      </details>
+    </section>
+
     <!-- SAVE / DOWNLOAD -->
     <section class="sidebar-section">
       <h3>Save & Export</h3>
@@ -728,6 +757,7 @@ button.wide{width:100%}
       <div class="btn-row">
         <button id="cancelButton" class="cancel wide" type="button">✕ CANCEL</button>
       </div>
+      <div id="excelSaveTimer" class="excel-save-timer" aria-live="polite"></div>
       <div id="status" style="margin-top:6px;font-size:10px;color:#657a84;min-height:14px">Loading HD map…</div>
     </section>
   </aside>
@@ -1071,6 +1101,130 @@ const state = {
 };
 
 /* =====================================================================
+   DESIGN HISTORY — additive state snapshots only.
+   GeometryEngine and SAVE/Excel bridge calculations are not modified.
+   ===================================================================== */
+const designHistory={past:[],future:[],restoring:false,limit:100};
+const draftStorageKey="SOLAR_EPC_DRAFT_V1_"+String(projectId||"UNNAMED").replace(/[^A-Za-z0-9_.-]+/g,"_").slice(0,80);
+function plainPoint(p){return{lat:Number(p.lat),lng:Number(p.lng)}}
+function plainObstacle(o){
+  return{
+    id:String(o.id||""),type:String(o.type||"other"),geometry:String(o.geometry||"polygon"),
+    coords:(o.coords||[]).map(plainPoint),center:o.center?plainPoint(o.center):null,
+    radius:Number.isFinite(Number(o.radius))?Number(o.radius):null,
+    area:Number(o.area)||0,perimeter:Number(o.perimeter)||0,length:Number(o.length)||0,width:Number(o.width)||0,
+    clearance:Number(o.clearance)||0,remarks:String(o.remarks||""),
+    manualLength:Number.isFinite(Number(o.manualLength))?Number(o.manualLength):null,
+    manualWidth:Number.isFinite(Number(o.manualWidth))?Number(o.manualWidth):null,
+    height:Number.isFinite(Number(o.height))?Number(o.height):null
+  };
+}
+function captureDesignSnapshot(){
+  return{
+    version:1,points:(state.points||[]).map(plainPoint),closed:!!state.closed,
+    siteSetback:Number(state.siteSetback)||0,siteHeight:Number.isFinite(Number(state.siteHeight))?Number(state.siteHeight):null,
+    obstaclePresent:!!state.obstaclePresent,obstacles:(state.obstacles||[]).map(plainObstacle),
+    mode:String(state.mode||"pan"),
+    drawingObstacle:state.drawingObstacle?{
+      type:String(state.drawingObstacle.type||"polygon"),
+      points:(state.drawingObstacle.points||[]).map(plainPoint),
+      radius:Number(state.drawingObstacle.radius)||0
+    }:null,
+    selectedLocation:state.selectedLocation?plainPoint(state.selectedLocation):null
+  };
+}
+function designSnapshotText(s){return JSON.stringify(s)}
+function persistDraftFoundation(snapshot){
+  try{localStorage.setItem(draftStorageKey,JSON.stringify({savedAt:new Date().toISOString(),snapshot}));}catch(e){}
+}
+function updateHistoryButtons(){
+  const u=$("historyUndoButton"),r=$("historyRedoButton");
+  if(u)u.disabled=designHistory.past.length<=1;
+  if(r)r.disabled=designHistory.future.length===0;
+}
+function historyCheckpoint(label){
+  if(designHistory.restoring)return;
+  const snap=captureDesignSnapshot(),text=designSnapshotText(snap);
+  const last=designHistory.past[designHistory.past.length-1];
+  if(last&&last.text===text)return;
+  designHistory.past.push({label:String(label||"Design change"),snapshot:snap,text});
+  if(designHistory.past.length>designHistory.limit)designHistory.past.shift();
+  designHistory.future=[];
+  persistDraftFoundation(snap);
+  updateHistoryButtons();
+}
+function rebuildObstacleFeature(o){
+  try{
+    if(o.geometry==="polyline")return turf.buffer(turf.lineString(o.coords.map(p=>[p.lng,p.lat])),0.001/1000,{units:"kilometers"});
+    if(o.geometry==="circle"&&o.center&&Number(o.radius)>0)return GeometryEngine.circleToTurfPolygon(o.center.lat,o.center.lng,o.radius);
+    return GeometryEngine.toTurfPolygon(o.coords);
+  }catch(e){return null;}
+}
+function restoreDesignSnapshot(snapshot,label){
+  if(!snapshot)return false;
+  designHistory.restoring=true;
+  try{
+    clearLiveSegment();clearObsLive();clearObsPreview();clearObsMarkers();
+    state.markers.forEach(m=>{try{state.map.removeLayer(m)}catch(e){}});state.markers=[];
+    removeSideLabels();clearMeasurementLayers(state.measurementLayers);
+    if(state.boundary){try{state.map.removeLayer(state.boundary)}catch(e){}state.boundary=null;}
+    state.obstacles.forEach(removeObstacleLayers);clearOverlays();
+
+    state.points=(snapshot.points||[]).map(plainPoint);
+    state.closed=!!snapshot.closed;
+    state.siteSetback=Number(snapshot.siteSetback)||0;
+    state.siteHeight=Number.isFinite(Number(snapshot.siteHeight))?Number(snapshot.siteHeight):null;
+    state.obstaclePresent=!!snapshot.obstaclePresent;
+    state.selectedLocation=snapshot.selectedLocation?plainPoint(snapshot.selectedLocation):null;
+    state.selectedObstacleId=null;state.editingObstacleId=null;
+    state.drawingObstacle=snapshot.drawingObstacle?{
+      type:String(snapshot.drawingObstacle.type||"polygon"),
+      points:(snapshot.drawingObstacle.points||[]).map(plainPoint),
+      radius:Number(snapshot.drawingObstacle.radius)||0
+    }:null;
+    state.mode="pan";
+    state.obstacles=(snapshot.obstacles||[]).map(x=>{
+      const o=plainObstacle(x);o.feature=rebuildObstacleFeature(o);o.mapLayers=[];return o;
+    });
+    state.markers=state.points.map((p,i)=>createSiteMarker(p,i));
+    redrawSite();
+    state.obstacles.forEach(drawObstacleOnMap);
+    $("siteSetback").value=String(state.siteSetback);
+    $("obsYesBtn").classList.toggle("active",state.obstaclePresent);
+    $("obsNoBtn").classList.toggle("active",!state.obstaclePresent);
+    $("obstacleSection").style.display=state.obstaclePresent?"block":"none";
+    state.boundarySaved=false;
+    renderObstacleList();recomputeUsable();
+    const restoreMode=(snapshot.mode==="draw-site"&&!state.closed)?"draw-site":
+      (snapshot.mode==="draw-obstacle"&&state.drawingObstacle)?"draw-obstacle":"pan";
+    if(restoreMode==="draw-obstacle"){
+      $("obsForm").classList.add("show");
+      $("obsType").value=state.drawingObstacle.type;onObsTypeChange();
+      state.obsMarkers=state.drawingObstacle.points.map((p,i)=>{
+        const m=L.marker(p,{icon:makeObsIcon(i+1,i===0),zIndexOffset:900}).addTo(state.map);return m;
+      });
+    }
+    setMode(restoreMode);
+    if(restoreMode==="draw-obstacle")redrawObsPreview();
+    persistDraftFoundation(captureDesignSnapshot());
+    setStatus(String(label||"Design history restored")+". Review and SAVE when ready.");
+    return true;
+  }catch(e){setStatus("History restore failed safely: "+String(e?.message||e));return false;}
+  finally{designHistory.restoring=false;updateHistoryButtons();}
+}
+function historyUndo(){
+  if(designHistory.past.length<=1)return;
+  const current=designHistory.past.pop();designHistory.future.push(current);
+  const target=designHistory.past[designHistory.past.length-1];
+  restoreDesignSnapshot(target.snapshot,"Undo: "+current.label);
+}
+function historyRedo(){
+  if(!designHistory.future.length)return;
+  const target=designHistory.future.pop();designHistory.past.push(target);
+  restoreDesignSnapshot(target.snapshot,"Redo: "+target.label);
+}
+
+/* =====================================================================
    MAP INIT — sharp integer zoom, real imagery, and no mode auto-switching
    Satellite: Google satellite tiles with Esri imagery underneath as fallback.
    Satellite: sharp Google imagery.
@@ -1317,6 +1471,21 @@ $("labelsToggle").addEventListener("click",()=>{
   state.labelsVisible=!state.labelsVisible;
   updateMapLabels();
   setStatus(state.map.hasLayer(roadLayer)?"Road-map labels are built into MAP tiles.":state.labelsVisible?"Map labels ON.":"Map labels OFF — clean imagery.");
+});
+
+let dimensionsVisible=true;
+function updateDimensionsVisibility(){
+  const button=$("dimensionsToggle");
+  $("mapWorkspace").classList.toggle("dimensions-hidden",!dimensionsVisible);
+  button.classList.toggle("on",dimensionsVisible);
+  button.classList.toggle("off",!dimensionsVisible);
+  button.setAttribute("aria-pressed",String(dimensionsVisible));
+  $("dimensionsState").textContent=dimensionsVisible?"ON":"OFF";
+}
+$("dimensionsToggle").addEventListener("click",()=>{
+  dimensionsVisible=!dimensionsVisible;
+  updateDimensionsVisibility();
+  setStatus(dimensionsVisible?"Dimensions ON.":"Dimensions hidden — geometry and calculations remain active.");
 });
 
 function activateBaseLayer(which){
@@ -2279,12 +2448,18 @@ function makeSiteIcon(n,first){
 function createSiteMarker(latlng,i){
   const m=L.marker(latlng,{icon:makeSiteIcon(i+1,i===0),draggable:true,zIndexOffset:1000}).addTo(state.map);
   m.on("drag",()=>{state.points[i]={lat:m.getLatLng().lat,lng:m.getLatLng().lng};redrawSite();});
+  m.on("dragend",()=>historyCheckpoint("Move site point"));
   // The first point is the green closing handle. Leaflet markers stop map
   // click propagation, so the close action must be attached to the marker.
   m.on("click",e=>{
     if(i===0&&state.mode==="draw-site"&&state.points.length>=3){
       L.DomEvent.stop(e);
       finishSite();
+      return;
+    }
+    if(state.closed&&typeof selectAngleVertex==="function"){
+      L.DomEvent.stop(e);
+      selectAngleVertex(i);
     }
   });
   return m;
@@ -2340,7 +2515,7 @@ function addOrthogonalGuide(points,c,target){
   const t=(q[0]*ux+q[1]*uy);
   const foot=localLatLng(refA,ux*t,uy*t);
   target.push(L.polyline([[c.lat,c.lng],[foot.lat,foot.lng]],{
-    color:"#f1c40f",weight:2,dashArray:"4 4",opacity:.98,interactive:false
+    color:"#f1c40f",weight:2,dashArray:"4 4",opacity:.98,interactive:false,className:"dimension-guide"
   }).addTo(state.map));
 }
 function addPolygonMeasurements(points,target,cls,closed=true){
@@ -2364,7 +2539,7 @@ function addPolygonMeasurements(points,target,cls,closed=true){
       const th=a1+diff*(step/16);
       arc.push(localLatLng(cur,Math.cos(th)*radius,Math.sin(th)*radius));
     }
-    target.push(L.polyline(arc,{color:"#ef2633",weight:2,opacity:.98,interactive:false}).addTo(state.map));
+    target.push(L.polyline(arc,{color:"#ef2633",weight:2,opacity:.98,interactive:false,className:"dimension-guide"}).addTo(state.map));
     const mid=a1+diff/2;
     const labelPos=localLatLng(cur,Math.cos(mid)*radius*1.65,Math.sin(mid)*radius*1.65);
     target.push(L.marker(labelPos,{
@@ -2376,7 +2551,7 @@ function addPolygonMeasurements(points,target,cls,closed=true){
       const p1=localLatLng(cur,u1[0]*r,u1[1]*r);
       const p2=localLatLng(cur,(u1[0]+u2[0])*r,(u1[1]+u2[1])*r);
       const p3=localLatLng(cur,u2[0]*r,u2[1]*r);
-      target.push(L.polyline([p1,p2,p3],{color:"#f1c40f",weight:2,dashArray:"4 4",opacity:.98,interactive:false}).addTo(state.map));
+      target.push(L.polyline([p1,p2,p3],{color:"#f1c40f",weight:2,dashArray:"4 4",opacity:.98,interactive:false,className:"dimension-guide"}).addTo(state.map));
     }
   }
 }
@@ -2673,17 +2848,20 @@ function addSitePoint(latlng){
   state.siteLastCursor=null;
   resetSiteDimensionInput();
   setStatus("Site point "+(i+1)+" added. Next line can be freehand or type a distance + ENTER to lock it.");
+  historyCheckpoint("Add site point");
 }
 function finishSite(){
   clearLiveSegment();
   if(state.points.length<3){setStatus("Need at least 3 points.");return;}
   state.closed=true; redrawSite(); setMode("pan");
   setStatus("Site boundary closed. Length/Width/Area/Perimeter calculated.");
+  historyCheckpoint("Close site boundary");
 }
 function undoSite(){
   if(state.closed||!state.points.length)return;
   const m=state.markers.pop(); if(m)state.map.removeLayer(m);
   state.points.pop(); redrawSite();
+  historyCheckpoint("Remove site point");
 }
 function clearAllSite(){
   clearLiveSegment(); clearSearchMarker();
@@ -2700,6 +2878,7 @@ function clearAllSite(){
   clearOverlays();
   updateSiteStats(); setMode("pan");
   setStatus("Cleared.");
+  historyCheckpoint("Clear site and obstacles");
 }
 
 $("drawButton").addEventListener("click",()=>setMode(state.mode==="draw-site"?"pan":"draw-site"));
@@ -2720,6 +2899,7 @@ function setObstaclePresent(yes){
   if(!yes) hideObsForm();
   renderObstacleList();
   recomputeUsable();
+  historyCheckpoint(yes?"Enable obstacles":"Disable obstacles");
 }
 
 function showObsForm(editingId){
@@ -2922,6 +3102,7 @@ function addObsPoint(latlng){
       addObsMarkerPoint(target,0);
       resetObstacleDimensionInput();
       setStatus("Center fixed. Move freely or type the radius + ENTER to lock it, then click to finish.");
+      historyCheckpoint("Add obstacle centre");
       return;
     }
     const center=d.points[0];
@@ -2946,6 +3127,7 @@ function addObsPoint(latlng){
     }
     redrawObsPreview();
     setStatus("First rectangle corner fixed. Move freely or type the next distance + ENTER to lock it.");
+    historyCheckpoint("Add rectangle corner");
     return;
   }
 
@@ -2954,6 +3136,7 @@ function addObsPoint(latlng){
   resetObstacleDimensionInput();
   redrawObsPreview();
   setStatus("Obstacle point "+d.points.length+" added. Next line can be freehand or type a distance + ENTER to lock it.");
+  historyCheckpoint("Add obstacle point");
 }
 
 function undoObsPoint(){
@@ -2963,6 +3146,7 @@ function undoObsPoint(){
   resetObstacleDimensionInput();
   redrawObsPreview();
   setStatus("Obstacle point removed. Continue drawing.");
+  historyCheckpoint("Remove obstacle point");
 }
 
 function buildRectangleObstacleFromCorners(a,b,type,clearance,remarks){
@@ -3087,6 +3271,7 @@ function finalizeObstacle(obstacle){
   renderObstacleList();
   recomputeUsable();
   setStatus("Obstacle saved: "+typeLabel(obstacle.type)+" ("+state.obstacles.length+" total).");
+  historyCheckpoint("Save obstacle");
 }
 
 function drawObstacleOnMap(obstacle){
@@ -3187,6 +3372,7 @@ function renderObstacleList(){
         state.boundarySaved=false;
         renderObstacleList(); recomputeUsable();
         setStatus("Obstacle deleted.");
+        historyCheckpoint("Delete obstacle");
       }
       else if(act==="focus"){
         const b1=obstacleBounds(o); if(b1)state.map.fitBounds(b1,{padding:[40,40],maxZoom:20});
@@ -3238,6 +3424,7 @@ $("siteSetback").addEventListener("input",()=>{
   updateSiteStats();
   recomputeUsable();
 });
+$("siteSetback").addEventListener("change",()=>historyCheckpoint("Change site setback"));
 function clearOverlays(){
   ["setbackLayer","clearanceLayer","usableLayer"].forEach(k=>{
     if(state[k]){try{state.map.removeLayer(state[k])}catch(e){} state[k]=null;}
@@ -4060,6 +4247,87 @@ $("cancelButton").addEventListener("click",async()=>{
   if(history.length>1)history.back();
   else setStatus("Map session cancelled. You can close this window.");
 });
+
+/* SOLAR EPC ADDITIVE PRECISION TOOLKIT — calculation/SAVE engines untouched */
+const precisionTools={snap:true,constraint:"OFF",bearing:null,editMarkers:[]};
+function addProButton(id,text,title,fn,target="professionalActionButtons"){const b=document.createElement("button");b.id=id;b.type="button";b.textContent=text;b.title=title;b.addEventListener("click",fn);$(target)?.appendChild(b);return b;}
+function normBearing(v){v=Number(v);return Number.isFinite(v)?((v%360)+360)%360:null;}
+function destinationAt(a,metres,bearing){const d=turf.destination(turf.point([a.lng,a.lat]),metres/1000,bearing,{units:"kilometers"});return{lat:d.geometry.coordinates[1],lng:d.geometry.coordinates[0]};}
+let snapCandidateMarker=null;
+function allSnapCandidates(){const out=[];const addRing=(pts,closed)=>{(pts||[]).forEach((p,i)=>{out.push({point:p,type:"VERTEX"});if(i)out.push({point:midpoint(pts[i-1],p),type:"MIDPOINT"});});if(closed&&pts?.length>2)out.push({point:midpoint(pts[pts.length-1],pts[0]),type:"MIDPOINT"});};addRing(state.points,state.closed);state.obstacles.forEach(o=>addRing(o.coords,o.geometry!=="polyline"));return out;}
+function findSnapCandidate(raw){if(!precisionTools.snap||!state.map)return null;const rp=state.map.latLngToContainerPoint(raw);let best=null,dist=15;for(const c of allSnapCandidates()){const cp=state.map.latLngToContainerPoint(c.point),d=rp.distanceTo(cp);if(d<dist){dist=d;best={point:c.point,type:c.type};}}const rings=[{points:state.points,closed:state.closed},...state.obstacles.map(o=>({points:o.coords||[],closed:o.geometry!=="polyline"}))];for(const item of rings){const ring=item.points,closed=item.closed&&ring.length>2,limit=closed?ring.length:ring.length-1;for(let i=0;i<limit;i++){const p1=ring[i],p2=ring[(i+1)%ring.length];if(!p1||!p2)continue;const a=state.map.latLngToContainerPoint(p1),b=state.map.latLngToContainerPoint(p2),vx=b.x-a.x,vy=b.y-a.y,q=Math.max(0,Math.min(1,((rp.x-a.x)*vx+(rp.y-a.y)*vy)/(vx*vx+vy*vy||1))),x=a.x+q*vx,y=a.y+q*vy,d=Math.hypot(rp.x-x,rp.y-y);if(d<dist){dist=d;const ll=state.map.containerPointToLatLng([x,y]);best={point:{lat:ll.lat,lng:ll.lng},type:"EDGE"};}}}return best;}
+function showSnapCandidate(c){if(snapCandidateMarker){state.map.removeLayer(snapCandidateMarker);snapCandidateMarker=null;}if(!c){$("snapFeedback").textContent=precisionTools.snap?"SNAP: READY — freehand":"SNAP: OFF";return;}const color=c.type==="VERTEX"?"#00a65a":c.type==="MIDPOINT"?"#1769aa":"#d97706";snapCandidateMarker=L.circleMarker([c.point.lat,c.point.lng],{radius:7,color,weight:3,fillColor:"#fff",fillOpacity:.85,interactive:false}).addTo(state.map);$("snapFeedback").textContent="SNAP: "+c.type;}
+function snappedPoint(raw){const c=findSnapCandidate(raw);showSnapCandidate(c);return c?{lat:c.point.lat,lng:c.point.lng}:raw;}
+state.map.on("mousemove",e=>{if(state.mode==="draw-site"||state.mode==="draw-obstacle")showSnapCandidate(findSnapCandidate({lat:e.latlng.lat,lng:e.latlng.lng}));});
+const originalAddSitePoint=addSitePoint;addSitePoint=function(p){const c=findSnapCandidate(p);if(state.mode==="draw-site"&&!state.closed&&state.points.length>=3&&c&&c.type==="VERTEX"){const first=state.points[0];if(Math.abs(c.point.lat-first.lat)<1e-10&&Math.abs(c.point.lng-first.lng)<1e-10){showSnapCandidate(c);finishSite();setStatus("SITE closed automatically at Point 1. Review or drag any corner before SAVE.");return;}}showSnapCandidate(c);return originalAddSitePoint(c?{lat:c.point.lat,lng:c.point.lng}:p);};
+const originalAddObsPoint=addObsPoint;addObsPoint=function(p){return originalAddObsPoint(snappedPoint(p));};
+let selectedAngleVertexIndex=null,angleSelectionMarker=null;
+function activeCornerBearing(base){const a=Number($("proAngleInput")?.value);if(!Number.isFinite(a)||a<=0||a>=180)return null;const turn=180-a,side=$("proAngleSide")?.value||"LEFT";return normBearing(base+(side==="RIGHT"?turn:-turn));}
+function updatePrecisionState(message){const a=$("proAngleInput")?.value,side=$("proAngleSide")?.value||"LEFT";$("proPrecisionState").textContent=message||(a?"ANGLE: "+a+"° "+side+" • setting ready":"ANGLE: FREE • draw next point or select a SITE point");}
+function selectAngleVertex(i){selectedAngleVertexIndex=i;if(angleSelectionMarker)state.map.removeLayer(angleSelectionMarker);const p=state.points[i];angleSelectionMarker=L.circleMarker([p.lat,p.lng],{radius:10,color:"#ffb000",weight:3,fillColor:"#fff3c4",fillOpacity:.45,interactive:false}).addTo(state.map);$("professionalToolsPanel").open=true;updatePrecisionState("POINT "+(i+1)+" SELECTED • enter angle and APPLY");}
+function applyAngleSetting(){const a=Number($("proAngleInput").value);if(!Number.isFinite(a)||a<=0||a>=180){alert("Enter a corner angle greater than 0° and less than 180°.");return;}if(selectedAngleVertexIndex!=null&&state.closed&&state.points.length>=3){const n=state.points.length,i=selectedAngleVertexIndex,prev=state.points[(i+n-1)%n],cur=state.points[i],j=(i+1)%n,next=state.points[j],base=turf.bearing(turf.point([prev.lng,prev.lat]),turf.point([cur.lng,cur.lat])),bearing=activeCornerBearing(base),distance=GeometryEngine.distanceMeters(cur,next);state.points[j]=destinationAt(cur,distance,bearing);state.markers[j].setLatLng([state.points[j].lat,state.points[j].lng]);redrawSite();historyCheckpoint("Apply site corner angle");selectAngleVertex(i);updatePrecisionState("POINT "+(i+1)+" • ANGLE APPLIED: "+a+"° "+$("proAngleSide").value);return;}updatePrecisionState("ANGLE SAVED: "+a+"° "+$("proAngleSide").value+" • applies to next point");}
+$("proAngleApply")?.addEventListener("click",applyAngleSetting);$("proAngleClear")?.addEventListener("click",()=>{$("proAngleInput").value="";selectedAngleVertexIndex=null;if(angleSelectionMarker){state.map.removeLayer(angleSelectionMarker);angleSelectionMarker=null;}updatePrecisionState();});
+const originalFixedSite=getFixedSiteCursorPoint;getFixedSiteCursorPoint=function(last,cursor){if(last){let base=0;if(state.points.length>1){const p=state.points[state.points.length-2];base=turf.bearing(turf.point([p.lng,p.lat]),turf.point([last.lng,last.lat]));}const b=activeCornerBearing(base);if(b!=null){const metres=Number(state.siteFixedSegmentLength)>0?Number(state.siteFixedSegmentLength):GeometryEngine.distanceMeters(last,cursor);return destinationAt(last,metres,b);}}return originalFixedSite(last,cursor);};
+const originalFixedObs=getFixedObstacleCursorPoint;getFixedObstacleCursorPoint=function(last,cursor){const pts=state.drawingObstacle?.points||[];if(last&&pts.length>1){const p=pts[pts.length-2],base=turf.bearing(turf.point([p.lng,p.lat]),turf.point([last.lng,last.lat])),b=activeCornerBearing(base);if(b!=null){const metres=Number(state.obsFixedSegmentLength)>0?Number(state.obsFixedSegmentLength):GeometryEngine.distanceMeters(last,cursor);return destinationAt(last,metres,b);}}return originalFixedObs(last,cursor);};
+function duplicateSelected(){const o=state.obstacles.find(x=>x.id===state.selectedObstacleId);if(!o){alert("Select an obstacle first.");return;}const metres=Number(prompt("Duplicate offset distance in metres:","2"));if(!(metres>0))return;const bearing=normBearing(prompt("Offset bearing (0=N, 90=E):","45"));if(bearing==null)return;const c=plainObstacle(o);c.id="OBS-"+Date.now()+"-dup";c.coords=c.coords.map(p=>destinationAt(p,metres,bearing));if(c.center)c.center=destinationAt(c.center,metres,bearing);c.feature=rebuildObstacleFeature(c);c.mapLayers=[];finalizeObstacle(c);}
+function validateDesign(){const issues=[];if(!state.closed)issues.push("ERROR: SITE boundary is not closed.");if(state.points.length<3)issues.push("ERROR: SITE requires at least 3 points.");GeometryEngine.clearError();if(state.closed&&!GeometryEngine.toTurfPolygon(state.points))issues.push("ERROR: "+(GeometryEngine.lastError()||"Invalid SITE polygon."));state.obstacles.forEach((o,i)=>{if(!o.coords?.length)issues.push("ERROR: Obstacle #"+(i+1)+" has no coordinates.");if(!(Number(o.length)>=0&&Number(o.width)>=0))issues.push("ERROR: Obstacle #"+(i+1)+" has invalid dimensions.");if(!Number.isFinite(Number(o.height)))issues.push("WARNING: Obstacle #"+(i+1)+" height is missing.");});if(state.closed&&GeometryEngine.polygonArea(state.points)<=0)issues.push("ERROR: SITE area is zero.");alert(issues.length?"GEOMETRY REVIEW\n\n"+issues.join("\n"):"READY TO SAVE\n\nNo geometry errors detected.");}
+function replaceSiteFromPoints(points,label){if(!Array.isArray(points)||points.length<3){alert("At least 3 valid points are required.");return;}for(const p of points)if(!Number.isFinite(p.lat)||!Number.isFinite(p.lng)||Math.abs(p.lat)>90||Math.abs(p.lng)>180){alert("Invalid latitude/longitude found.");return;}if(!confirm("Preview: "+points.length+" SITE points. Replace current SITE?"))return;clearAllSite();points.forEach(p=>originalAddSitePoint(p));finishSite();historyCheckpoint(label);state.map.fitBounds(L.latLngBounds(points.map(p=>[p.lat,p.lng])),{padding:[40,40]});}
+function parseCoordinateText(text){return String(text).trim().split(/\r?\n|;/).map(x=>x.trim()).filter(Boolean).map(x=>{const a=x.split(/[\s,]+/).map(Number);return{lat:a[0],lng:a[1]};});}
+function coordinateEntry(){const t=prompt("Enter one point as latitude,longitude:","");if(!t)return;const p=parseCoordinateText(t)[0];if(!p||!Number.isFinite(p.lat)||!Number.isFinite(p.lng)||Math.abs(p.lat)>90||Math.abs(p.lng)>180){alert("Invalid latitude/longitude.");return;}if(state.mode==="draw-obstacle"&&state.drawingObstacle)addObsPoint(p);else{if(state.closed){alert("Clear or undo the closed SITE before appending another SITE point.");return;}if(state.mode!=="draw-site")setMode("draw-site");addSitePoint(p);}state.map.panTo([p.lat,p.lng]);}
+function parseImport(text,name){const low=name.toLowerCase();if(low.endsWith(".geojson")||low.endsWith(".json")){const j=JSON.parse(text),g=j.type==="FeatureCollection"?j.features[0]?.geometry:j.type==="Feature"?j.geometry:j;let c=g.type==="Polygon"?g.coordinates[0]:g.type==="LineString"?g.coordinates:null;if(!c)throw Error("First geometry must be Polygon or LineString.");return c.map(x=>({lat:Number(x[1]),lng:Number(x[0])}));}if(low.endsWith(".kml")){const d=new DOMParser().parseFromString(text,"application/xml"),n=d.querySelector("coordinates");if(!n)throw Error("KML coordinates not found.");return n.textContent.trim().split(/\s+/).map(x=>{const a=x.split(",").map(Number);return{lat:a[1],lng:a[0]};});}const rows=String(text).trim().split(/\r?\n/).filter(Boolean);return rows.map(r=>r.split(",")).filter(a=>Number.isFinite(Number(a[0]))&&Number.isFinite(Number(a[1]))).map(a=>({lat:Number(a[0]),lng:Number(a[1])}));}
+function importGeometry(){const i=document.createElement("input");i.type="file";i.accept=".csv,.json,.geojson,.kml";i.onchange=async()=>{try{const f=i.files[0];if(f)replaceSiteFromPoints(parseImport(await f.text(),f.name),"Import "+f.name);}catch(e){alert("Import rejected: "+e.message);}};i.click();}
+function restoreDraftTool(){try{const d=JSON.parse(localStorage.getItem(draftStorageKey)||"null");if(!d?.snapshot){alert("No draft exists for this project.");return;}if(confirm("Restore draft saved "+d.savedAt+"?")){restoreDesignSnapshot(d.snapshot,"Draft restored");historyCheckpoint("Restore draft");}}catch(e){alert("Draft is invalid and was not restored.");}}
+function editSelectedObstacle(){precisionTools.editMarkers.forEach(m=>state.map.removeLayer(m));precisionTools.editMarkers=[];const o=state.obstacles.find(x=>x.id===state.selectedObstacleId);if(!o||o.geometry==="circle"){alert("Select a polygon, rectangle or line obstacle.");return;}o.coords.forEach((p,i)=>{const m=L.marker(p,{draggable:true,icon:makeObsIcon(i+1,i===0),zIndexOffset:1600}).addTo(state.map);m.on("drag",()=>{o.coords[i]=plainPoint(m.getLatLng());removeObstacleLayers(o);o.feature=rebuildObstacleFeature(o);o.area=o.geometry==="polyline"?0:GeometryEngine.polygonArea(o.coords);o.perimeter=o.geometry==="polyline"?GeometryEngine.lengthOfPolyline(o.coords):GeometryEngine.perimeterOfRing(o.coords);const b=GeometryEngine.minAreaOBB(o.coords);o.length=b.length;o.width=b.width;drawObstacleOnMap(o);recomputeUsable();});m.on("dragend",()=>historyCheckpoint("Edit obstacle geometry"));precisionTools.editMarkers.push(m);});setStatus("Drag obstacle vertices. Click EDIT again after selecting another obstacle to finish.");}
+addProButton("snapTool","SNAP ON","Toggle visible vertex/midpoint/edge snapping",()=>{precisionTools.snap=!precisionTools.snap;$("snapTool").textContent=precisionTools.snap?"SNAP ON":"SNAP OFF";$("snapFeedback").textContent=precisionTools.snap?"SNAP: READY":"SNAP: OFF";if(!precisionTools.snap&&snapCandidateMarker){state.map.removeLayer(snapCandidateMarker);snapCandidateMarker=null;}});
+let osmFootprintPick=false,osmPreviewLayer=null;
+function stopOsmFootprintPick(){osmFootprintPick=false;state.map.getContainer().style.cursor="";}
+async function fetchOsmBuildingFootprint(latlng){
+  stopOsmFootprintPick();
+  if(osmPreviewLayer){state.map.removeLayer(osmPreviewLayer);osmPreviewLayer=null;}
+  setStatus("OSM AUTO AREA: searching mapped building and area polygons containing the selected point…");
+  const la=Number(latlng.lat).toFixed(7),lo=Number(latlng.lng).toFixed(7);
+  const q='[out:json][timeout:20];way(around:100,'+la+','+lo+')[~"^(building|landuse|leisure|amenity|natural|area)$"~"."];out tags geom;';
+  const endpoints=["https://maps.mail.ru/osm/tools/overpass/api/interpreter","https://overpass.private.coffee/api/interpreter","https://overpass-api.de/api/interpreter"];
+  let data=null,lastError=null;
+  for(const endpoint of endpoints){let timer=0;try{const controller=new AbortController();timer=setTimeout(()=>controller.abort(),25000);const url=endpoint+"?data="+encodeURIComponent(q);const r=await fetch(url,{method:"GET",mode:"cors",cache:"no-store",signal:controller.signal});clearTimeout(timer);if(!r.ok)throw new Error(new URL(endpoint).hostname+" returned HTTP "+r.status);data=await r.json();if(!data||!Array.isArray(data.elements))throw new Error("Invalid response from "+new URL(endpoint).hostname);break;}catch(e){clearTimeout(timer);lastError=e;}}
+  if(!data)throw lastError||new Error("All free OSM services are unavailable");
+  if($("osmFootprintTool"))$("osmFootprintTool").textContent="OSM AUTO AREA";
+  const click=turf.point([latlng.lng,latlng.lat]);
+  const areaType=tags=>tags.building?"BUILDING":tags.landuse?"LAND USE — "+tags.landuse:tags.leisure?"LEISURE — "+tags.leisure:tags.amenity?"AMENITY — "+tags.amenity:tags.natural?"NATURAL — "+tags.natural:tags.boundary?"BOUNDARY — "+tags.boundary:tags.area==="yes"?"MAPPED AREA":"AREA";
+  const candidates=(data.elements||[]).map(el=>{let pts=(el.geometry||[]).map(g=>({lat:Number(g.lat),lng:Number(g.lon)})).filter(p=>Number.isFinite(p.lat)&&Number.isFinite(p.lng));if(pts.length<4)return null;const closed=Math.abs(pts[0].lat-pts[pts.length-1].lat)<1e-10&&Math.abs(pts[0].lng-pts[pts.length-1].lng)<1e-10;if(!closed)return null;pts.pop();if(pts.length<3)return null;const feature=GeometryEngine.toTurfPolygon(pts);if(!feature)return null;let contains=false,edgeDistance=Infinity;try{contains=turf.booleanPointInPolygon(click,feature);edgeDistance=turf.pointToLineDistance(click,turf.polygonToLine(feature),{units:"meters"});}catch(e){}if(!Number.isFinite(edgeDistance)){const c=turf.centroid(feature).geometry.coordinates;edgeDistance=GeometryEngine.distanceMeters({lat:latlng.lat,lng:latlng.lng},{lat:c[1],lng:c[0]});}const area=GeometryEngine.polygonArea(pts),tags=el.tags||{};return{pts,feature,contains,edgeDistance,area,id:el.id,type:areaType(tags),name:String(tags.name||tags["name:en"]||"").trim()};}).filter(Boolean).sort((a,b)=>{if(a.contains!==b.contains)return a.contains?-1:1;if(a.contains&&b.contains)return a.area-b.area;return a.edgeDistance-b.edgeDistance;});
+  if(!candidates.length||(!candidates[0].contains&&candidates[0].edgeDistance>50)){setStatus("OSM AUTO AREA: no credible mapped polygon found within 50 m. Existing SITE unchanged.");setTimeout(()=>{if(confirm("NO NEARBY OSM AREA FOUND\n\nNo mapped building or polygon was found close enough to the selected point. Start guided manual SITE drawing instead?")){if(state.closed&&state.points.length&&!confirm("Clear the current SITE and obstacles before starting a new drawing?"))return;if(state.points.length)clearAllSite();precisionTools.snap=true;$("snapTool").textContent="SNAP ON";$("snapFeedback").textContent="SNAP: READY — click visible corners";setMode("draw-site");setStatus("SELECT FIRST CORNER: the centre search click was not stored. Click the actual first boundary corner, continue around the SITE, then click near Point 1 to close.");}},60);return;}
+  const best=candidates[0],area=best.area,matchText=best.contains?"CONTAINING":"NEAREST — "+fmt(best.edgeDistance)+" m OFFSET";
+  osmPreviewLayer=L.polygon(best.pts.map(p=>[p.lat,p.lng]),{color:"#8b5cf6",weight:4,dashArray:"7 5",fillColor:"#a78bfa",fillOpacity:.22,interactive:false}).addTo(state.map);
+  state.map.fitBounds(osmPreviewLayer.getBounds(),{padding:[45,45]});
+  setStatus("OSM preview: "+matchText+" • "+best.type+(best.name?" • "+best.name:"")+" • "+best.pts.length+" points • "+fmt(area)+" m² • verify before confirmation.");
+  setTimeout(()=>{const ok=confirm("OSM AUTO AREA PREVIEW\n\nMatch: "+matchText+"\nType: "+best.type+(best.name?"\nName: "+best.name:"")+"\nPoints: "+best.pts.length+"\nArea: "+fmt(area)+" m²\nOSM Way: "+best.id+"\n\nThis is mapped open data, not an exact satellite survey. Replace the current SITE with this polygon?");if(!ok){if(osmPreviewLayer){state.map.removeLayer(osmPreviewLayer);osmPreviewLayer=null;}setStatus("OSM footprint cancelled. Existing SITE unchanged.");return;}const pts=best.pts.map(plainPoint);if(osmPreviewLayer){state.map.removeLayer(osmPreviewLayer);osmPreviewLayer=null;}clearAllSite();pts.forEach(p=>originalAddSitePoint(p));finishSite();historyCheckpoint("Import OSM building footprint");state.map.fitBounds(L.latLngBounds(pts.map(p=>[p.lat,p.lng])),{padding:[40,40]});setStatus("OSM "+best.type+" applied • verify every corner and dimension before SAVE.");},80);
+}
+addProButton("osmFootprintTool","OSM AUTO AREA","Fetch and preview a containing mapped OSM building or area polygon",()=>{setMode("pan");osmFootprintPick=true;state.map.getContainer().style.cursor="crosshair";setStatus("OSM AUTO AREA: click inside the required building or mapped polygon area.");});
+state.map.on("click",e=>{if(!osmFootprintPick)return;fetchOsmBuildingFootprint(e.latlng).catch(err=>{stopOsmFootprintPick();console.error("OSM footprint failed:",err);if($("osmFootprintTool"))$("osmFootprintTool").textContent="RETRY OSM";const reason=err?.name==="AbortError"?"request timed out":String(err?.message||"network/CORS error");setStatus("OSM unavailable ("+reason+"). Existing SITE unchanged — click RETRY OSM to try again.");});});
+addProButton("coordinateTool","ADD POINT","Add one SITE/current-obstacle coordinate",coordinateEntry,"professionalImportButtons");
+addProButton("importTool","IMPORT FILE","Import CSV, GeoJSON or KML",importGeometry,"professionalImportButtons");
+addProButton("draftTool","RESTORE DRAFT","Restore local project draft",restoreDraftTool,"professionalOtherButtons");
+addProButton("duplicateTool","DUPLICATE","Duplicate selected obstacle by offset",duplicateSelected,"professionalOtherButtons");
+addProButton("validateTool","VALIDATE","Run geometry validation",validateDesign,"professionalOtherButtons");
+let excelTimerStart=0,excelTimerHandle=0;const originalSetStatus=setStatus;
+function renderExcelTimer(kind,text){const el=$("excelSaveTimer");if(!el)return;el.className="excel-save-timer show"+(kind?" "+kind:"");el.textContent=text;}
+function startExcelTimer(){excelTimerStart=Date.now();clearInterval(excelTimerHandle);renderExcelTimer("","Saving to Excel… 00:00");excelTimerHandle=setInterval(()=>{const n=Math.floor((Date.now()-excelTimerStart)/1000);renderExcelTimer("","Saving to Excel… "+String(Math.floor(n/60)).padStart(2,"0")+":"+String(n%60).padStart(2,"0"));},250);}
+function finishExcelTimer(ok,text){clearInterval(excelTimerHandle);excelTimerHandle=0;renderExcelTimer(ok?"success":"error",text);if(ok)setTimeout(()=>{$("excelSaveTimer").className="excel-save-timer";},3500);}
+setStatus=function(text){originalSetStatus(text);const t=String(text||"");if(t.includes("Saved successfully to Excel"))finishExcelTimer(true,"Successfully imported to Excel ✓");else if(t.includes("acknowledgement is still pending")||t.includes("SAVE failed"))finishExcelTimer(false,"Excel import pending — data retained safely");else if(t.includes("Save cancelled")){clearInterval(excelTimerHandle);excelTimerHandle=0;$("excelSaveTimer").className="excel-save-timer";}};
+$("saveButton").addEventListener("click",startExcelTimer,true);
+$("historyUndoButton").addEventListener("click",historyUndo);
+$("historyRedoButton").addEventListener("click",historyRedo);
+window.addEventListener("keydown",e=>{
+  const active=document.activeElement;
+  if(active&&(active.tagName==="INPUT"||active.tagName==="TEXTAREA"||active.isContentEditable))return;
+  const key=String(e.key||"").toLowerCase();
+  if((e.ctrlKey||e.metaKey)&&key==="z"){
+    e.preventDefault();historyUndo();
+  }else if((e.ctrlKey||e.metaKey)&&key==="y"){
+    e.preventDefault();historyRedo();
+  }
+},true);
+setTimeout(()=>{historyCheckpoint("Initial design");updateHistoryButtons();},0);
 
 setStatus("HD map ready. Search a location or click SELECT.");
 setTimeout(async()=>{
