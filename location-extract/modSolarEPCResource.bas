@@ -3,7 +3,7 @@ Option Explicit
 
 '==========================================================================
 ' SOLAR EPC - NASA POWER HOURLY RESOURCE MODULE + AUTOMATIC LOCATION FILL
-' Version 3.2
+' Version 3.3
 '
 ' YE FILE TUMHARE PURANE modSolarEPCResource KA POORA REPLACEMENT HAI.
 '   - v2.1/v2.2 ka SARA kaam waise hi chalta hai: NASA POWER hourly import,
@@ -17,6 +17,9 @@ Option Explicit
 '     bana deta hai (blank-only rules phir bhi lagute hain), status bar pe har
 '     step ka reason dikhta hai, aur ek diagnostic macro hai:
 '         SolarEPC_DrawnLocationDebug  -> poori chain ka report (read-only)
+'   - v3.3: GeoNames tier ab 3 endpoints try karta hai (secure https,
+'     api https, api http) + MSXML fallback; B20 me ASLI WinHttp error
+'     number aata hai (12007 DNS / 12029 connect / 12002 timeout / TLS).
 '   - v3.2: SolarEPC_ResourceRefreshLabels - purani bhari hui Location
 '     rows ko village-level label pe safely upgrade karo (suffix-rule,
 '     manual entries kabhi nahi chhute). Blank-only auto-fill waisa hi.
@@ -3115,9 +3118,10 @@ End Sub
 ' Sirf populated places (gaon/qasbe) accept hote hain, aur sirf 3 km ke andar.
 '--------------------------------------------------------------------------
 Private Function ResourceGeoNamesLabel(ByVal Lat As Double, ByVal Lon As Double) As String
-    Dim UserName As String, UrlText As String, JSONText As String
+    Dim UserName As String, QueryText As String, JSONText As String
     Dim Village As String, Taluka As String, District As String
     Dim PlaceLat As String, PlaceLon As String
+    Dim DiagText As String
     Dim Km As Double
 
     On Error GoTo Failed
@@ -3129,12 +3133,12 @@ Private Function ResourceGeoNamesLabel(ByVal Lat As Double, ByVal Lon As Double)
         Exit Function
     End If
 
-    UrlText = "https://secure.geonames.org/findNearbyPlaceNameJSON?lat=" & _
+    QueryText = "findNearbyPlaceNameJSON?lat=" & _
               ResourceDecimal(Lat, 6) & "&lng=" & ResourceDecimal(Lon, 6) & _
               "&radius=3&maxRows=1&style=LONG&username=" & UserName
-    JSONText = ResourceHttpGetJson(UrlText)
+    JSONText = ResourceGeoNamesHttp(QueryText, DiagText)
     If Len(JSONText) = 0 Then
-        ResourceSettingDiag "A20", "GEONAMES STATUS", "B20", "HTTP_FAIL - network block"
+        ResourceSettingDiag "A20", "GEONAMES STATUS", "B20", "HTTP_FAIL - " & DiagText
         Exit Function
     End If
     If InStr(1, JSONText, """" & "status" & """", vbBinaryCompare) > 0 Then
@@ -3248,3 +3252,61 @@ Failed:
     Application.StatusBar = False
     MsgBox "Label refresh failed: " & Err.Description, vbExclamation, "Solar EPC Resource"
 End Sub
+
+'--------------------------------------------------------------------------
+' v3.3: GeoNames ko 3 endpoints pe try karo (secure https -> api https ->
+' api http) aur ASLI error number/message report karo, taaki "network block"
+' jaisa andha message dobara na aaye. 12007=DNS fail, 12029=connect fail,
+' 12002=timeout, 12044/12030=certificate - B20 me sab likha aayega.
+'--------------------------------------------------------------------------
+Private Function ResourceGeoNamesHttp(ByVal QueryText As String, _
+    ByRef DiagText As String) As String
+
+    Dim Hosts As Variant
+    Dim i As Long
+    Dim HTTP As Object
+    Dim LastError As String
+
+    Hosts = Array("https://secure.geonames.org/", _
+                  "https://api.geonames.org/", _
+                  "http://api.geonames.org/")
+    For i = LBound(Hosts) To UBound(Hosts)
+        On Error GoTo NextHost
+        Set HTTP = CreateObject("WinHttp.WinHttpRequest.5.1")
+        HTTP.Open "GET", CStr(Hosts(i)) & QueryText, False
+        HTTP.setTimeouts 6000, 6000, 15000, 15000
+        HTTP.setRequestHeader "User-Agent", "Solar-EPC-Resource/3.3 (Excel location label)"
+        HTTP.setRequestHeader "Accept", "application/json"
+        HTTP.send
+        If HTTP.Status = 200 Then
+            ResourceGeoNamesHttp = HTTP.ResponseText
+            Exit Function
+        End If
+        LastError = CStr(Hosts(i)) & " HTTP " & CStr(HTTP.Status)
+NextHost:
+        If Err.Number <> 0 Then
+            LastError = CStr(Hosts(i)) & " err " & CStr(Err.Number) & " " & Left$(Err.Description, 120)
+            Err.Clear
+        End If
+    Next i
+
+    'Aakhri koshish: MSXML2 (kabhi-kabhi proxy settings alag hoti hain).
+    On Error GoTo FailedMsxml
+    Set HTTP = CreateObject("MSXML2.ServerXMLHTTP.6.0")
+    HTTP.Open "GET", "https://secure.geonames.org/" & QueryText, False
+    HTTP.setTimeouts 6000, 6000, 15000, 15000
+    HTTP.setRequestHeader "User-Agent", "Solar-EPC-Resource/3.3 (Excel location label)"
+    HTTP.send
+    If HTTP.Status = 200 Then
+        ResourceGeoNamesHttp = HTTP.ResponseText
+        Exit Function
+    End If
+    LastError = LastError & " | msxml HTTP " & CStr(HTTP.Status)
+FailedMsxml:
+    If Err.Number <> 0 Then
+        LastError = LastError & " | msxml err " & CStr(Err.Number) & " " & Left$(Err.Description, 120)
+        Err.Clear
+    End If
+    DiagText = LastError
+    ResourceGeoNamesHttp = vbNullString
+End Function
