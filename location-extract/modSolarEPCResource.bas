@@ -36,6 +36,9 @@ Private Declare PtrSafe Sub GetSystemTime Lib "kernel32" (lpSystemTime As SYSTEM
 '     number is gone - it misled a field check into believing an old module
 '     was running. The only version literals left are MODULE_VERSION itself
 '     and the changelog bullets; report boxes stamp the live version.
+'   - v3.22.9: new one-click detector macro SolarEPC_ShowModuleVersion - it
+'     stamps the version of the VERY copy that ran, so a stale duplicate in
+'     PERSONAL.XLSB or a second module can be caught in two seconds.
 '   - v3.22.8: the changelog no longer quotes that old title text literally,
 '     so a Ctrl+F search for an old version string can never produce a false
 '     hit inside this module. Verify any download by searching "3.22.8".
@@ -209,7 +212,7 @@ Private Const AUTO_LABEL_RETRIES As Long = 15     'limited retries while the lab
 Private Const MANUAL_POINT_RETRIES As Long = 15   'retries while a manual site's point is unprovable
 Private Const MANUAL_SQUARE_HALF_DEG As Double = 0.0001  '~11 m half-side of the manual NASA square
 Private Const INPUT_SHEET As String = "INPUT"
-Private Const MODULE_VERSION As String = "3.22.8"   'single source of the version tag
+Private Const MODULE_VERSION As String = "3.22.9"   'single source of the version tag
 
 
 Private Const CONFIG_SHEET As String = "_CLOUD_CFG"
@@ -3548,6 +3551,11 @@ Private Function ResourceProjectPointHistory(ByVal ProjectID As String, _
     Exit Function
 Failed:
 End Function
+
+Public Sub SolarEPC_ShowModuleVersion()
+    MsgBox "Running module version: v" & MODULE_VERSION & vbCrLf & _
+        "Workbook: " & ThisWorkbook.Name, vbInformation, "Solar EPC - Module Version"
+End Sub
 
 Public Sub SolarEPC_ManualFillNow()
     Dim Tbl As ListObject
