@@ -1,9 +1,21 @@
 Attribute VB_Name = "modSolarEPCResource"
 Option Explicit
 
+Private Type SYSTEMTIME
+    wYear As Integer
+    wMonth As Integer
+    wDayOfWeek As Integer
+    wDay As Integer
+    wHour As Integer
+    wMinute As Integer
+    wSecond As Integer
+    wMilliseconds As Integer
+End Type
+Private Declare PtrSafe Sub GetSystemTime Lib "kernel32" (lpSystemTime As SYSTEMTIME)
+
 '==========================================================================
 ' SOLAR EPC - NASA POWER HOURLY RESOURCE MODULE + AUTOMATIC LOCATION FILL
-' Version 3.8
+' Version 3.9
 '
 ' YE FILE TUMHARE PURANE modSolarEPCResource KA POORA REPLACEMENT HAI.
 '   - v2.1/v2.2 ka SARA kaam waise hi chalta hai: NASA POWER hourly import,
@@ -3265,17 +3277,6 @@ End Function
 '      deta hai (sach waala time, jhootha Now nahi)
 '   4. B21 + MsgBox me poori report deta hai
 '--------------------------------------------------------------------------
-Private Type SYSTEMTIME
-    wYear As Integer
-    wMonth As Integer
-    wDayOfWeek As Integer
-    wDay As Integer
-    wHour As Integer
-    wMinute As Integer
-    wSecond As Integer
-    wMilliseconds As Integer
-End Type
-Private Declare PtrSafe Sub GetSystemTime Lib "kernel32" (lpSystemTime As SYSTEMTIME)
 
 Private Function ResourceLocalUtcOffset() As Double
     Dim ST As SYSTEMTIME
