@@ -15,7 +15,7 @@ Private Declare PtrSafe Sub GetSystemTime Lib "kernel32" (lpSystemTime As SYSTEM
 
 '==========================================================================
 ' SOLAR EPC - NASA POWER HOURLY RESOURCE MODULE + AUTOMATIC LOCATION FILL
-' Version 3.22 (FINAL)
+' Version 3.22.1 (FINAL)
 '
 ' THIS FILE IS A COMPLETE REPLACEMENT FOR THE LEGACY modSolarEPCResource.
 '   - Every legacy capability keeps working unchanged: NASA POWER hourly
@@ -30,6 +30,10 @@ Private Declare PtrSafe Sub GetSystemTime Lib "kernel32" (lpSystemTime As SYSTEM
 '     its reason on the status bar; SolarEPC_DrawnLocationDebug produces a
 '     read-only report of the whole chain.
 '   - v3.11 FINAL: every user-facing message, status-bar line and debug
+'   - v3.22.1: the Manual Fill report now names the sheet the resource_db
+'     table lives on and whether an AutoFilter is hiding its rows, so a
+'     "filled but invisible" RESOURCE_DB can never be mistaken for an empty
+'     one again.
 '   - v3.22 FINAL: SolarEPC_ManualFillNow now also picks up site rows that
 '     carry coordinates but whose RESOURCE_DB row is still missing/unfilled,
 '     proves the point from the row's own polygon centroid first, forces row
@@ -173,7 +177,7 @@ Private Const AUTO_LABEL_RETRIES As Long = 15     'limited retries while the lab
 Private Const MANUAL_POINT_RETRIES As Long = 15   'retries while a manual site's point is unprovable
 Private Const MANUAL_SQUARE_HALF_DEG As Double = 0.0001  '~11 m half-side of the manual NASA square
 Private Const INPUT_SHEET As String = "INPUT"
-Private Const MODULE_VERSION As String = "3.22"   'single source of the version tag
+Private Const MODULE_VERSION As String = "3.22.1"   'single source of the version tag
 
 
 Private Const CONFIG_SHEET As String = "_CLOUD_CFG"
@@ -3566,6 +3570,19 @@ Public Sub SolarEPC_ManualFillNow()
 
     Set DbTbl = ResourceDbTable()
     TableFound = IIf(DbTbl Is Nothing, "NO", "YES")
+    Dim SheetName As String
+    Dim FilterText As String
+    SheetName = IIf(DbTbl Is Nothing, "(none)", DbTbl.Parent.Name)
+    FilterText = "NO"
+    On Error Resume Next
+    If Not DbTbl Is Nothing Then
+        If DbTbl.AutoFilter Is Nothing Then
+            FilterText = "NO"
+        Else
+            FilterText = IIf(DbTbl.AutoFilter.FilterMode, "YES", "NO")
+        End If
+    End If
+    On Error GoTo Failed
 
     'Pass 1: a manual row without coordinates. Pass 2: any site row whose
     'RESOURCE_DB row is still missing or unfilled (e.g. an earlier manual
@@ -3583,8 +3600,13 @@ Public Sub SolarEPC_ManualFillNow()
         Next R
     End If
     If RowFound = 0 Then
-        MsgBox "Every site row already has a filled RESOURCE_DB row." & vbCrLf & _
-            "RESOURCE_DB table 'resource_db' found: " & TableFound, vbInformation, "Solar EPC"
+        MsgBox "Every site row already has a filled RESOURCE_DB row." & vbCrLf & vbCrLf & _
+            "  resource_db table : " & TableFound & vbCrLf & _
+            "  Table lives on    : " & SheetName & vbCrLf & _
+            "  Filter hiding rows: " & FilterText & vbCrLf & vbCrLf & _
+            "If the table lives on another sheet, or a filter is active there, " & _
+            "that is where your filled rows are - clear the filter (Data > Clear) " & _
+            "or open that sheet to see them.", vbInformation, "Solar EPC"
         Exit Sub
     End If
     ProjectID = SafeCellText(Body(RowFound, cProject))
@@ -3637,7 +3659,9 @@ Public Sub SolarEPC_ManualFillNow()
             "  Project          : " & ProjectID & vbCrLf & _
             "  Point            : " & Format$(Lat, "0.000000") & ", " & Format$(Lon, "0.000000") & vbCrLf & _
             "  Fill result      : " & IIf(Len(ResultText) = 0, "(empty)", ResultText) & vbCrLf & _
-            "  resource_db table: " & TableFound & vbCrLf & vbCrLf & _
+            "  resource_db table: " & TableFound & vbCrLf & _
+            "  Table lives on    : " & SheetName & vbCrLf & _
+            "  Filter hiding rows: " & FilterText & vbCrLf & vbCrLf & _
             "If the table shows NO, the RESOURCE_DB sheet's Excel Table is not " & _
             "named 'resource_db' - rename it back and run again.", _
             vbExclamation, "Solar EPC - Manual Fill"
@@ -3654,7 +3678,11 @@ Public Sub SolarEPC_ManualFillNow()
         "  Point   : " & Format$(Lat, "0.000000") & ", " & Format$(Lon, "0.000000") & vbCrLf & _
         "  Source  : " & TierText & vbCrLf & _
         "  Written : " & ResultText & vbCrLf & _
-        "  resource_db table: " & TableFound & vbCrLf & vbCrLf & _
+        "  resource_db table: " & TableFound & vbCrLf & _
+        "  Table lives on    : " & SheetName & vbCrLf & _
+        "  Filter hiding rows: " & FilterText & vbCrLf & vbCrLf & _
+        "SKIP-NO-BLANK means the row already carried these values - look on " & _
+        "the sheet named above (and clear any active filter there) to see it." & vbCrLf & vbCrLf & _
         "The NASA import for this point has been queued.", _
         vbInformation, "Solar EPC - Manual Fill"
     Exit Sub
