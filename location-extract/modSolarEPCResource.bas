@@ -27,7 +27,7 @@ Private Declare PtrSafe Sub GetSystemTime Lib "kernel32" (lpSystemTime As SYSTEM
 '     FillLocations, MakeVillageDb, AddVillage, Resume, Stop, ShowLastError,
 '     ResumePending, ProcessNext) - so ThisWorkbook, modSolarEPCCloudRelay
 '     and every sheet button continue to compile.
-'   - v4.0.4 CLEAN FINAL: this header carries no version-by-version history
+'   - v4.0.5 CLEAN FINAL: this header carries no version-by-version history
 '     any more; everything below is current behaviour only.
 '     * Automatic fill: after a map draw + SAVE the exact centroid lands in
 '       RESOURCE_DB (blank-only cells) and in the DRAWING_DATA site
@@ -48,6 +48,10 @@ Private Declare PtrSafe Sub GetSystemTime Lib "kernel32" (lpSystemTime As SYSTEM
 '       sub-second even on tables with hundreds of rows.
 '     * Detector: SolarEPC_ShowModuleVersion stamps the version of the copy
 '       that actually ran, catching stale duplicates in one click.
+'     * The watcher tick can no longer be killed by its start-up caches: an
+'       error-value cell or a missing sheet degrades silently instead of
+'       aborting the sweep; any sweep error is recorded in _CLOUD_CFG
+'       A19/B19 and the manual macro restarts a stopped watcher.
 '     * Deletion is respected: once a site fill has been written, deleting its
 '       RESOURCE_DB row is permanent - the watcher never resurrects it
 '       (written keys persist in the hidden _CLOUD_CFG sheet); every new
@@ -66,7 +70,7 @@ Private Const AUTO_LABEL_RETRIES As Long = 15     'limited retries while the lab
 Private Const MANUAL_POINT_RETRIES As Long = 15   'retries while a manual site's point is unprovable
 Private Const MANUAL_SQUARE_HALF_DEG As Double = 0.0001  '~11 m half-side of the manual NASA square
 Private Const INPUT_SHEET As String = "INPUT"
-Private Const MODULE_VERSION As String = "4.0.4"   'single source of the version tag
+Private Const MODULE_VERSION As String = "4.0.5"   'single source of the version tag
 
 
 Private Const CONFIG_SHEET As String = "_CLOUD_CFG"
@@ -2823,9 +2827,11 @@ Private Sub DrawnLocationSweep(Optional ByVal ForceFull As Boolean = False)
     End If
     mIdleTicks = 0
     mSiteSignature = Signature
+    On Error Resume Next
     Set mFilledCache = ResourceBuildFilledMap()
     Set mExistsCache = ResourceBuildExistsMap()
     If mPersisted Is Nothing Then ResourceLoadPersistedKeys
+    On Error GoTo Done
 
     'v3.13 baseline (once per session): no-coordinate SITE rows that already
     'exist right now are never point-filled later - only manual rows created
@@ -2976,6 +2982,13 @@ Private Sub DrawnLocationSweep(Optional ByVal ForceFull As Boolean = False)
     End If
     mAutoPending = DrawnLocationPending()
 Done:
+    If Err.Number <> 0 Then
+        On Error Resume Next
+        ResourceSettingDiag "A19", "SWEEP LAST ERROR", "B19", _
+            "err " & CStr(Err.Number) & ": " & Err.Description
+        Err.Clear
+        On Error GoTo 0
+    End If
 End Sub
 
 'True while any site still carries an open retry state (missing RESOURCE_DB
@@ -3392,6 +3405,7 @@ Public Sub SolarEPC_ShowModuleVersion()
 End Sub
 
 Public Sub SolarEPC_ManualFillNow()
+    If Not mAutoActive Then SolarEPC_DrawnLocationAutoStart
     Dim Tbl As ListObject
     Dim DbTbl As ListObject
     Dim Headers As Variant
@@ -4532,7 +4546,7 @@ Private Sub ResourceLoadPersistedKeys()
     On Error GoTo 0
     If Not IsArray(Arr) Then Exit Sub
     For i = 1 To UBound(Arr, 1)
-        KeyText = Trim$(CStr(Arr(i, 1) & ""))
+        KeyText = SafeCellText(Arr(i, 1))
         If Len(KeyText) > 0 Then mPersisted(KeyText) = True
     Next i
 
@@ -4544,6 +4558,7 @@ Private Sub ResourceLoadPersistedKeys()
     Dim n As Long, R As Long
     Dim SeedKey As String
 
+    On Error Resume Next
     Set Rdb = ResourceDbTable()
     If Rdb Is Nothing Then Exit Sub
     cP = TableColumn(Rdb, "Project ID")
@@ -4556,17 +4571,18 @@ Private Sub ResourceLoadPersistedKeys()
     LatArr = Rdb.ListColumns(cLa).Range.Value2
     LonArr = Rdb.ListColumns(cLo).Range.Value2
     For R = 2 To n + 1
-        If Len(Trim$(CStr(ProjArr(R, 1) & ""))) > 0 And _
-           Len(Trim$(CStr(LatArr(R, 1) & ""))) > 0 And _
-           Len(Trim$(CStr(LonArr(R, 1) & ""))) > 0 And _
+        If Len(SafeCellText(ProjArr(R, 1))) > 0 And _
+           Len(SafeCellText(LatArr(R, 1))) > 0 And _
+           Len(SafeCellText(LonArr(R, 1))) > 0 And _
            IsNumeric(LatArr(R, 1)) And IsNumeric(LonArr(R, 1)) Then
-            SeedKey = ResourcePointKey(CStr(ProjArr(R, 1)), CDbl(LatArr(R, 1)), CDbl(LonArr(R, 1)))
+            SeedKey = ResourcePointKey(SafeCellText(ProjArr(R, 1)), Val(SafeCellText(LatArr(R, 1))), Val(SafeCellText(LonArr(R, 1))))
             If Not mPersisted.Exists(SeedKey) Then
                 mPersisted(SeedKey) = True
                 ResourcePersistKey SeedKey
             End If
         End If
     Next R
+    On Error GoTo 0
 End Sub
 
 Private Function ResourcePointKey(ByVal ProjectID As String, ByVal Lat As Double, ByVal Lon As Double) As String
