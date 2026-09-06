@@ -15,7 +15,7 @@ Private Declare PtrSafe Sub GetSystemTime Lib "kernel32" (lpSystemTime As SYSTEM
 
 '==========================================================================
 ' SOLAR EPC - NASA POWER HOURLY RESOURCE MODULE + AUTOMATIC LOCATION FILL
-' Version 3.15 (FINAL)
+' Version 3.16 (FINAL)
 '
 ' THIS FILE IS A COMPLETE REPLACEMENT FOR THE LEGACY modSolarEPCResource.
 '   - Every legacy capability keeps working unchanged: NASA POWER hourly
@@ -30,6 +30,12 @@ Private Declare PtrSafe Sub GetSystemTime Lib "kernel32" (lpSystemTime As SYSTEM
 '     its reason on the status bar; SolarEPC_DrawnLocationDebug produces a
 '     read-only report of the whole chain.
 '   - v3.11 FINAL: every user-facing message, status-bar line and debug
+'   - v3.16 FINAL: PROFESSIONAL STATUS BAR. All retry chatter, guidance
+'     text and progress narration were removed; the status bar now shows
+'     only short load/save confirmations (saved / queued / in progress /
+'     stopped). Failures are recorded silently in _CLOUD_CFG (A18/B18 for
+'     the manual point, A10/B11 for resource errors) and remain readable
+'     through SolarEPC_DrawnLocationDebug and SolarEPC_ResourceShowLastError.
 '   - v3.15 FINAL: SMOOTHNESS FIX - the watcher is now 100% OFFLINE. v3.14
 '     let the manual bridge perform synchronous HTTP (short-link redirect
 '     hops, forward geocoding) inside the sweep; on a slow or blocked
@@ -462,14 +468,14 @@ Public Sub SolarEPC_ResourceQueueImportedSite(ByVal MessageID As String)
         ResourceImportSummary RequestID
         mStoppedAfterFailure = False
         ResourceSetLastError vbNullString
-        Application.StatusBar = "Solar EPC: cached NASA resource imported for project " & ProjectID & "."
+        Application.StatusBar = "Solar EPC: NASA data saved (" & ProjectID & ")."
         Exit Sub
     End If
 
     ResourceEnqueue RequestID
     mStoppedAfterFailure = False
     ResourceSetLastError vbNullString
-    Application.StatusBar = "Solar EPC: NASA resource queued for project " & ProjectID & "."
+    Application.StatusBar = "Solar EPC: NASA import queued (" & ProjectID & ")."
     If Not mBusy And mNextRun = 0 Then SolarEPC_ResourceProcessNext
     Exit Sub
 
@@ -656,7 +662,6 @@ Public Sub SolarEPC_ResourceProcessNext()
 
     mBusy = True
     RequestID = CStr(mQueue(1))
-    Application.StatusBar = "Solar EPC: checking fast NASA POWER resource progress..."
 
     ResponseText = ResourceRequest("GET", "/v1/resource/plan/" & RequestID, _
         vbNullString, StatusCode)
@@ -713,8 +718,7 @@ Public Sub SolarEPC_ResourceProcessNext()
                 mFastHadFailure = True
             End If
         Next i
-        Application.StatusBar = "Solar EPC: NASA " & CStr(mFastRangeMonthsUsed) & _
-            "-month ranges processing in parallel; Excel remains available..."
+        Application.StatusBar = "Solar EPC: NASA import in progress..."
     Else
         mFastRangeMode = False
         For i = LBound(Months) To UBound(Months)
@@ -724,7 +728,7 @@ Public Sub SolarEPC_ResourceProcessNext()
                 mFastHadFailure = True
             End If
         Next i
-        Application.StatusBar = "Solar EPC: NASA hourly months processing in parallel; Excel remains available..."
+        Application.StatusBar = "Solar EPC: NASA import in progress..."
     End If
 
     If Slot = 0 Then GoTo RetryFailed
@@ -740,7 +744,7 @@ RetryFailed:
         ResourceSchedule 5
     Else
         mStoppedAfterFailure = True
-        Application.StatusBar = "Solar EPC: fast NASA processing stopped safely; run SolarEPC_ResourceResume to retry."
+        Application.StatusBar = "Solar EPC: NASA import stopped - run SolarEPC_ResourceResume."
     End If
     Exit Sub
 
@@ -752,7 +756,7 @@ Failed:
         ResourceSchedule 5
     Else
         mStoppedAfterFailure = True
-        Application.StatusBar = "Solar EPC: NASA resource processing stopped safely; map data remains safe."
+        Application.StatusBar = "Solar EPC: NASA import stopped."
     End If
 End Sub
 
@@ -906,14 +910,12 @@ Private Sub ResourceCheckFastRequests()
         mFailureCount = mFailureCount + 1
         If mFailureCount >= MAX_RESOURCE_FAILURES Then
             mStoppedAfterFailure = True
-            Application.StatusBar = "Solar EPC: some NASA months failed safely; run SolarEPC_ResourceResume to retry."
+            Application.StatusBar = "Solar EPC: NASA import stopped - run SolarEPC_ResourceResume."
             Exit Sub
         End If
-        Application.StatusBar = "Solar EPC: retrying only incomplete NASA months..."
         ResourceSchedule 5
     Else
         mFailureCount = 0
-        Application.StatusBar = "Solar EPC: validated NASA data stored; continuing fast parallel acquisition..."
         SolarEPC_ResourceProcessNext
     End If
     Exit Sub
@@ -936,7 +938,7 @@ Private Sub ResourceFinishCurrent(ByVal RequestID As String)
     mFastRangeMode = False
     mFastRangeFallback = False
     ResourceClearFastRequests False
-    Application.StatusBar = "Solar EPC: NASA POWER resource validated and RESOURCE_DB updated."
+    Application.StatusBar = "Solar EPC: NASA data saved to RESOURCE_DB."
     If Not mQueue Is Nothing Then
         If mQueue.Count > 0 Then
             ResourceSchedule 1
@@ -2674,8 +2676,10 @@ End Function
 ' numbers stay coordinate-exact.
 '
 ' Filled cells are NEVER overwritten, formula cells are skipped, and the
-' NASA numbers/status inside RESOURCE_DB are never touched. The only
-' feedback is a single status-bar line.
+' NASA numbers/status inside RESOURCE_DB are never touched. Status-bar
+' feedback is limited to short load/save confirmations; retries and
+' diagnostics stay silent in the hidden _CLOUD_CFG sheet and in the
+' read-only debug macro (SolarEPC_DrawnLocationDebug).
 '--------------------------------------------------------------------------
 
 Public Sub Auto_Open()
@@ -2696,8 +2700,7 @@ Public Sub SolarEPC_DrawnLocationAutoStart()
     mAutoActive = True
     DrawnLocationSweep True
     DrawnLocationSchedule DrawnLocationNextDelay()
-    Application.StatusBar = "Solar EPC: drawn-site location AUTO-fill ON (adaptive scan of " & _
-        "DRAWING_DATA, " & CStr(AUTO_TICK_SECONDS) & " s idle heartbeat)."
+    Application.StatusBar = "Solar EPC: drawn-site auto-fill ON."
     Exit Sub
 Failed:
     mAutoActive = False
@@ -2886,24 +2889,16 @@ Private Sub DrawnLocationSweep(Optional ByVal ForceFull As Boolean = False)
                                     CentroidLongitude, Attempts >= 2)
                                 If InStr(1, ResultText, "LOCPEND", vbBinaryCompare) > 0 Then
                                     'lat/lon filled, label tier offline - limited retries.
-                                    Application.StatusBar = "Solar EPC: " & ProjectID & _
-                                        " lat/lon filled; Location label offline, retry " & _
-                                        CStr(Attempts + 1) & "/" & CStr(AUTO_LABEL_RETRIES) & _
-                                        " (check internet / VILLAGE_DB / geocoding key)"
                                     If Attempts < AUTO_LABEL_RETRIES Then _
                                         mProcessed(KeyText) = "LOCPEND:" & CStr(Attempts + 1)
                                 ElseIf ResultText = "NOROW" Then
                                     'RESOURCE_DB row does not exist yet - retry, then auto-create.
-                                    Application.StatusBar = "Solar EPC: no RESOURCE_DB row for " & ProjectID & _
-                                        " (" & CStr(Attempts + 1) & ") - " & _
-                                        IIf(Attempts + 1 >= 2, "creating the row now...", "retrying...")
                                     If Attempts < AUTO_NOROW_RETRIES Then _
                                         mProcessed(KeyText) = "NOROW:" & CStr(Attempts + 1)
                                 Else
                                     mProcessed(KeyText) = "DONE"
                                     If ResultText <> "SKIP-NO-BLANK" Then
-                                        Application.StatusBar = "Solar EPC: exact drawn location " & _
-                                            "auto-filled -> " & ProjectID & " | " & ResultText
+                                        Application.StatusBar = "Solar EPC: " & ProjectID & " saved to RESOURCE_DB."
                                         DrawnLocationDiag ProjectID, ResultText, _
                                             CentroidLatitude, CentroidLongitude
                                     End If
@@ -2929,22 +2924,15 @@ Private Sub DrawnLocationSweep(Optional ByVal ForceFull As Boolean = False)
                     If ResourceManualPoint(ManualLat, ManualLon, ErrorText) Then
                         ResultText = FillResourceDbForSite(ProjectID, ManualLat, ManualLon, Attempts >= 2)
                         If InStr(1, ResultText, "LOCPEND", vbBinaryCompare) > 0 Then
-                            Application.StatusBar = "Solar EPC: manual site " & ProjectID & _
-                                " filled from the proven project point; label offline, retry " & _
-                                CStr(Attempts + 1) & "/" & CStr(AUTO_LABEL_RETRIES)
                             If Attempts < AUTO_LABEL_RETRIES Then _
                                 mProcessed(KeyText) = "LOCPEND:" & CStr(Attempts + 1)
                         ElseIf ResultText = "NOROW" Then
-                            Application.StatusBar = "Solar EPC: no RESOURCE_DB row for manual site " & _
-                                ProjectID & " (" & CStr(Attempts + 1) & ") - " & _
-                                IIf(Attempts + 1 >= 2, "creating the row now...", "retrying...")
                             If Attempts < AUTO_NOROW_RETRIES Then _
                                 mProcessed(KeyText) = "NOROW:" & CStr(Attempts + 1)
                         Else
                             mProcessed(KeyText) = "MDONE"
                             If ResultText <> "SKIP-NO-BLANK" Then
-                                Application.StatusBar = "Solar EPC: manual site auto-filled from the " & _
-                                    "proven project point -> " & ProjectID & " | " & ResultText
+                                Application.StatusBar = "Solar EPC: " & ProjectID & " saved to RESOURCE_DB."
                                 DrawnLocationDiag ProjectID, "MANUAL " & ResultText, _
                                     ManualLat, ManualLon
                             End If
@@ -2965,16 +2953,12 @@ Private Sub DrawnLocationSweep(Optional ByVal ForceFull As Boolean = False)
                         End If
                     Else
                         If Attempts < MANUAL_POINT_RETRIES Then
-                            Application.StatusBar = "Solar EPC: manual site " & ProjectID & _
-                                " carries no coordinates and no provable project point yet (" & _
-                                ErrorText & ") - retry " & CStr(Attempts + 1) & _
-                                "/" & CStr(MANUAL_POINT_RETRIES)
                             mProcessed(KeyText) = "MANPT:" & CStr(Attempts + 1)
                         Else
                             'Retries exhausted: close quietly with one actionable line.
                             mProcessed(KeyText) = "MFAIL"
-                            Application.StatusBar = "Solar EPC: manual site " & ProjectID & _
-                                " left unfilled - no provable project point (" & ErrorText & ")"
+                            ResourceSettingDiag "A18", "MANUAL POINT LAST ERROR", "B18", _
+                                ProjectID & ": " & ErrorText
                         End If
                     End If
                 End If
@@ -3036,9 +3020,7 @@ Public Sub SolarEPC_ResolveManualPointNow()
     If ResourceManualPoint(Lat, Lon, Reason) Then GoTo Apply
     If ResourcePointFromMapLink(C8Text, Lat, Lon, Reason) Then GoTo Apply
     If ResourcePointFromPlaceText(C7Text, Lat, Lon, Reason) Then GoTo Apply
-    Application.StatusBar = "Solar EPC: the manual project point could not be " & _
-        "resolved online either (" & Reason & "). Paste lat,lon into INPUT!C8 " & _
-        "or add the village to VILLAGE_DB."
+    Application.StatusBar = "Solar EPC: manual point not resolved (" & Reason & ")."
     Exit Sub
 Apply:
     'Persist the pair when C8 itself carries no offline-parsable point, so all
@@ -3050,7 +3032,7 @@ Apply:
     End If
     mManualPointCacheKey = vbNullString
     mManualPointCacheOk = False
-    Application.StatusBar = "Solar EPC: manual project point resolved and stored in INPUT!C8."
+    Application.StatusBar = "Solar EPC: manual point stored in INPUT!C8."
     SolarEPC_DrawnLocationAutoNow
     Exit Sub
 Failed:
@@ -3420,13 +3402,11 @@ Private Sub ResourceStartForPoint(ByVal ProjectID As String, ByVal Lat As Double
 
     On Error GoTo Failed
     If Not ResourceLoadConfiguration() Then
-        Application.StatusBar = "Solar EPC: manual site " & ProjectID & _
-            " filled; NASA fetch skipped (cloud configuration missing)."
+        Application.StatusBar = "Solar EPC: NASA import skipped (" & ProjectID & ")."
         Exit Sub
     End If
     If Not ResourceLoadConfiguredPeriod(ResourceStartDate, ResourceEndDate) Then
-        Application.StatusBar = "Solar EPC: manual site " & ProjectID & _
-            " filled; NASA fetch skipped (resource period not configured)."
+        Application.StatusBar = "Solar EPC: NASA import skipped (" & ProjectID & ")."
         Exit Sub
     End If
     Body = "{""projectId"":""" & ResourceJSONEscape(ProjectID) & _
@@ -3446,8 +3426,7 @@ Private Sub ResourceStartForPoint(ByVal ProjectID As String, ByVal Lat As Double
     If StatusCode <> 200 And StatusCode <> 201 Then
         ResourceSetLastError "MANUAL NASA START failed for project " & ProjectID & _
             " (HTTP " & CStr(StatusCode) & "): " & Left$(ResponseText, 500)
-        Application.StatusBar = "Solar EPC: manual site " & ProjectID & _
-            " filled; NASA fetch could not start (see SolarEPC_ResourceShowLastError)."
+        Application.StatusBar = "Solar EPC: NASA import failed to start (" & ProjectID & ")."
         Exit Sub
     End If
     RequestID = ResourceJSONValue(ResponseText, "requestId")
@@ -3457,11 +3436,11 @@ Private Sub ResourceStartForPoint(ByVal ProjectID As String, ByVal Lat As Double
     End If
     If InStr(1, ResponseText, """complete"":true", vbTextCompare) > 0 Then
         ResourceImportSummary RequestID
-        Application.StatusBar = "Solar EPC: cached NASA resource imported for manual site " & ProjectID & "."
+        Application.StatusBar = "Solar EPC: NASA data saved (" & ProjectID & ")."
         Exit Sub
     End If
     ResourceEnqueue RequestID
-    Application.StatusBar = "Solar EPC: NASA resource queued for manual site " & ProjectID & "."
+    Application.StatusBar = "Solar EPC: NASA import queued (" & ProjectID & ")."
     If Not mBusy And mNextRun = 0 Then SolarEPC_ResourceProcessNext
     Exit Sub
 Failed:
@@ -3909,8 +3888,7 @@ Public Sub SolarEPC_ResourceRefreshLabels()
         If Len(Current) > 0 And Len(LatText) > 0 And Len(LonText) > 0 And _
            Not Cell.HasFormula Then
             Checked = Checked + 1
-            Application.StatusBar = "Solar EPC: label refresh " & CStr(R) & _
-                "/" & CStr(Total) & " (manual entries are never overwritten)..."
+            Application.StatusBar = "Solar EPC: label refresh " & CStr(R) & "/" & CStr(Total)
             DoEvents
             mLastLocKey = vbNullString
             mLastLocLabel = vbNullString
