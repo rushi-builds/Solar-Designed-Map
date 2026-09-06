@@ -30,6 +30,9 @@ Private Declare PtrSafe Sub GetSystemTime Lib "kernel32" (lpSystemTime As SYSTEM
 '     its reason on the status bar; SolarEPC_DrawnLocationDebug produces a
 '     read-only report of the whole chain.
 '   - v3.11 FINAL: every user-facing message, status-bar line and debug
+'   - v3.22.5: every Manual Fill report box now stamps the running module
+'     version and the workbook name the code actually wrote into, so a stale
+'     import or a second open workbook can never hide again.
 '   - v3.22.4: import hardening round 2 - the Manual Fill before/after proof
 '     now runs through ResourceDbReadBack (bulk ListColumns Value2 reads, the
 '     same line shapes ResourceBuildFilledMap has used since v3.12); every
@@ -192,7 +195,7 @@ Private Const AUTO_LABEL_RETRIES As Long = 15     'limited retries while the lab
 Private Const MANUAL_POINT_RETRIES As Long = 15   'retries while a manual site's point is unprovable
 Private Const MANUAL_SQUARE_HALF_DEG As Double = 0.0001  '~11 m half-side of the manual NASA square
 Private Const INPUT_SHEET As String = "INPUT"
-Private Const MODULE_VERSION As String = "3.22.4"   'single source of the version tag
+Private Const MODULE_VERSION As String = "3.22.5"   'single source of the version tag
 
 
 Private Const CONFIG_SHEET As String = "_CLOUD_CFG"
@@ -3622,6 +3625,8 @@ Public Sub SolarEPC_ManualFillNow()
     End If
     If RowFound = 0 Then
         MsgBox "Every site row already has a filled RESOURCE_DB row." & vbCrLf & vbCrLf & _
+            "  Module           : v" & MODULE_VERSION & vbCrLf & _
+            "  Workbook         : " & ThisWorkbook.Name & vbCrLf & _
             "  resource_db table : " & TableFound & vbCrLf & _
             "  Table lives on    : " & SheetName & vbCrLf & _
             "  Filter hiding rows: " & FilterText & vbCrLf & vbCrLf & _
@@ -3682,6 +3687,8 @@ Public Sub SolarEPC_ManualFillNow()
 
     If ResultText = "NOROW" Or Len(ResultText) = 0 Then
         MsgBox "The point was proven but RESOURCE_DB could not be written." & vbCrLf & vbCrLf & _
+            "  Module          : v" & MODULE_VERSION & vbCrLf & _
+            "  Workbook        : " & ThisWorkbook.Name & vbCrLf & _
             "  Project          : " & ProjectID & vbCrLf & _
             "  Point            : " & Format$(Lat, "0.000000") & ", " & Format$(Lon, "0.000000") & vbCrLf & _
             "  Fill result      : " & IIf(Len(ResultText) = 0, "(empty)", ResultText) & vbCrLf & _
@@ -3701,6 +3708,8 @@ Public Sub SolarEPC_ManualFillNow()
         ResourceStartForPoint ProjectID, Lat, Lon
     End If
     MsgBox "Manual site filled." & vbCrLf & vbCrLf & _
+        "  Module  : v" & MODULE_VERSION & vbCrLf & _
+        "  Workbook: " & ThisWorkbook.Name & vbCrLf & _
         "  Project : " & ProjectID & vbCrLf & _
         "  Point   : " & Format$(Lat, "0.000000") & ", " & Format$(Lon, "0.000000") & vbCrLf & _
         "  Source  : " & TierText & vbCrLf & _
