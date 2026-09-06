@@ -3,7 +3,7 @@ Option Explicit
 
 '==========================================================================
 ' SOLAR EPC - NASA POWER HOURLY RESOURCE MODULE + AUTOMATIC LOCATION FILL
-' Version 3.5
+' Version 3.6
 '
 ' YE FILE TUMHARE PURANE modSolarEPCResource KA POORA REPLACEMENT HAI.
 '   - v2.1/v2.2 ka SARA kaam waise hi chalta hai: NASA POWER hourly import,
@@ -3075,6 +3075,7 @@ Public Sub SolarEPC_DrawnLocationDebug()
                       "   Google tier: " & IIf(Len(GoogleStatus) > 0, GoogleStatus, "-") & _
                       IIf(Len(GoogleDetail) > 0, " (" & Left$(GoogleDetail, 120) & ")", "") & vbCrLf & _
                       "   Last auto-fill: " & IIf(Len(LastFill) > 0, LastFill, "-") & vbCrLf
+        P2 = P2 & "   Date/Time stamp: " & CStr(ws.Range("B21").Value2) & vbCrLf
         End If
     End If
     P2 = P2 & vbCrLf & "Ye report copy ho gayi hai clipboard pe."
@@ -3118,13 +3119,25 @@ Private Sub ResourceStampLocalRunTime(ByVal Tbl As ListObject, ByVal Target As R
         C = ResourceDateTimeColumn(Tbl)
     End If
     On Error GoTo 0
-    If C = 0 Then Exit Sub
+    If C = 0 Then
+        ResourceSettingDiag "A21", "DATE/TIME STAMP", "B21", "NO COLUMN"
+        Exit Sub
+    End If
     Set Cell = Target.Cells(1, C)
     If Cell Is Nothing Then Exit Sub
-    If Cell.HasFormula Then Exit Sub
-    If Len(Trim$(CStr(Cell.Value2))) > 0 Then Exit Sub     'blank-only, hamesha
+    If Cell.HasFormula Then
+        ResourceSettingDiag "A21", "DATE/TIME STAMP", "B21", "FORMULA CELL (row " & CStr(Target.Row) & ")"
+        Exit Sub
+    End If
+    If Len(Trim$(CStr(Cell.Value2))) > 0 Then     'blank-only, hamesha
+        ResourceSettingDiag "A21", "DATE/TIME STAMP", "B21", _
+            "NOT BLANK row " & CStr(Target.Row) & ": value=[" & Left$(CStr(Cell.Value2), 40) & "]"
+        Exit Sub
+    End If
     Cell.NumberFormat = "dd-mm-yyyy hh:nn:ss"
     Cell.Value2 = Now                                      'real date value
+    ResourceSettingDiag "A21", "DATE/TIME STAMP", "B21", _
+        "OK row " & CStr(Target.Row) & " = " & Format$(Now, "dd-mm-yyyy hh:nn:ss")
 End Sub
 
 
