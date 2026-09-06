@@ -15,7 +15,7 @@ Private Declare PtrSafe Sub GetSystemTime Lib "kernel32" (lpSystemTime As SYSTEM
 
 '==========================================================================
 ' SOLAR EPC - NASA POWER HOURLY RESOURCE MODULE + AUTOMATIC LOCATION FILL
-' Version 3.18 (FINAL)
+' Version 3.19 (FINAL)
 '
 ' THIS FILE IS A COMPLETE REPLACEMENT FOR THE LEGACY modSolarEPCResource.
 '   - Every legacy capability keeps working unchanged: NASA POWER hourly
@@ -30,6 +30,9 @@ Private Declare PtrSafe Sub GetSystemTime Lib "kernel32" (lpSystemTime As SYSTEM
 '     its reason on the status bar; SolarEPC_DrawnLocationDebug produces a
 '     read-only report of the whole chain.
 '   - v3.11 FINAL: every user-facing message, status-bar line and debug
+'   - v3.19 FINAL: the status-bar version tag is read from MODULE_VERSION
+'     instead of a hard-coded string, so it can never show a stale version
+'     again (v3.18 shipped with a v3.17 tag in that one line).
 '   - v3.18 FINAL: HONEST IMPORT REPORTING. The NASA summary import and the
 '     RESOURCE_DB write now return success/failure instead of swallowing
 '     errors: every failed stage records its reason, readable via
@@ -148,6 +151,7 @@ Private Const AUTO_LABEL_RETRIES As Long = 15     'limited retries while the lab
 Private Const MANUAL_POINT_RETRIES As Long = 15   'retries while a manual site's point is unprovable
 Private Const MANUAL_SQUARE_HALF_DEG As Double = 0.0001  '~11 m half-side of the manual NASA square
 Private Const INPUT_SHEET As String = "INPUT"
+Private Const MODULE_VERSION As String = "3.19"   'single source of the version tag
 
 
 Private Const CONFIG_SHEET As String = "_CLOUD_CFG"
@@ -2754,7 +2758,7 @@ Public Sub SolarEPC_DrawnLocationAutoStart()
     'v3.17: the first sweep is scheduled, not synchronous - opening the
     'workbook never waits on the watcher.
     DrawnLocationSchedule 2
-    Application.StatusBar = "Solar EPC: drawn-site auto-fill ON (v3.17)."
+    Application.StatusBar = "Solar EPC: drawn-site auto-fill ON (v" & MODULE_VERSION & ")."
     Exit Sub
 Failed:
     mAutoActive = False
