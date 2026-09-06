@@ -30,6 +30,11 @@ Private Declare PtrSafe Sub GetSystemTime Lib "kernel32" (lpSystemTime As SYSTEM
 '     its reason on the status bar; SolarEPC_DrawnLocationDebug produces a
 '     read-only report of the whole chain.
 '   - v3.11 FINAL: every user-facing message, status-bar line and debug
+'   - v3.22.3: import hardening - the shipped file now uses native VBE CRLF
+'     line endings, and the Manual Fill before/after proof is built by the new
+'     ResourceDbRowProof helper with single-line statements only (zero line
+'     continuations), so older VBA6 importers parse every line exactly as
+'     shipped.
 '   - v3.22.2: fixes the VBA IsNumeric(Empty)=True trap that made blank
 '     RESOURCE_DB rows look "already filled" (manual macro refused to act and
 '     VILLAGE_DB rows with blank coordinates could win with a 0,0 point); the
@@ -182,7 +187,7 @@ Private Const AUTO_LABEL_RETRIES As Long = 15     'limited retries while the lab
 Private Const MANUAL_POINT_RETRIES As Long = 15   'retries while a manual site's point is unprovable
 Private Const MANUAL_SQUARE_HALF_DEG As Double = 0.0001  '~11 m half-side of the manual NASA square
 Private Const INPUT_SHEET As String = "INPUT"
-Private Const MODULE_VERSION As String = "3.22.2"   'single source of the version tag
+Private Const MODULE_VERSION As String = "3.22.3"   'single source of the version tag
 
 
 Private Const CONFIG_SHEET As String = "_CLOUD_CFG"
@@ -3654,37 +3659,24 @@ Public Sub SolarEPC_ManualFillNow()
 
     Dim BeforeText As String
     Dim AfterText As String
-    Dim RR As Long
     Dim cDbP As Long
     Dim cDbL As Long
+    BeforeText = "table missing"
+    AfterText = "(no row)"
     If Not DbTbl Is Nothing Then
         cDbP = TableColumn(DbTbl, "Project ID")
         cDbL = TableColumn(DbTbl, "Latitude (" & ChrW(176) & ")")
         BeforeText = "rows=" & CStr(DbTbl.ListRows.Count)
         If cDbP > 0 And cDbL > 0 Then
-            For RR = 1 To DbTbl.ListRows.Count
-                If StrComp(Trim$(CStr(DbTbl.ListRows(RR).Range.Cells(1, cDbP).Value2 & "")), _
-                           ProjectID, vbTextCompare) = 0 Then
-                    BeforeText = BeforeText & "; row" & CStr(RR) & " lat=[" & _
-                        CStr(DbTbl.ListRows(RR).Range.Cells(1, cDbL).Value2 & "") & "]"
-                End If
-            Next RR
+            BeforeText = BeforeText & "; " & ResourceDbRowProof(DbTbl, cDbP, cDbL, ProjectID)
         End If
-    Else
-        BeforeText = "table missing"
     End If
 
     ResultText = FillResourceDbForSite(ProjectID, Lat, Lon, True)
 
-    AfterText = vbNullString
     If Not DbTbl Is Nothing And cDbP > 0 And cDbL > 0 Then
-        For RR = 1 To DbTbl.ListRows.Count
-            If StrComp(Trim$(CStr(DbTbl.ListRows(RR).Range.Cells(1, cDbP).Value2 & "")), _
-                       ProjectID, vbTextCompare) = 0 Then
-                AfterText = AfterText & "row" & CStr(RR) & " lat=[" & _
-                    CStr(DbTbl.ListRows(RR).Range.Cells(1, cDbL).Value2 & "") & "] "
-            End If
-        Next RR
+        AfterText = ResourceDbRowProof(DbTbl, cDbP, cDbL, ProjectID)
+        If Len(AfterText) = 0 Then AfterText = "(no row)"
     End If
 
     If Len(CoordText) = 0 Then
@@ -3757,6 +3749,25 @@ Private Function ResourceProjectFilledInDb(ByVal Tbl As ListObject, ByVal Projec
             End If
         End If
     Next R
+End Function
+
+'One-line-per-row proof of what RESOURCE_DB currently holds for this project,
+'e.g. "row3 lat=[17.990241] row5 lat=[]". Written with single-line statements
+'only (no line continuations) for maximum importer robustness.
+Private Function ResourceDbRowProof(ByVal Tbl As ListObject, ByVal cProject As Long, ByVal cLat As Long, ByVal ProjectID As String) As String
+    Dim R As Long
+    Dim CellText As String
+    Dim OutText As String
+    OutText = vbNullString
+    If Tbl Is Nothing Then Exit Function
+    If cProject = 0 Or cLat = 0 Then Exit Function
+    For R = 1 To Tbl.ListRows.Count
+        CellText = Trim$(CStr(Tbl.ListRows(R).Range.Cells(1, cProject).Value2 & ""))
+        If LCase$(CellText) = LCase$(ProjectID) Then
+            OutText = OutText & "row" & CStr(R) & " lat=[" & CStr(Tbl.ListRows(R).Range.Cells(1, cLat).Value2 & "") & "] "
+        End If
+    Next R
+    ResourceDbRowProof = OutText
 End Function
 
 '--------------------------------------------------------------------------

@@ -3,7 +3,7 @@ GoTo labels, undeclared identifiers under Option Explicit, duplicate procs."""
 import re, sys, collections
 
 path = sys.argv[1]
-raw = open(path, encoding='utf-8', errors='replace').read().split('\n')
+raw = open(path, encoding='utf-8', errors='replace').read().replace('\r\n', '\n').split('\n')
 
 def strip_line(line):
     """Remove a trailing comment and mask string literals (keeps positions)."""
