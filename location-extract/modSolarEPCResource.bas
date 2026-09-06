@@ -15,7 +15,7 @@ Private Declare PtrSafe Sub GetSystemTime Lib "kernel32" (lpSystemTime As SYSTEM
 
 '==========================================================================
 ' SOLAR EPC - NASA POWER HOURLY RESOURCE MODULE + AUTOMATIC LOCATION FILL
-' Version 3.20 (FINAL)
+' Version 3.21 (FINAL)
 '
 ' THIS FILE IS A COMPLETE REPLACEMENT FOR THE LEGACY modSolarEPCResource.
 '   - Every legacy capability keeps working unchanged: NASA POWER hourly
@@ -30,6 +30,12 @@ Private Declare PtrSafe Sub GetSystemTime Lib "kernel32" (lpSystemTime As SYSTEM
 '     its reason on the status bar; SolarEPC_DrawnLocationDebug produces a
 '     read-only report of the whole chain.
 '   - v3.11 FINAL: every user-facing message, status-bar line and debug
+'   - v3.21 FINAL: ROBUSTNESS + ONE-CLICK MANUAL FILL. Bulk-read cell values
+'     are now routed through SafeCellText so an error value (#N/A, #REF!) in
+'     DRAWING_DATA can never abort a sweep mid-loop. New user-triggered macro
+'     SolarEPC_ManualFillNow fills the latest manual site synchronously and
+'     reports the exact tier that proved the point (or the exact reason every
+'     tier failed), so a stuck manual row is always recoverable in one click.
 '   - v3.20 FINAL: MANUAL AUTO-RESOLVE, NON-BLOCKING. When the offline tiers
 '     cannot prove a manual site's project point, the watcher now starts ONE
 '     background (asynchronous) HTTP request - C8 page scan, Google geocode or
@@ -159,7 +165,7 @@ Private Const AUTO_LABEL_RETRIES As Long = 15     'limited retries while the lab
 Private Const MANUAL_POINT_RETRIES As Long = 15   'retries while a manual site's point is unprovable
 Private Const MANUAL_SQUARE_HALF_DEG As Double = 0.0001  '~11 m half-side of the manual NASA square
 Private Const INPUT_SHEET As String = "INPUT"
-Private Const MODULE_VERSION As String = "3.20"   'single source of the version tag
+Private Const MODULE_VERSION As String = "3.21"   'single source of the version tag
 
 
 Private Const CONFIG_SHEET As String = "_CLOUD_CFG"
@@ -2891,13 +2897,13 @@ Private Sub DrawnLocationSweep(Optional ByVal ForceFull As Boolean = False)
         Body = Tbl.DataBodyRange.Value2
         If Not IsArray(Body) Then Exit Sub
         For R = 1 To UBound(Body, 1)
-            ReferenceText = Trim$(CStr(Body(R, cRef) & ""))
+            ReferenceText = SafeCellText(Body(R, cRef))
             'Every SITE row (drawn or manual) participates in the signature, so
             'a freshly saved manual row opens the gate within one heartbeat.
-            If Len(Trim$(CStr(Body(R, cProject) & ""))) > 0 Then
+            If Len(SafeCellText(Body(R, cProject))) > 0 Then
                 Signature = Signature & ReferenceText & "|" & _
-                    Trim$(CStr(Body(R, cProject) & "")) & "|" & _
-                    Trim$(CStr(Body(R, cCoords) & "")) & vbLf
+                    SafeCellText(Body(R, cProject)) & "|" & _
+                    SafeCellText(Body(R, cCoords)) & vbLf
             End If
         Next R
     End If
@@ -2927,11 +2933,11 @@ Private Sub DrawnLocationSweep(Optional ByVal ForceFull As Boolean = False)
                 'The manual row of the project currently open in INPUT!C5 is
                 'NOT baselined: its C7/C8 are exactly the right point, so an
                 'older unfilled manual row of this project still gets filled.
-                If Len(Trim$(CStr(Body(R, cProject) & ""))) > 0 And _
-                   Len(Trim$(CStr(Body(R, cCoords) & ""))) = 0 And _
-                   StrComp(Trim$(CStr(Body(R, cProject) & "")), CurrentProject, vbTextCompare) <> 0 Then
-                    mManualBaseline(Trim$(CStr(Body(R, cRef) & "")) & "|" & _
-                        Trim$(CStr(Body(R, cProject) & ""))) = True
+                If Len(SafeCellText(Body(R, cProject))) > 0 And _
+                   Len(SafeCellText(Body(R, cCoords))) = 0 And _
+                   StrComp(SafeCellText(Body(R, cProject)), CurrentProject, vbTextCompare) <> 0 Then
+                    mManualBaseline(SafeCellText(Body(R, cRef)) & "|" & _
+                        SafeCellText(Body(R, cProject))) = True
                 End If
             Next R
         End If
@@ -2939,9 +2945,9 @@ Private Sub DrawnLocationSweep(Optional ByVal ForceFull As Boolean = False)
 
     If RowsPresent Then
     For R = 1 To UBound(Body, 1)
-        ReferenceText = Trim$(CStr(Body(R, cRef) & ""))
-        ProjectID = Trim$(CStr(Body(R, cProject) & ""))
-        CoordinateText = Trim$(CStr(Body(R, cCoords) & ""))
+        ReferenceText = SafeCellText(Body(R, cRef))
+        ProjectID = SafeCellText(Body(R, cProject))
+        CoordinateText = SafeCellText(Body(R, cCoords))
         If Len(ProjectID) > 0 Then
             If Len(CoordinateText) > 0 Then
                 'DRAWN path (any reference format): exact polygon centroid.
@@ -3478,8 +3484,8 @@ Private Function ResourceProjectPointHistory(ByVal ProjectID As String, _
     Next H
     If cProject = 0 Or cCoords = 0 Then Exit Function
     For R = 1 To UBound(Body, 1)
-        If StrComp(Trim$(CStr(Body(R, cProject) & "")), ProjectID, vbTextCompare) = 0 Then
-            If ParsePolygon(Trim$(CStr(Body(R, cCoords) & "")), Latitudes, Longitudes, _
+        If StrComp(SafeCellText(Body(R, cProject)), ProjectID, vbTextCompare) = 0 Then
+            If ParsePolygon(SafeCellText(Body(R, cCoords)), Latitudes, Longitudes, _
                             VertexCount, ErrorText) Then
                 If CentroidLocalProjection(Latitudes, Longitudes, VertexCount, _
                                            LatOut, LonOut, AreaM2, ErrorText) Then
@@ -3494,6 +3500,114 @@ Private Function ResourceProjectPointHistory(ByVal ProjectID As String, _
     Exit Function
 Failed:
 End Function
+
+Public Sub SolarEPC_ManualFillNow()
+    Dim Tbl As ListObject
+    Dim Headers As Variant
+    Dim Body As Variant
+    Dim R As Long
+    Dim H As Long
+    Dim cRef As Long
+    Dim cProject As Long
+    Dim cCoords As Long
+    Dim RowFound As Long
+    Dim ProjectID As String
+    Dim RefText As String
+    Dim Lat As Double
+    Dim Lon As Double
+    Dim TmpLat As Double
+    Dim TmpLon As Double
+    Dim Reason As String
+    Dim TierText As String
+    Dim ResultText As String
+    Dim KeyText As String
+    Dim CoordCell As Range
+
+    On Error GoTo Failed
+    Set Tbl = DrawnSiteTable()
+    If Tbl Is Nothing Then
+        MsgBox "The DRAWING_DATA site table was not found.", vbExclamation, "Solar EPC"
+        Exit Sub
+    End If
+    If Tbl.ListRows.Count = 0 Then
+        MsgBox "The site table has no rows.", vbInformation, "Solar EPC"
+        Exit Sub
+    End If
+    Headers = Tbl.HeaderRowRange.Value2
+    Body = Tbl.DataBodyRange.Value2
+    If Not IsArray(Headers) Or Not IsArray(Body) Then
+        MsgBox "The site table could not be read.", vbExclamation, "Solar EPC"
+        Exit Sub
+    End If
+    For H = 1 To Tbl.ListColumns.Count
+        Select Case Trim$(CStr(Headers(1, H)))
+            Case "Reference id": cRef = H
+            Case "Project ID": cProject = H
+            Case "Coordinates": cCoords = H
+        End Select
+    Next H
+    If cRef = 0 Or cProject = 0 Or cCoords = 0 Then
+        MsgBox "Required site table columns were not found.", vbExclamation, "Solar EPC"
+        Exit Sub
+    End If
+    RowFound = 0
+    For R = 1 To UBound(Body, 1)
+        If Len(SafeCellText(Body(R, cProject))) > 0 And _
+           Len(SafeCellText(Body(R, cCoords))) = 0 Then RowFound = R
+    Next R
+    If RowFound = 0 Then
+        MsgBox "No manual (coordinate-less) site row was found.", vbInformation, "Solar EPC"
+        Exit Sub
+    End If
+    ProjectID = SafeCellText(Body(RowFound, cProject))
+    RefText = SafeCellText(Body(RowFound, cRef))
+
+    TierText = vbNullString
+    If ResourceManualPoint(ProjectID, Lat, Lon, Reason) Then
+        TierText = "offline tiers (VILLAGE_DB / INPUT!C8 / INPUT!C7 / project history)"
+    ElseIf ResourcePointFromMapLink(ResourceSettingCell(INPUT_SHEET, "C8"), Lat, Lon, Reason) Then
+        TierText = "INPUT!C8 link (online)"
+    ElseIf ResourcePointFromPlaceText(ResourceSettingCell(INPUT_SHEET, "C7"), Lat, Lon, Reason) Then
+        TierText = "forward geocoding of INPUT!C7 (online)"
+    Else
+        ResourceSettingDiag "A18", "MANUAL POINT LAST ERROR", "B18", ProjectID & ": " & Reason
+        MsgBox "The project point could not be proven for:" & vbCrLf & _
+            "  Project : " & ProjectID & vbCrLf & _
+            "  Reason  : " & Reason & vbCrLf & vbCrLf & _
+            "Fix one of these and run this macro again:" & vbCrLf & _
+            "  1. paste lat,lon or a full Google link into INPUT!C8, or" & vbCrLf & _
+            "  2. add the village row to VILLAGE_DB, or" & vbCrLf & _
+            "  3. check the internet / geocoding key.", _
+            vbExclamation, "Solar EPC - Manual Fill"
+        Exit Sub
+    End If
+
+    ResultText = FillResourceDbForSite(ProjectID, Lat, Lon, True)
+    Set CoordCell = Tbl.ListRows(RowFound).Range.Cells(1, cCoords)
+    If Len(Trim$(CStr(CoordCell.Value2))) = 0 And Not CoordCell.HasFormula Then
+        CoordCell.Value2 = ResourceSquarePolygonText(Lat, Lon)
+    End If
+    KeyText = "MANUAL|" & RefText & "|" & ProjectID
+    If mProcessed Is Nothing Then Set mProcessed = CreateObject("Scripting.Dictionary")
+    mProcessed(KeyText) = "MDONE"
+    If mManualNasaSent Is Nothing Then Set mManualNasaSent = CreateObject("Scripting.Dictionary")
+    If Not mManualNasaSent.Exists(KeyText) Then
+        mManualNasaSent(KeyText) = True
+        ResourceStartForPoint ProjectID, Lat, Lon
+    End If
+
+    MsgBox "Manual site filled." & vbCrLf & vbCrLf & _
+        "  Project : " & ProjectID & vbCrLf & _
+        "  Point   : " & Format$(Lat, "0.000000") & ", " & Format$(Lon, "0.000000") & vbCrLf & _
+        "  Source  : " & TierText & vbCrLf & _
+        "  Written : " & ResultText & vbCrLf & vbCrLf & _
+        "The NASA import for this point has been queued.", _
+        vbInformation, "Solar EPC - Manual Fill"
+    Exit Sub
+Failed:
+    MsgBox "Manual fill failed: error " & CStr(Err.Number) & " - " & Err.Description, _
+        vbExclamation, "Solar EPC - Manual Fill"
+End Sub
 
 '--------------------------------------------------------------------------
 ' v3.20 ASYNC manual-point resolution (never blocks the workbook)
@@ -3766,6 +3880,17 @@ Private Sub ResourceStartForPoint(ByVal ProjectID As String, ByVal Lat As Double
 Failed:
     ResourceSetLastError "MANUAL NASA START VBA error " & CStr(Err.Number) & ": " & Err.Description
 End Sub
+
+Safe text of a bulk-read cell value: error values (#N/A, #REF!, ...) and
+'Null become "" instead of raising, so one bad cell can never abort a sweep.
+Private Function SafeCellText(ByVal CellValue As Variant) As String
+    On Error GoTo Failed
+    If IsError(CellValue) Then Exit Function
+    If IsNull(CellValue) Then Exit Function
+    SafeCellText = Trim$(CStr(CellValue & ""))
+    Exit Function
+Failed:
+End Function
 
 'Extract the attempt count from states such as "NOROW:3" / "LOCPEND:1".
 Private Function DrawnLocationAttempts(ByVal StateText As String) As Long
