@@ -3,7 +3,7 @@ Option Explicit
 
 '==========================================================================
 ' SOLAR EPC - NASA POWER HOURLY RESOURCE MODULE + AUTOMATIC LOCATION FILL
-' Version 3.6
+' Version 3.7
 '
 ' YE FILE TUMHARE PURANE modSolarEPCResource KA POORA REPLACEMENT HAI.
 '   - v2.1/v2.2 ka SARA kaam waise hi chalta hai: NASA POWER hourly import,
@@ -2694,7 +2694,8 @@ Private Sub DrawnLocationSweep()
                 KeyText = ReferenceText & "|" & CoordinateText
                 If Not mProcessed.Exists(KeyText) Or _
                    Left$(CStr(mProcessed(KeyText)), 5) = "NOROW" Or _
-                   Left$(CStr(mProcessed(KeyText)), 7) = "LOCPEND" Then
+                   Left$(CStr(mProcessed(KeyText)), 7) = "LOCPEND" Or _
+                   Not ResourceProjectRowFilled(ProjectID) Then
 
                     StateText = CStr(mProcessed(KeyText) & "")
                     Attempts = DrawnLocationAttempts(StateText)
@@ -3218,3 +3219,35 @@ Failed:
     MsgBox "Label refresh failed: " & Err.Description, vbExclamation, "Solar EPC Resource"
 End Sub
 
+'v3.7: watcher ki session-memory self-heal: agar koi site DONE mark hai par
+'uski RESOURCE_DB row me lat/lon phir se BLANK hain (user ne clear kiya, ya
+'pehla fill kisi aur session me adhoora tha), to key hata do -> dobara fill +
+'Date/Time stamp lagega. Reopen ki zaroorat nahi.
+Private Function ResourceProjectRowFilled(ByVal ProjectID As String) As Boolean
+    Dim Rdb As ListObject
+    Dim R As Long
+    Dim cP As Long, cLat As Long, cLon As Long
+    Dim RowProject As String
+
+    On Error GoTo Failed
+    Set Rdb = ResourceDbTable()
+    If Rdb Is Nothing Then Exit Function
+    cP = TableColumn(Rdb, "Project ID")
+    cLat = TableColumn(Rdb, "Latitude (" & ChrW(176) & ")")
+    cLon = TableColumn(Rdb, "Longitude (" & ChrW(176) & ")")
+    If cP = 0 Or cLat = 0 Or cLon = 0 Then Exit Function
+    For R = 1 To Rdb.ListRows.Count
+        RowProject = Trim$(CStr(Rdb.ListRows(R).Range.Cells(1, cP).Value2))
+        If StrComp(RowProject, ProjectID, vbTextCompare) = 0 Then
+            If Len(Trim$(CStr(Rdb.ListRows(R).Range.Cells(1, cLat).Value2))) > 0 And _
+               Len(Trim$(CStr(Rdb.ListRows(R).Range.Cells(1, cLon).Value2))) > 0 Then
+                ResourceProjectRowFilled = True
+                Exit Function
+            End If
+        End If
+    Next R
+    ResourceProjectRowFilled = False
+    Exit Function
+Failed:
+    ResourceProjectRowFilled = False
+End Function
