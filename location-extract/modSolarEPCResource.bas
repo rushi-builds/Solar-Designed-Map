@@ -27,7 +27,7 @@ Private Declare PtrSafe Sub GetSystemTime Lib "kernel32" (lpSystemTime As SYSTEM
 '     FillLocations, MakeVillageDb, AddVillage, Resume, Stop, ShowLastError,
 '     ResumePending, ProcessNext) - so ThisWorkbook, modSolarEPCCloudRelay
 '     and every sheet button continue to compile.
-'   - v4.0.2 CLEAN FINAL: this header carries no version-by-version history
+'   - v4.0.3 CLEAN FINAL: this header carries no version-by-version history
 '     any more; everything below is current behaviour only.
 '     * Automatic fill: after a map draw + SAVE the exact centroid lands in
 '       RESOURCE_DB (blank-only cells) and in the DRAWING_DATA site
@@ -48,6 +48,11 @@ Private Declare PtrSafe Sub GetSystemTime Lib "kernel32" (lpSystemTime As SYSTEM
 '       sub-second even on tables with hundreds of rows.
 '     * Detector: SolarEPC_ShowModuleVersion stamps the version of the copy
 '       that actually ran, catching stale duplicates in one click.
+'     * Deletion is respected: once a site fill has been written, deleting its
+'       RESOURCE_DB row is permanent - the watcher never resurrects it
+'       (written keys persist in the hidden _CLOUD_CFG sheet); every new
+'       save is a fresh event and stacks one-below-the-other with its own
+'       Date/Time stamp.
 '     * Legacy surface: every public macro and sheet button keeps working.
 '
 '==========================================================================
@@ -61,7 +66,7 @@ Private Const AUTO_LABEL_RETRIES As Long = 15     'limited retries while the lab
 Private Const MANUAL_POINT_RETRIES As Long = 15   'retries while a manual site's point is unprovable
 Private Const MANUAL_SQUARE_HALF_DEG As Double = 0.0001  '~11 m half-side of the manual NASA square
 Private Const INPUT_SHEET As String = "INPUT"
-Private Const MODULE_VERSION As String = "4.0.2"   'single source of the version tag
+Private Const MODULE_VERSION As String = "4.0.3"   'single source of the version tag
 
 
 Private Const CONFIG_SHEET As String = "_CLOUD_CFG"
@@ -118,6 +123,8 @@ Private mAutoActive As Boolean
 Private mAutoNextRun As Date
 Private mProcessed As Object          'key = ReferenceID|Coordinates -> state
 Private mFilledCache As Object          'ProjectID -> row already carries lat/lon
+Private mExistsCache As Object          'ProjectID -> any RESOURCE_DB row exists
+Private mPersisted As Object            'fill keys written once; user deletions are respected
 Private mSiteSignature As String        'concatenated SITE keys of the last full sweep
 Private mIdleTicks As Long              'idle ticks since the last full sweep
 Private mAutoPending As Boolean         'a retry (missing row / offline label) is open
@@ -2817,6 +2824,8 @@ Private Sub DrawnLocationSweep(Optional ByVal ForceFull As Boolean = False)
     mIdleTicks = 0
     mSiteSignature = Signature
     Set mFilledCache = ResourceBuildFilledMap()
+    Set mExistsCache = ResourceBuildExistsMap()
+    If mPersisted Is Nothing Then ResourceLoadPersistedKeys
 
     'v3.13 baseline (once per session): no-coordinate SITE rows that already
     'exist right now are never point-filled later - only manual rows created
@@ -2852,7 +2861,9 @@ Private Sub DrawnLocationSweep(Optional ByVal ForceFull As Boolean = False)
                 'The key includes the coordinates: re-drawing the site changes
                 'the key and the fill is attempted again.
                 KeyText = ReferenceText & "|" & CoordinateText
-                If Not mProcessed.Exists(KeyText) Or _
+                If mPersisted.Exists(KeyText) And Not ProjectExistsInCache(ProjectID) Then
+                    mProcessed(KeyText) = "DONE"       'row was deleted by the user
+                ElseIf Not mProcessed.Exists(KeyText) Or _
                    Left$(CStr(mProcessed(KeyText)), 5) = "NOROW" Or _
                    Left$(CStr(mProcessed(KeyText)), 7) = "LOCPEND" Or _
                    Not ProjectFilledInCache(ProjectID) Then
@@ -2876,6 +2887,7 @@ Private Sub DrawnLocationSweep(Optional ByVal ForceFull As Boolean = False)
                                         mProcessed(KeyText) = "NOROW:" & CStr(Attempts + 1)
                                 Else
                                     mProcessed(KeyText) = "DONE"
+                                    ResourcePersistKey KeyText
                                     If ResultText <> "SKIP-NO-BLANK" Then
                                         Application.StatusBar = "Solar EPC: " & ProjectID & " saved to RESOURCE_DB."
                                         DrawnLocationDiag ProjectID, ResultText, _
@@ -2898,7 +2910,9 @@ Private Sub DrawnLocationSweep(Optional ByVal ForceFull As Boolean = False)
                 'INPUT!C8 / INPUT!C7 - never a guessed or invented location.
                 KeyText = "MANUAL|" & ReferenceText & "|" & ProjectID
                 StateText = CStr(mProcessed(KeyText) & "")
-                If Left$(StateText, 5) <> "MDONE" And StateText <> "MFAIL" Then
+                If mPersisted.Exists(KeyText) And Not ProjectExistsInCache(ProjectID) Then
+                    mProcessed(KeyText) = "MDONE"      'row was deleted by the user
+                ElseIf Left$(StateText, 5) <> "MDONE" And StateText <> "MFAIL" Then
                     Attempts = DrawnLocationAttempts(StateText)
                     If ResourceManualPoint(ProjectID, ManualLat, ManualLon, ErrorText) Then
                         ResultText = FillResourceDbForSite(ProjectID, ManualLat, ManualLon, Attempts >= 2)
@@ -2910,6 +2924,7 @@ Private Sub DrawnLocationSweep(Optional ByVal ForceFull As Boolean = False)
                                 mProcessed(KeyText) = "NOROW:" & CStr(Attempts + 1)
                         Else
                             mProcessed(KeyText) = "MDONE"
+                            ResourcePersistKey KeyText
                             If ResultText <> "SKIP-NO-BLANK" Then
                                 Application.StatusBar = "Solar EPC: " & ProjectID & " saved to RESOURCE_DB."
                                 DrawnLocationDiag ProjectID, "MANUAL " & ResultText, _
@@ -3547,6 +3562,7 @@ Public Sub SolarEPC_ManualFillNow()
     End If
 
     mProcessed(KeyText) = "MDONE"
+    ResourcePersistKey KeyText
     If Not mManualNasaSent.Exists(KeyText) Then
         mManualNasaSent(KeyText) = True
         ResourceStartForPoint ProjectID, Lat, Lon
@@ -4459,6 +4475,78 @@ DoneMap:
 Failed:
     Set ResourceBuildFilledMap = D
 End Function
+
+Private Function ResourceBuildExistsMap() As Object
+    Dim D As Object
+    Dim Rdb As ListObject
+    Dim cP As Long
+    Dim ProjArr As Variant
+    Dim n As Long, i As Long
+
+    Set D = CreateObject("Scripting.Dictionary")
+    D.CompareMode = 1                                  'vbTextCompare
+    On Error GoTo FailedExists
+    Set Rdb = ResourceDbTable()
+    If Rdb Is Nothing Then GoTo DoneExists
+    cP = TableColumn(Rdb, "Project ID")
+    If cP = 0 Then GoTo DoneExists
+    n = Rdb.ListRows.Count
+    If n = 0 Then GoTo DoneExists
+    ProjArr = Rdb.ListColumns(cP).Range.Value2         'one bulk read
+    For i = 2 To n + 1
+        If Len(Trim$(CStr(ProjArr(i, 1) & ""))) > 0 Then D(CStr(ProjArr(i, 1))) = True
+    Next i
+DoneExists:
+    Set ResourceBuildExistsMap = D
+    Exit Function
+FailedExists:
+    Set ResourceBuildExistsMap = D
+End Function
+
+Private Function ProjectExistsInCache(ByVal ProjectID As String) As Boolean
+    If mExistsCache Is Nothing Then Exit Function
+    ProjectExistsInCache = mExistsCache.Exists(ProjectID)
+End Function
+
+'Keys of fills that were written at least once are persisted in the hidden
+'_CLOUD_CFG sheet (column H). When the user deletes such a row, the watcher
+'never resurrects it - not in this session, not after a reopen.
+Private Sub ResourceLoadPersistedKeys()
+    Dim ws As Worksheet
+    Dim Arr As Variant
+    Dim i As Long
+    Dim KeyText As String
+
+    Set mPersisted = CreateObject("Scripting.Dictionary")
+    mPersisted.CompareMode = 1                         'vbTextCompare
+    On Error Resume Next
+    Set ws = ThisWorkbook.Worksheets(CONFIG_SHEET)
+    If ws Is Nothing Then Exit Sub
+    Arr = ws.Range("H2:H1001").Value2
+    On Error GoTo 0
+    If Not IsArray(Arr) Then Exit Sub
+    For i = 1 To UBound(Arr, 1)
+        KeyText = Trim$(CStr(Arr(i, 1) & ""))
+        If Len(KeyText) > 0 Then mPersisted(KeyText) = True
+    Next i
+End Sub
+
+Private Sub ResourcePersistKey(ByVal KeyText As String)
+    Dim ws As Worksheet
+    Dim i As Long
+
+    If mPersisted Is Nothing Then ResourceLoadPersistedKeys
+    If mPersisted.Exists(KeyText) Then Exit Sub
+    mPersisted(KeyText) = True
+    On Error Resume Next
+    Set ws = ThisWorkbook.Worksheets(CONFIG_SHEET)
+    If ws Is Nothing Then Exit Sub
+    i = ws.Cells(ws.Rows.Count, "H").End(xlUp).Row + 1
+    If i < 2 Then i = 2
+    If i > 1000 Then Exit Sub
+    ws.Cells(i, "H").Value2 = KeyText
+    On Error GoTo 0
+End Sub
 
 Private Function ProjectFilledInCache(ByVal ProjectID As String) As Boolean
     If mFilledCache Is Nothing Then Exit Function
