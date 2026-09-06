@@ -1368,7 +1368,6 @@ Private Function ResourceProjectTableRow(ByVal Tbl As ListObject, _
     Dim TargetLatitude As Double
     Dim TargetLongitude As Double
     Dim EmptyProjectMatch As Range
-    Dim NewRow As ListRow
 
     cProject = Tbl.ListColumns("Project ID").Index
     cLatitude = Tbl.ListColumns("Latitude (" & ChrW(176) & ")").Index
@@ -1402,14 +1401,33 @@ Private Function ResourceProjectTableRow(ByVal Tbl As ListObject, _
         Exit Function
     End If
 
+    'v3.22.11: never steal the first blank template row at the top of the
+    'table. Insert directly below the last row that already carries content
+    'so fills stack one-below-the-other (ek ke niche ek), same as auto.
+    Set ResourceProjectTableRow = ResourceInsertAfterLastUsed(Tbl, cProject, cLatitude, cLongitude)
+End Function
+
+Private Function ResourceInsertAfterLastUsed(ByVal Tbl As ListObject, _
+    ByVal cProject As Long, ByVal cLat As Long, ByVal cLon As Long) As Range
+
+    Dim R As Long
+    Dim LastUsed As Long
+    Dim RowRange As Range
+    Dim NewRow As ListRow
+
+    LastUsed = 0
     For R = 1 To Tbl.ListRows.Count
-        If Len(Trim$(CStr(Tbl.ListRows(R).Range.Cells(1, cProject).Value2))) = 0 Then
-            Set ResourceProjectTableRow = Tbl.ListRows(R).Range
-            Exit Function
-        End If
+        Set RowRange = Tbl.ListRows(R).Range
+        If Len(Trim$(CStr(RowRange.Cells(1, cProject).Value2 & ""))) > 0 Then LastUsed = R
+        If Len(Trim$(CStr(RowRange.Cells(1, cLat).Value2 & ""))) > 0 Then LastUsed = R
+        If Len(Trim$(CStr(RowRange.Cells(1, cLon).Value2 & ""))) > 0 Then LastUsed = R
     Next R
-    Set NewRow = Tbl.ListRows.Add
-    Set ResourceProjectTableRow = NewRow.Range
+    If LastUsed = 0 Or LastUsed >= Tbl.ListRows.Count Then
+        Set NewRow = Tbl.ListRows.Add
+    Else
+        Set NewRow = Tbl.ListRows.Add(LastUsed + 1)
+    End If
+    Set ResourceInsertAfterLastUsed = NewRow.Range
 End Function
 
 Private Function ResourceSerialForTable(ByVal Tbl As ListObject, ByVal Target As Range) As Long
