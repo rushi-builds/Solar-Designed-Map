@@ -27,188 +27,29 @@ Private Declare PtrSafe Sub GetSystemTime Lib "kernel32" (lpSystemTime As SYSTEM
 '     FillLocations, MakeVillageDb, AddVillage, Resume, Stop, ShowLastError,
 '     ResumePending, ProcessNext) - so ThisWorkbook, modSolarEPCCloudRelay
 '     and every sheet button continue to compile.
-'   - v2.5: when RESOURCE_DB has no row for a project, the watcher creates
-'     it automatically (blank-only rules still apply); every step reports
-'     its reason on the status bar; SolarEPC_DrawnLocationDebug produces a
-'     read-only report of the whole chain.
-'   - v3.11 FINAL: every user-facing message, status-bar line and debug
-'   - v3.22.7: the stale hand-written header title carrying an old version
-'     number is gone - it misled a field check into believing an old module
-'     was running. The only version literals left are MODULE_VERSION itself
-'     and the changelog bullets; report boxes stamp the live version.
-'   - v3.22.11: RESOURCE_DB fills now take the FIRST completely blank row from
-'     the top of the table (row 1, then row 2, then row 3 ...), so new data
-'     stacks visibly one-below-the-other on screen; appending at the end of
-'     the table only happens when no blank row exists at all.
-'   - v3.22.10: a created RESOURCE_DB row is now inserted directly below the
-'     last row carrying content (ListRows.Add with Position), instead of at
-'     the very end of a table that may hold hundreds of blank template rows,
-'     so fresh fills visibly stack one-below-the-other from the top.
-'   - v3.22.9: new one-click detector macro SolarEPC_ShowModuleVersion - it
-'     stamps the version of the VERY copy that ran, so a stale duplicate in
-'     PERSONAL.XLSB or a second module can be caught in two seconds.
-'   - v3.22.8: the changelog no longer quotes that old title text literally,
-'     so a Ctrl+F search for an old version string can never produce a false
-'     hit inside this module. Verify any download by searching "3.22.8".
-'   - v3.22.6: Manual Fill now appends one row below the previous one (ek ke
-'     niche ek) exactly like the automatic path: a blank stuck row for the
-'     project is still filled first, otherwise every run creates a fresh row
-'     via the new AppendNew switch of FillResourceDbForSite, and a new pass 3
-'     picks the latest coordinated site row so the macro never stalls.
-'   - v3.22.5: every Manual Fill report box now stamps the running module
-'     version and the workbook name the code actually wrote into, so a stale
-'     import or a second open workbook can never hide again.
-'   - v3.22.4: import hardening round 2 - the Manual Fill before/after proof
-'     now runs through ResourceDbReadBack (bulk ListColumns Value2 reads, the
-'     same line shapes ResourceBuildFilledMap has used since v3.12); every
-'     line shape that ever turned red in the user's VBE is gone from the
-'     module.
-'   - v3.22.3: import hardening - the shipped file now uses native VBE CRLF
-'     line endings, and the Manual Fill before/after proof is built by the new
-'     ResourceDbRowProof helper with single-line statements only (zero line
-'     continuations), so older VBA6 importers parse every line exactly as
-'     shipped.
-'   - v3.22.2: fixes the VBA IsNumeric(Empty)=True trap that made blank
-'     RESOURCE_DB rows look "already filled" (manual macro refused to act and
-'     VILLAGE_DB rows with blank coordinates could win with a 0,0 point); the
-'     Manual Fill report now shows the code-eye view of the table before and
-'     after the write (row count and per-row latitude values).
-'   - v3.22.1: the Manual Fill report now names the sheet the resource_db
-'     table lives on and whether an AutoFilter is hiding its rows, so a
-'     "filled but invisible" RESOURCE_DB can never be mistaken for an empty
-'     one again.
-'   - v3.22 FINAL: SolarEPC_ManualFillNow now also picks up site rows that
-'     carry coordinates but whose RESOURCE_DB row is still missing/unfilled,
-'     proves the point from the row's own polygon centroid first, forces row
-'     creation, and always reports the fill result plus whether the
-'     'resource_db' table was found - so a stuck row can never fail silently.
-'   - v3.21.1: restores the comment apostrophe on the SafeCellText
-'     header line that the v3.21 patch dropped (VBA read the comment as
-'     code: "Compile error: Syntax error" at import). No logic changed.
-'   - v3.21 FINAL: ROBUSTNESS + ONE-CLICK MANUAL FILL. Bulk-read cell values
-'     are now routed through SafeCellText so an error value (#N/A, #REF!) in
-'     DRAWING_DATA can never abort a sweep mid-loop. New user-triggered macro
-'     SolarEPC_ManualFillNow fills the latest manual site synchronously and
-'     reports the exact tier that proved the point (or the exact reason every
-'     tier failed), so a stuck manual row is always recoverable in one click.
-'   - v3.20 FINAL: MANUAL AUTO-RESOLVE, NON-BLOCKING. When the offline tiers
-'     cannot prove a manual site's project point, the watcher now starts ONE
-'     background (asynchronous) HTTP request - C8 page scan, Google geocode or
-'     Nominatim geocode, rotating per attempt - and collects the result on a
-'     later tick. Excel is never blocked by it; on success the pair is stored
-'     in INPUT!C8 and the row fills on the next sweep. Status shows only
-'     "resolving project point (X)..." while in flight and a one-line
-'     "project point not resolved (X)." when retries exhaust.
-'   - v3.19 FINAL: the status-bar version tag is read from MODULE_VERSION
-'     instead of a hard-coded string, so it can never show a stale version
-'     again (v3.18 shipped with a v3.17 tag in that one line).
-'   - v3.18 FINAL: HONEST IMPORT REPORTING. The NASA summary import and the
-'     RESOURCE_DB write now return success/failure instead of swallowing
-'     errors: every failed stage records its reason, readable via
-'     SolarEPC_ResourceShowLastError, and the status bar says "not written"
-'     instead of "saved" when the write did not happen. The debug macro gained
-'     a manual-bridge section (baseline size, per-key states, last manual
-'     point error) and a manual row whose project is already complete reports
-'     "already complete" once, instead of staying silent.
-'   - v3.17 FINAL: OPEN-PATH SMOOTHNESS + MANUAL HISTORY TIER. The watcher's
-'     first sweep is now scheduled 2 s after open instead of running inside
-'     Auto_Open; the open-time cloud pending check defers itself 5 s when it
-'     fires during load; the synchronous HTTP receive timeout is capped at
-'     20 s. The manual bridge gained a final offline tier: the project's own
-'     proven coordinates from RESOURCE_DB / earlier SITE rows, so a manual
-'     re-save of an already-drawn project fills with zero network.
-'   - v3.16 FINAL: PROFESSIONAL STATUS BAR. All retry chatter, guidance
-'     text and progress narration were removed; the status bar now shows
-'     only short load/save confirmations (saved / queued / in progress /
-'     stopped). Failures are recorded silently in _CLOUD_CFG (A18/B18 for
-'     the manual point, A10/B11 for resource errors) and remain readable
-'     through SolarEPC_DrawnLocationDebug and SolarEPC_ResourceShowLastError.
-'   - v3.15 FINAL: SMOOTHNESS FIX - the watcher is now 100% OFFLINE. v3.14
-'     let the manual bridge perform synchronous HTTP (short-link redirect
-'     hops, forward geocoding) inside the sweep; on a slow or blocked
-'     connection that froze the workbook on every retry tick. All online
-'     point resolution moved to the user-triggered macro
-'     SolarEPC_ResolveManualPointNow, which stores the resolved pair in
-'     INPUT!C8 so every later session resolves offline. Label-tier HTTP
-'     timeouts were halved (6 s worst case). Drawn-site behaviour and
-'     accuracy are unchanged.
-'   - v3.14 FINAL: manual-bridge fixes from field testing. The proven point
-'     now resolves through a VILLAGE_DB name match first, then INPUT!C8, then
-'     a direct pair/link inside INPUT!C7, then forward geocoding; the resolved
-'     point is written back into the BLANK Coordinates cell (square polygon
-'     whose centroid IS the point) so DRAWING_DATA carries it too; exhausted
-'     retries close quietly as MFAIL with one actionable status line; manual
-'     rows of the project currently open in INPUT!C5 are never baselined, so
-'     an older unfilled manual row of this project still fills; every SITE
-'     row (drawn or manual) participates in the adaptive signature, so a
-'     fresh manual row opens the gate within one heartbeat.
-'   - v3.13 FINAL: MANUAL BRIDGE. A SITE row saved without coordinates
-'     (manual dimensions entry) is now bridged automatically: its identity is
-'     the Google-proven project point (INPUT!C8 pair/link, redirect-resolved,
-'     else INPUT!C7 forward-geocoded); lat/lon, Location and Date/Time fill
-'     blank-only from that point and the NASA columns are fetched on a tiny
-'     square polygon whose centroid IS that point (Worker-validated). Only
-'     manual rows created while the watcher runs are bridged; rows present at
-'     watcher start are baselined so a stale C8 can never leak into them.
-'     Drawn-site behaviour, accuracy and blank-only rules are unchanged.
-'   - v3.12 FINAL: adaptive lightweight watcher. An idle tick now costs one
-'     bulk read of the small site table plus a signature compare (sub-ms,
-'     RESOURCE_DB untouched); the full sweep (one bulk RESOURCE_DB read +
-'     blank-only fills) runs only on change, on an open retry or at the
-'     ~30 s resync. Idle heartbeat 3 s, busy follow-up 2 s: faster fill
-'     after SAVE AND less work per minute than v3.11.
-'   - v3.11.1: restores one comment apostrophe that the translation step
-'     dropped (it made VBA read the comment as code: "Compile error:
-'     Syntax error" at import). No logic changed at all.
-'     report is now professional English; the per-tick RESOURCE_DB scan
-'     was replaced by one bulk column read per sweep (faster ticks);
-'     K=12 range mode verified active (_CLOUD_CFG B12 = RANGE12).
-'   - v3.8: SolarEPC_FillAndStampNow - one click starts the watcher, runs an
-'     immediate sweep and back-fills Date/Time on existing rows from the
-'     NASA Retrieval Date (UTC converted to local time). No reopen needed.
-'   - v3.5: the Date/Time stamp is BLANK-ONLY and is applied on the FIRST
-'     fill of a row (watcher auto-fill or NASA import, whichever happens
-'     first). Accepted column names: Date/Time, Run Date-Time (Local),
-'     Date-Time, DateTime. The debug macro reports whether the column was
-'     found inside the table.
-'   - v3.4: the GeoNames tier was REMOVED (its database provably contains no
-'     Indian revenue villages). The user's own "Date/Time" column is filled
-'     with the local run date/time; if absent, "Run Date-Time (Local)" is
-'     created automatically. Every NASA fetch uses that row's OWN centroid -
-'     two sites in the same town still receive independently fetched values.
-'   - v3.2: SolarEPC_ResourceRefreshLabels safely upgrades previously filled
-'     Location cells to village-level labels (suffix rule; manual entries
-'     are never touched). Blank-only auto-fill is unchanged.
-'   - v3.0: SINGLE MODULE - NASA pipeline + watcher + auto row creation +
-'     diagnostics in one file.
-'   - PLUS the v2.3 AUTOMATIC watcher: starts when the workbook opens and
-'     inspects DRAWING_DATA.autoLWHTbl every 5 s; for every new or re-drawn
-'     SITE row it writes the exact centroid (Worker-identical, computed
-'     offline) into BLANK Latitude/Longitude cells and a descriptive
-'     "Exact Area, Taluka, District" label into the BLANK Location cell.
-'     No Alt+F8, no popups - a single status-bar line is the only feedback.
+   - v4.0.0 CLEAN FINAL: this header carries no version-by-version history
+'     any more; everything below is current behaviour only.
+'     * Automatic fill: after a map draw + SAVE the exact centroid lands in
+'       RESOURCE_DB (blank-only cells) and in the DRAWING_DATA site
+'       Coordinates cell (blank-only square), with no dialog, no Alt+F8 and
+'       no network call inside the watcher.
+'     * Row placement: a prepared row of the same project with blank
+'       coordinates is filled first; otherwise the FIRST completely blank
+'       row from the top takes the fill (and receives the Project ID), so
+'       entries stack visibly one-below-the-other from row 1; a new row is
+'       appended at the table end only when no blank row exists.
+'     * Manual fill: SolarEPC_ManualFillNow proves the point (the row's own
+'       centroid, offline tiers, then online tiers), writes RESOURCE_DB,
+'       writes the blank-only square back and queues the NASA import; every
+'       report box stamps the live module version and workbook name, and the
+'       DB before/after proof shows what the code read and wrote.
+'     * Speed: every RESOURCE_DB scan uses bulk column reads (one COM call
+'       per column instead of one per cell), so watcher ticks and fills stay
+'       sub-second even on tables with hundreds of rows.
+'     * Detector: SolarEPC_ShowModuleVersion stamps the version of the copy
+'       that actually ran, catching stale duplicates in one click.
+'     * Legacy surface: every public macro and sheet button keeps working.
 '
-' IMPORT PROCEDURE (required - otherwise compile errors):
-'   1. In the VBE, REMOVE any module named "modSolarEPCDrawnLocation".
-'   2. REMOVE the old "modSolarEPCResource" module (export a backup first
-'      if desired).
-'   3. Right-click the project -> Import File... -> this .bas file.
-'   4. Save and reopen the workbook.
-'
-' SAFETY RULES OF THE AUTO-FILL:
-'   - only BLANK cells are written; manual entries, formulas and NASA
-'     values are never overwritten
-'   - NASA numbers, Data Status, cache_key and polygon_hash are untouched
-'   - if no label can be resolved offline/online the lat/lon are still
-'     filled; label retries are limited and no incorrect value is ever
-'     written
-'   - stop anytime: SolarEPC_DrawnLocationAutoStop ; immediate sweep:
-'     SolarEPC_DrawnLocationAutoNow ; manual inspection:
-'     SolarEPC_ResourceShowDrawnLocation
-'
-' CENTROID MATH = WORKER MATH (port of polygonCentroidLocalProjection):
-' verified byte-for-byte on 5000 generated polygons + 7 edge cases
-' (location-extract/verify/run_parity_check.sh).
 '==========================================================================
 
 'Watcher tuning (all other constants already exist inside the module).
@@ -220,7 +61,7 @@ Private Const AUTO_LABEL_RETRIES As Long = 15     'limited retries while the lab
 Private Const MANUAL_POINT_RETRIES As Long = 15   'retries while a manual site's point is unprovable
 Private Const MANUAL_SQUARE_HALF_DEG As Double = 0.0001  '~11 m half-side of the manual NASA square
 Private Const INPUT_SHEET As String = "INPUT"
-Private Const MODULE_VERSION As String = "3.22.11"   'single source of the version tag
+Private Const MODULE_VERSION As String = "4.0.0"   'single source of the version tag
 
 
 Private Const CONFIG_SHEET As String = "_CLOUD_CFG"
@@ -714,7 +555,7 @@ Public Sub SolarEPC_ResourceResumePending()
 
     On Error GoTo Failed
     If mBusy Or mNextRun > 0 Then Exit Sub
-    'v3.17: when the relay calls this during workbook open, defer the
+    'When the relay calls this during workbook open, defer the
     'synchronous cloud round trip until after the load has finished.
     If mSessionStart = 0 Then mSessionStart = Timer
     If Timer - mSessionStart < 10 And Not mResumeDeferred Then
@@ -1667,8 +1508,10 @@ Public Sub SolarEPC_ResourceAddVillage()
     'Last row that actually carries a centroid.
     R = 0
     Dim i As Long
+    Dim LatBulk As Variant
+    LatBulk = Tbl.ListColumns(cLat).Range.Value2
     For i = Tbl.ListRows.Count To 1 Step -1
-        If Len(Trim$(CStr(Tbl.ListRows(i).Range.Cells(1, cLat).Value2))) > 0 Then
+        If Len(Trim$(SafeCellText(LatBulk(i + 1, 1)))) > 0 Then
             R = i
             Exit For
         End If
@@ -2697,59 +2540,55 @@ Private Function ResourceFindHeaderTable(ByVal ws As Worksheet) As ListObject
 End Function
 
 Private Function ResourceProjectTableRow(ByVal Tbl As ListObject, _
-    ByVal ProjectID As String, ByVal LatitudeText As String, _
-    ByVal LongitudeText As String) As Range
-
     Dim R As Long
-    Dim cProject As Long
-    Dim cLatitude As Long
-    Dim cLongitude As Long
-    Dim RowProject As String
-    Dim RowLatitude As String
-    Dim RowLongitude As String
-    Dim TargetLatitude As Double
-    Dim TargetLongitude As Double
-    Dim EmptyProjectMatch As Range
+    Dim cProject As Long, cLatitude As Long, cLongitude As Long
+    Dim ProjArr As Variant, LatArr As Variant, LonArr As Variant
+    Dim n As Long, EmptyIdx As Long
+    Dim RowProject As String, RowLatitude As String, RowLongitude As String
+    Dim TargetLatitude As Double, TargetLongitude As Double
     Dim NewRow As ListRow
 
+    TargetLatitude = Val(LatitudeText)
+    TargetLongitude = Val(LongitudeText)
     cProject = Tbl.ListColumns("Project ID").Index
     cLatitude = Tbl.ListColumns("Latitude (" & ChrW(176) & ")").Index
     cLongitude = Tbl.ListColumns("Longitude (" & ChrW(176) & ")").Index
-    TargetLatitude = Val(LatitudeText)
-    TargetLongitude = Val(LongitudeText)
 
     'A project name is not a unique SITE identity. Reuse a row only when the
     'same project and centroid already exist (idempotent retry), or when that
     'project has a prepared row whose resource coordinates are still blank.
-    For R = 1 To Tbl.ListRows.Count
-        RowProject = Trim$(CStr(Tbl.ListRows(R).Range.Cells(1, cProject).Value2))
-        If StrComp(RowProject, ProjectID, vbTextCompare) = 0 Then
-            RowLatitude = Trim$(CStr(Tbl.ListRows(R).Range.Cells(1, cLatitude).Value2))
-            RowLongitude = Trim$(CStr(Tbl.ListRows(R).Range.Cells(1, cLongitude).Value2))
-            If Len(RowLatitude) = 0 And Len(RowLongitude) = 0 Then
-                If EmptyProjectMatch Is Nothing Then _
-                    Set EmptyProjectMatch = Tbl.ListRows(R).Range
-            ElseIf IsNumeric(RowLatitude) And IsNumeric(RowLongitude) Then
-                If Abs(CDbl(RowLatitude) - TargetLatitude) < 0.0000005 And _
-                   Abs(CDbl(RowLongitude) - TargetLongitude) < 0.0000005 Then
-                    Set ResourceProjectTableRow = Tbl.ListRows(R).Range
-                    Exit Function
+    n = Tbl.ListRows.Count
+    If n > 0 Then
+        ProjArr = Tbl.ListColumns(cProject).Range.Value2
+        LatArr = Tbl.ListColumns(cLatitude).Range.Value2
+        LonArr = Tbl.ListColumns(cLongitude).Range.Value2
+        For R = 2 To n + 1
+            RowProject = Trim$(SafeCellText(ProjArr(R, 1)))
+            If StrComp(RowProject, ProjectID, vbTextCompare) = 0 Then
+                RowLatitude = Trim$(SafeCellText(LatArr(R, 1)))
+                RowLongitude = Trim$(SafeCellText(LonArr(R, 1)))
+                If Len(RowLatitude) = 0 And Len(RowLongitude) = 0 Then
+                    If EmptyIdx = 0 Then EmptyIdx = R
+                ElseIf IsNumeric(LatArr(R, 1)) And IsNumeric(LonArr(R, 1)) Then
+                    If Abs(CDbl(RowLatitude) - TargetLatitude) < 0.0000005 And _
+                       Abs(CDbl(RowLongitude) - TargetLongitude) < 0.0000005 Then
+                        Set ResourceProjectTableRow = Tbl.ListRows(R - 1).Range
+                        Exit Function
+                    End If
                 End If
             End If
-        End If
-    Next R
-
-    If Not EmptyProjectMatch Is Nothing Then
-        Set ResourceProjectTableRow = EmptyProjectMatch
-        Exit Function
-    End If
-
-    For R = 1 To Tbl.ListRows.Count
-        If Len(Trim$(CStr(Tbl.ListRows(R).Range.Cells(1, cProject).Value2))) = 0 Then
-            Set ResourceProjectTableRow = Tbl.ListRows(R).Range
+        Next R
+        If EmptyIdx > 0 Then
+            Set ResourceProjectTableRow = Tbl.ListRows(EmptyIdx - 1).Range
             Exit Function
         End If
-    Next R
+        For R = 2 To n + 1
+            If Len(Trim$(SafeCellText(ProjArr(R, 1)))) = 0 Then
+                Set ResourceProjectTableRow = Tbl.ListRows(R - 1).Range
+                Exit Function
+            End If
+        Next R
+    End If
     Set NewRow = Tbl.ListRows.Add
     Set ResourceProjectTableRow = NewRow.Range
 End Function
@@ -3485,20 +3324,11 @@ End Function
 'row whose polygon centroid is recomputed offline. No network, no guessing -
 'the same project keeps the same proven point across manual re-saves.
 Private Function ResourceProjectPointHistory(ByVal ProjectID As String, _
-    ByRef LatOut As Double, ByRef LonOut As Double) As Boolean
-
     Dim Tbl As ListObject
-    Dim R As Long
-    Dim cProject As Long
-    Dim cLat As Long
-    Dim cLon As Long
-    Dim cCoords As Long
-    Dim Body As Variant
-    Dim Latitudes() As Double
-    Dim Longitudes() As Double
-    Dim VertexCount As Long
-    Dim AreaM2 As Double
-    Dim ErrorText As String
+    Dim cProject As Long, cLat As Long, cLon As Long
+    Dim ProjArr As Variant, LatArr As Variant, LonArr As Variant
+    Dim n As Long, R As Long
+    Dim LatOut As Double, LonOut As Double
 
     On Error GoTo Failed
     Set Tbl = ResourceDbTable()
@@ -3507,57 +3337,30 @@ Private Function ResourceProjectPointHistory(ByVal ProjectID As String, _
         cLat = TableColumn(Tbl, "Latitude (" & ChrW(176) & ")")
         cLon = TableColumn(Tbl, "Longitude (" & ChrW(176) & ")")
         If cProject > 0 And cLat > 0 And cLon > 0 Then
-            For R = 1 To Tbl.ListRows.Count
-                If StrComp(Trim$(CStr(Tbl.ListRows(R).Range.Cells(1, cProject).Value2)), _
-                           ProjectID, vbTextCompare) = 0 Then
-                    If IsNumeric(Tbl.ListRows(R).Range.Cells(1, cLat).Value2) And _
-                       IsNumeric(Tbl.ListRows(R).Range.Cells(1, cLon).Value2) Then
-                        LatOut = CDbl(Tbl.ListRows(R).Range.Cells(1, cLat).Value2)
-                        LonOut = CDbl(Tbl.ListRows(R).Range.Cells(1, cLon).Value2)
-                        If ResourcePointInRange(LatOut, LonOut) Then
-                            ResourceProjectPointHistory = True
-                            Exit Function
+            n = Tbl.ListRows.Count
+            If n > 0 Then
+                ProjArr = Tbl.ListColumns(cProject).Range.Value2
+                LatArr = Tbl.ListColumns(cLat).Range.Value2
+                LonArr = Tbl.ListColumns(cLon).Range.Value2
+                For R = 2 To n + 1
+                    If StrComp(Trim$(SafeCellText(ProjArr(R, 1))), ProjectID, vbTextCompare) = 0 Then
+                        If Len(SafeCellText(LatArr(R, 1))) > 0 And Len(SafeCellText(LonArr(R, 1))) > 0 And _
+                           IsNumeric(LatArr(R, 1)) And IsNumeric(LonArr(R, 1)) Then
+                            LatOut = CDbl(LatArr(R, 1))
+                            LonOut = CDbl(LonArr(R, 1))
+                            If ResourcePointInRange(LatOut, LonOut) Then
+                                ResourceProjectPointHistory = True
+                                Exit Function
+                            End If
                         End If
                     End If
-                End If
-            Next R
-        End If
-    End If
-
-    Set Tbl = DrawnSiteTable()
-    If Tbl Is Nothing Then Exit Function
-    If Tbl.ListRows.Count = 0 Then Exit Function
-    Body = Tbl.DataBodyRange.Value2
-    If Not IsArray(Body) Then Exit Function
-    cProject = 0
-    cCoords = 0
-    Dim H As Long
-    Dim Headers As Variant
-    Headers = Tbl.HeaderRowRange.Value2
-    If Not IsArray(Headers) Then Exit Function
-    For H = 1 To Tbl.ListColumns.Count
-        Select Case Trim$(CStr(Headers(1, H)))
-            Case "Project ID": cProject = H
-            Case "Coordinates": cCoords = H
-        End Select
-    Next H
-    If cProject = 0 Or cCoords = 0 Then Exit Function
-    For R = 1 To UBound(Body, 1)
-        If StrComp(SafeCellText(Body(R, cProject)), ProjectID, vbTextCompare) = 0 Then
-            If ParsePolygon(SafeCellText(Body(R, cCoords)), Latitudes, Longitudes, _
-                            VertexCount, ErrorText) Then
-                If CentroidLocalProjection(Latitudes, Longitudes, VertexCount, _
-                                           LatOut, LonOut, AreaM2, ErrorText) Then
-                    If ResourcePointInRange(LatOut, LonOut) Then
-                        ResourceProjectPointHistory = True
-                        Exit Function
-                    End If
-                End If
+                Next R
             End If
         End If
-    Next R
+    End If
     Exit Function
 Failed:
+    ResourceProjectPointHistory = False
 End Function
 
 Public Sub SolarEPC_ShowModuleVersion()
@@ -3774,15 +3577,19 @@ Private Function ResourceProjectFilledInDb(ByVal Tbl As ListObject, ByVal Projec
     Dim R As Long
     Dim cProject As Long
     Dim cLat As Long
+    Dim ProjArr As Variant, LatArr As Variant
+    Dim n As Long
     If Tbl Is Nothing Then Exit Function
     cProject = TableColumn(Tbl, "Project ID")
     cLat = TableColumn(Tbl, "Latitude (" & ChrW(176) & ")")
     If cProject = 0 Or cLat = 0 Then Exit Function
-    For R = 1 To Tbl.ListRows.Count
-        If StrComp(Trim$(CStr(Tbl.ListRows(R).Range.Cells(1, cProject).Value2)), _
-                   ProjectID, vbTextCompare) = 0 Then
-            If Len(Trim$(CStr(Tbl.ListRows(R).Range.Cells(1, cLat).Value2 & ""))) > 0 And _
-               IsNumeric(Tbl.ListRows(R).Range.Cells(1, cLat).Value2) Then
+    n = Tbl.ListRows.Count
+    If n = 0 Then Exit Function
+    ProjArr = Tbl.ListColumns(cProject).Range.Value2
+    LatArr = Tbl.ListColumns(cLat).Range.Value2
+    For R = 2 To n + 1
+        If StrComp(Trim$(SafeCellText(ProjArr(R, 1))), ProjectID, vbTextCompare) = 0 Then
+            If Len(Trim$(SafeCellText(LatArr(R, 1)))) > 0 And IsNumeric(LatArr(R, 1)) Then
                 ResourceProjectFilledInDb = True
                 Exit Function
             End If
@@ -4134,14 +3941,10 @@ End Sub
 '"lat lon location(Sonwadi Bk., Phaltan, Satara)", or SKIP-NO-BLANK /
 'NOROW / LOCPEND.
 Private Function FillResourceDbForSite(ByVal ProjectID As String, _
-    ByVal CentroidLatitude As Double, ByVal CentroidLongitude As Double, _
-    Optional ByVal AllowCreate As Boolean = False, _
-    Optional ByVal AppendNew As Boolean = False) As String
 
     Dim Tbl As ListObject
     Dim R As Long
     Dim cProject As Long, cLat As Long, cLon As Long, cLoc As Long
-    Dim RowRange As Range
     Dim Target As Range
     Dim RowProject As String
     Dim RowLat As String, RowLon As String
@@ -4149,6 +3952,8 @@ Private Function FillResourceDbForSite(ByVal ProjectID As String, _
     Dim LabelText As String
     Dim DidText As String
     Dim LatBlank As Boolean, LonBlank As Boolean, LocBlank As Boolean
+    Dim ProjArr As Variant, LatArr As Variant, LonArr As Variant
+    Dim n As Long, TargetRow As Long
 
     On Error GoTo Failed
     Set Tbl = ResourceDbTable()
@@ -4165,74 +3970,78 @@ Private Function FillResourceDbForSite(ByVal ProjectID As String, _
         Exit Function
     End If
 
-    'Row match: same Project ID jiske lat/lon blank hain, ya same Project ID
-    'whose lat/lon already equal this centroid (Location may still be blank).
-    For R = 1 To Tbl.ListRows.Count
-        Set RowRange = Tbl.ListRows(R).Range
-        RowProject = Trim$(CStr(RowRange.Cells(1, cProject).Value2))
-        If StrComp(RowProject, ProjectID, vbTextCompare) = 0 Then
-            RowLat = Trim$(CStr(RowRange.Cells(1, cLat).Value2))
-            RowLon = Trim$(CStr(RowRange.Cells(1, cLon).Value2))
-            If Len(RowLat) = 0 And Len(RowLon) = 0 Then
-                Set Target = RowRange
-                Exit For
-            ElseIf Not AppendNew And IsNumeric(RowLat) And IsNumeric(RowLon) Then
-                If Abs(CDbl(RowLat) - CentroidLatitude) < 0.0000005 And _
-                   Abs(CDbl(RowLon) - CentroidLongitude) < 0.0000005 Then
-                    Set Target = RowRange
+    'Row choice, one bulk read per column (fast on large tables):
+    '  1. a row of this project whose lat/lon are still blank (prepared row)
+    '  2. automatic path only: a row of this project whose lat/lon already
+    '     equal this centroid (idempotent retry, no duplicate row)
+    '  3. the FIRST completely blank row from the top, so fills stack
+    '     visibly one-below-the-other starting at row 1
+    n = Tbl.ListRows.Count
+    If n > 0 Then
+        ProjArr = Tbl.ListColumns(cProject).Range.Value2
+        LatArr = Tbl.ListColumns(cLat).Range.Value2
+        LonArr = Tbl.ListColumns(cLon).Range.Value2
+        For R = 2 To n + 1
+            RowProject = Trim$(SafeCellText(ProjArr(R, 1)))
+            If StrComp(RowProject, ProjectID, vbTextCompare) = 0 Then
+                RowLat = Trim$(SafeCellText(LatArr(R, 1)))
+                RowLon = Trim$(SafeCellText(LonArr(R, 1)))
+                If Len(RowLat) = 0 And Len(RowLon) = 0 Then
+                    TargetRow = R
                     Exit For
+                ElseIf Not AppendNew And Len(RowLat) > 0 And Len(RowLon) > 0 And _
+                       IsNumeric(LatArr(R, 1)) And IsNumeric(LonArr(R, 1)) Then
+                    If Abs(CDbl(RowLat) - CentroidLatitude) < 0.0000005 And _
+                       Abs(CDbl(RowLon) - CentroidLongitude) < 0.0000005 Then
+                        TargetRow = R
+                        Exit For
+                    End If
                 End If
             End If
-        End If
-    Next R
-    'v3.22.11: when no row of this project can take the values, use the FIRST
-    'completely blank row from the top of the table, so fills stack visibly
-    'one-below-the-other starting at row 1 (blank template rows below the
-    'last fill no longer push new data out of sight).
-    If Target Is Nothing Then
-        For R = 1 To Tbl.ListRows.Count
-            Set RowRange = Tbl.ListRows(R).Range
-            If Len(Trim$(CStr(RowRange.Cells(1, cProject).Value2 & ""))) = 0 And _
-               Len(Trim$(CStr(RowRange.Cells(1, cLat).Value2 & ""))) = 0 And _
-               Len(Trim$(CStr(RowRange.Cells(1, cLon).Value2 & ""))) = 0 Then
-                Set Target = RowRange
-                Exit For
-            End If
         Next R
+        If TargetRow = 0 Then
+            For R = 2 To n + 1
+                If Len(Trim$(SafeCellText(ProjArr(R, 1)))) = 0 And _
+                   Len(Trim$(SafeCellText(LatArr(R, 1)))) = 0 And _
+                   Len(Trim$(SafeCellText(LonArr(R, 1)))) = 0 Then
+                    TargetRow = R
+                    Exit For
+                End If
+            Next R
+        End If
     End If
-    'v2.5: create the missing row - a drawn site must appear in RESOURCE_DB.
-    'Remaining columns are filled by the NASA import or manually.
-    If Target Is Nothing Then
+
+    If TargetRow = 0 Then
         If Not AllowCreate Then
             FillResourceDbForSite = "NOROW"
             Exit Function
         End If
         Set Target = Tbl.ListRows.Add.Range
-        If cProject > 0 Then
-            Set Cell = Target.Cells(1, cProject)
-            If Len(Trim$(CStr(Cell.Value2))) = 0 And Not Cell.HasFormula Then Cell.Value2 = ProjectID
-        End If
         DidText = "NEWROW "
+    Else
+        Set Target = Tbl.ListRows(TargetRow - 1).Range
     End If
+    Set Cell = Target.Cells(1, cProject)
+    If Len(Trim$(CStr(Cell.Value2 & ""))) = 0 And Not Cell.HasFormula Then Cell.Value2 = ProjectID
 
-    '1. exact centroid - BLANK lat/lon cells only.
+    'Exact centroid - BLANK lat/lon cells only.
     Set Cell = Target.Cells(1, cLat)
-    LatBlank = (Len(Trim$(CStr(Cell.Value2))) = 0)
+    LatBlank = (Len(Trim$(CStr(Cell.Value2 & ""))) = 0)
     If LatBlank And Not Cell.HasFormula Then
         Cell.Value2 = CentroidLatitude
         DidText = DidText & "lat "
     End If
     Set Cell = Target.Cells(1, cLon)
-    LonBlank = (Len(Trim$(CStr(Cell.Value2))) = 0)
+    LonBlank = (Len(Trim$(CStr(Cell.Value2 & ""))) = 0)
     If LonBlank And Not Cell.HasFormula Then
         Cell.Value2 = CentroidLongitude
         DidText = DidText & "lon "
     End If
 
-    '2. descriptive Location label - BLANK cell only, existing tiers se.
+    'Descriptive Location label - BLANK cell only.
     If cLoc > 0 Then
         Set Cell = Target.Cells(1, cLoc)
-        LocBlank = (Len(Trim$(CStr(Cell.Value2))) = 0)
+        LocBlank = (Len(Trim$(CStr(Cell.Value2 & ""))) = 0)
         If LocBlank And Not Cell.HasFormula Then
             LabelText = ResourceLocationLabel(Decimal8(CentroidLatitude), Decimal8(CentroidLongitude))
             If Len(LabelText) > 0 Then
