@@ -15,7 +15,7 @@ Private Declare PtrSafe Sub GetSystemTime Lib "kernel32" (lpSystemTime As SYSTEM
 
 '==========================================================================
 ' SOLAR EPC - NASA POWER HOURLY RESOURCE MODULE + AUTOMATIC LOCATION FILL
-' Version 3.21.1 (FINAL)
+' Version 3.22 (FINAL)
 '
 ' THIS FILE IS A COMPLETE REPLACEMENT FOR THE LEGACY modSolarEPCResource.
 '   - Every legacy capability keeps working unchanged: NASA POWER hourly
@@ -30,6 +30,11 @@ Private Declare PtrSafe Sub GetSystemTime Lib "kernel32" (lpSystemTime As SYSTEM
 '     its reason on the status bar; SolarEPC_DrawnLocationDebug produces a
 '     read-only report of the whole chain.
 '   - v3.11 FINAL: every user-facing message, status-bar line and debug
+'   - v3.22 FINAL: SolarEPC_ManualFillNow now also picks up site rows that
+'     carry coordinates but whose RESOURCE_DB row is still missing/unfilled,
+'     proves the point from the row's own polygon centroid first, forces row
+'     creation, and always reports the fill result plus whether the
+'     'resource_db' table was found - so a stuck row can never fail silently.
 '   - v3.21.1: restores the comment apostrophe on the SafeCellText
 '     header line that the v3.21 patch dropped (VBA read the comment as
 '     code: "Compile error: Syntax error" at import). No logic changed.
@@ -168,7 +173,7 @@ Private Const AUTO_LABEL_RETRIES As Long = 15     'limited retries while the lab
 Private Const MANUAL_POINT_RETRIES As Long = 15   'retries while a manual site's point is unprovable
 Private Const MANUAL_SQUARE_HALF_DEG As Double = 0.0001  '~11 m half-side of the manual NASA square
 Private Const INPUT_SHEET As String = "INPUT"
-Private Const MODULE_VERSION As String = "3.21.1"   'single source of the version tag
+Private Const MODULE_VERSION As String = "3.22"   'single source of the version tag
 
 
 Private Const CONFIG_SHEET As String = "_CLOUD_CFG"
@@ -3506,6 +3511,7 @@ End Function
 
 Public Sub SolarEPC_ManualFillNow()
     Dim Tbl As ListObject
+    Dim DbTbl As ListObject
     Dim Headers As Variant
     Dim Body As Variant
     Dim R As Long
@@ -3516,14 +3522,18 @@ Public Sub SolarEPC_ManualFillNow()
     Dim RowFound As Long
     Dim ProjectID As String
     Dim RefText As String
+    Dim CoordText As String
+    Dim Latitudes() As Double
+    Dim Longitudes() As Double
+    Dim VertexCount As Long
+    Dim AreaM2 As Double
     Dim Lat As Double
     Dim Lon As Double
-    Dim TmpLat As Double
-    Dim TmpLon As Double
     Dim Reason As String
     Dim TierText As String
     Dim ResultText As String
     Dim KeyText As String
+    Dim TableFound As String
     Dim CoordCell As Range
 
     On Error GoTo Failed
@@ -3553,57 +3563,98 @@ Public Sub SolarEPC_ManualFillNow()
         MsgBox "Required site table columns were not found.", vbExclamation, "Solar EPC"
         Exit Sub
     End If
+
+    Set DbTbl = ResourceDbTable()
+    TableFound = IIf(DbTbl Is Nothing, "NO", "YES")
+
+    'Pass 1: a manual row without coordinates. Pass 2: any site row whose
+    'RESOURCE_DB row is still missing or unfilled (e.g. an earlier manual
+    'square whose fill never landed).
     RowFound = 0
     For R = 1 To UBound(Body, 1)
         If Len(SafeCellText(Body(R, cProject))) > 0 And _
            Len(SafeCellText(Body(R, cCoords))) = 0 Then RowFound = R
     Next R
     If RowFound = 0 Then
-        MsgBox "No manual (coordinate-less) site row was found.", vbInformation, "Solar EPC"
+        For R = 1 To UBound(Body, 1)
+            If Len(SafeCellText(Body(R, cProject))) > 0 Then
+                If Not ResourceProjectFilledInDb(DbTbl, SafeCellText(Body(R, cProject))) Then RowFound = R
+            End If
+        Next R
+    End If
+    If RowFound = 0 Then
+        MsgBox "Every site row already has a filled RESOURCE_DB row." & vbCrLf & _
+            "RESOURCE_DB table 'resource_db' found: " & TableFound, vbInformation, "Solar EPC"
         Exit Sub
     End If
     ProjectID = SafeCellText(Body(RowFound, cProject))
     RefText = SafeCellText(Body(RowFound, cRef))
+    CoordText = SafeCellText(Body(RowFound, cCoords))
 
     TierText = vbNullString
-    If ResourceManualPoint(ProjectID, Lat, Lon, Reason) Then
-        TierText = "offline tiers (VILLAGE_DB / INPUT!C8 / INPUT!C7 / project history)"
-    ElseIf ResourcePointFromMapLink(ResourceSettingCell(INPUT_SHEET, "C8"), Lat, Lon, Reason) Then
-        TierText = "INPUT!C8 link (online)"
-    ElseIf ResourcePointFromPlaceText(ResourceSettingCell(INPUT_SHEET, "C7"), Lat, Lon, Reason) Then
-        TierText = "forward geocoding of INPUT!C7 (online)"
-    Else
-        ResourceSettingDiag "A18", "MANUAL POINT LAST ERROR", "B18", ProjectID & ": " & Reason
-        MsgBox "The project point could not be proven for:" & vbCrLf & _
-            "  Project : " & ProjectID & vbCrLf & _
-            "  Reason  : " & Reason & vbCrLf & vbCrLf & _
-            "Fix one of these and run this macro again:" & vbCrLf & _
-            "  1. paste lat,lon or a full Google link into INPUT!C8, or" & vbCrLf & _
-            "  2. add the village row to VILLAGE_DB, or" & vbCrLf & _
-            "  3. check the internet / geocoding key.", _
+    If Len(CoordText) > 0 Then
+        If ParsePolygon(CoordText, Latitudes, Longitudes, VertexCount, Reason) Then
+            If CentroidLocalProjection(Latitudes, Longitudes, VertexCount, _
+                                       Lat, Lon, AreaM2, Reason) Then
+                TierText = "the row's own coordinates (exact centroid)"
+            End If
+        End If
+    End If
+    If Len(TierText) = 0 Then
+        If ResourceManualPoint(ProjectID, Lat, Lon, Reason) Then
+            TierText = "offline tiers (VILLAGE_DB / INPUT!C8 / INPUT!C7 / project history)"
+        ElseIf ResourcePointFromMapLink(ResourceSettingCell(INPUT_SHEET, "C8"), Lat, Lon, Reason) Then
+            TierText = "INPUT!C8 link (online)"
+        ElseIf ResourcePointFromPlaceText(ResourceSettingCell(INPUT_SHEET, "C7"), Lat, Lon, Reason) Then
+            TierText = "forward geocoding of INPUT!C7 (online)"
+        Else
+            ResourceSettingDiag "A18", "MANUAL POINT LAST ERROR", "B18", ProjectID & ": " & Reason
+            MsgBox "The project point could not be proven for:" & vbCrLf & _
+                "  Project : " & ProjectID & vbCrLf & _
+                "  Reason  : " & Reason & vbCrLf & vbCrLf & _
+                "Fix one of these and run this macro again:" & vbCrLf & _
+                "  1. paste lat,lon or a full Google link into INPUT!C8, or" & vbCrLf & _
+                "  2. add the village row to VILLAGE_DB, or" & vbCrLf & _
+                "  3. check the internet / geocoding key.", _
+                vbExclamation, "Solar EPC - Manual Fill"
+            Exit Sub
+        End If
+    End If
+
+    ResultText = FillResourceDbForSite(ProjectID, Lat, Lon, True)
+    If Len(CoordText) = 0 Then
+        Set CoordCell = Tbl.ListRows(RowFound).Range.Cells(1, cCoords)
+        If Len(Trim$(CStr(CoordCell.Value2))) = 0 And Not CoordCell.HasFormula Then
+            CoordCell.Value2 = ResourceSquarePolygonText(Lat, Lon)
+        End If
+    End If
+    KeyText = "MANUAL|" & RefText & "|" & ProjectID
+    If mProcessed Is Nothing Then Set mProcessed = CreateObject("Scripting.Dictionary")
+    If mManualNasaSent Is Nothing Then Set mManualNasaSent = CreateObject("Scripting.Dictionary")
+
+    If ResultText = "NOROW" Or Len(ResultText) = 0 Then
+        MsgBox "The point was proven but RESOURCE_DB could not be written." & vbCrLf & vbCrLf & _
+            "  Project          : " & ProjectID & vbCrLf & _
+            "  Point            : " & Format$(Lat, "0.000000") & ", " & Format$(Lon, "0.000000") & vbCrLf & _
+            "  Fill result      : " & IIf(Len(ResultText) = 0, "(empty)", ResultText) & vbCrLf & _
+            "  resource_db table: " & TableFound & vbCrLf & vbCrLf & _
+            "If the table shows NO, the RESOURCE_DB sheet's Excel Table is not " & _
+            "named 'resource_db' - rename it back and run again.", _
             vbExclamation, "Solar EPC - Manual Fill"
         Exit Sub
     End If
 
-    ResultText = FillResourceDbForSite(ProjectID, Lat, Lon, True)
-    Set CoordCell = Tbl.ListRows(RowFound).Range.Cells(1, cCoords)
-    If Len(Trim$(CStr(CoordCell.Value2))) = 0 And Not CoordCell.HasFormula Then
-        CoordCell.Value2 = ResourceSquarePolygonText(Lat, Lon)
-    End If
-    KeyText = "MANUAL|" & RefText & "|" & ProjectID
-    If mProcessed Is Nothing Then Set mProcessed = CreateObject("Scripting.Dictionary")
     mProcessed(KeyText) = "MDONE"
-    If mManualNasaSent Is Nothing Then Set mManualNasaSent = CreateObject("Scripting.Dictionary")
     If Not mManualNasaSent.Exists(KeyText) Then
         mManualNasaSent(KeyText) = True
         ResourceStartForPoint ProjectID, Lat, Lon
     End If
-
     MsgBox "Manual site filled." & vbCrLf & vbCrLf & _
         "  Project : " & ProjectID & vbCrLf & _
         "  Point   : " & Format$(Lat, "0.000000") & ", " & Format$(Lon, "0.000000") & vbCrLf & _
         "  Source  : " & TierText & vbCrLf & _
-        "  Written : " & ResultText & vbCrLf & vbCrLf & _
+        "  Written : " & ResultText & vbCrLf & _
+        "  resource_db table: " & TableFound & vbCrLf & vbCrLf & _
         "The NASA import for this point has been queued.", _
         vbInformation, "Solar EPC - Manual Fill"
     Exit Sub
@@ -3611,6 +3662,27 @@ Failed:
     MsgBox "Manual fill failed: error " & CStr(Err.Number) & " - " & Err.Description, _
         vbExclamation, "Solar EPC - Manual Fill"
 End Sub
+
+'True when RESOURCE_DB already carries a row for this project with numeric
+'latitude and longitude (i.e. the project's resource row is complete).
+Private Function ResourceProjectFilledInDb(ByVal Tbl As ListObject, ByVal ProjectID As String) As Boolean
+    Dim R As Long
+    Dim cProject As Long
+    Dim cLat As Long
+    If Tbl Is Nothing Then Exit Function
+    cProject = TableColumn(Tbl, "Project ID")
+    cLat = TableColumn(Tbl, "Latitude (" & ChrW(176) & ")")
+    If cProject = 0 Or cLat = 0 Then Exit Function
+    For R = 1 To Tbl.ListRows.Count
+        If StrComp(Trim$(CStr(Tbl.ListRows(R).Range.Cells(1, cProject).Value2)), _
+                   ProjectID, vbTextCompare) = 0 Then
+            If IsNumeric(Tbl.ListRows(R).Range.Cells(1, cLat).Value2) Then
+                ResourceProjectFilledInDb = True
+                Exit Function
+            End If
+        End If
+    Next R
+End Function
 
 '--------------------------------------------------------------------------
 ' v3.20 ASYNC manual-point resolution (never blocks the workbook)
