@@ -27,7 +27,7 @@ Private Declare PtrSafe Sub GetSystemTime Lib "kernel32" (lpSystemTime As SYSTEM
 '     FillLocations, MakeVillageDb, AddVillage, Resume, Stop, ShowLastError,
 '     ResumePending, ProcessNext) - so ThisWorkbook, modSolarEPCCloudRelay
 '     and every sheet button continue to compile.
-'   - v4.0.3 CLEAN FINAL: this header carries no version-by-version history
+'   - v4.0.4 CLEAN FINAL: this header carries no version-by-version history
 '     any more; everything below is current behaviour only.
 '     * Automatic fill: after a map draw + SAVE the exact centroid lands in
 '       RESOURCE_DB (blank-only cells) and in the DRAWING_DATA site
@@ -66,7 +66,7 @@ Private Const AUTO_LABEL_RETRIES As Long = 15     'limited retries while the lab
 Private Const MANUAL_POINT_RETRIES As Long = 15   'retries while a manual site's point is unprovable
 Private Const MANUAL_SQUARE_HALF_DEG As Double = 0.0001  '~11 m half-side of the manual NASA square
 Private Const INPUT_SHEET As String = "INPUT"
-Private Const MODULE_VERSION As String = "4.0.3"   'single source of the version tag
+Private Const MODULE_VERSION As String = "4.0.4"   'single source of the version tag
 
 
 Private Const CONFIG_SHEET As String = "_CLOUD_CFG"
@@ -2861,9 +2861,7 @@ Private Sub DrawnLocationSweep(Optional ByVal ForceFull As Boolean = False)
                 'The key includes the coordinates: re-drawing the site changes
                 'the key and the fill is attempted again.
                 KeyText = ReferenceText & "|" & CoordinateText
-                If mPersisted.Exists(KeyText) And Not ProjectExistsInCache(ProjectID) Then
-                    mProcessed(KeyText) = "DONE"       'row was deleted by the user
-                ElseIf Not mProcessed.Exists(KeyText) Or _
+                If Not mProcessed.Exists(KeyText) Or _
                    Left$(CStr(mProcessed(KeyText)), 5) = "NOROW" Or _
                    Left$(CStr(mProcessed(KeyText)), 7) = "LOCPEND" Or _
                    Not ProjectFilledInCache(ProjectID) Then
@@ -2875,6 +2873,10 @@ Private Sub DrawnLocationSweep(Optional ByVal ForceFull As Boolean = False)
                         If CentroidLocalProjection(Latitudes, Longitudes, VertexCount, _
                                CentroidLatitude, CentroidLongitude, AreaM2, ErrorText) Then
                             If AreaM2 >= SITE_MIN_AREA_M2 Then
+                                If PointPersisted(ProjectID, CentroidLatitude, CentroidLongitude) And _
+                                   Not ProjectExistsInCache(ProjectID) Then
+                                    mProcessed(KeyText) = "DONE"   'deleted by the user
+                                Else
                                 ResultText = FillResourceDbForSite(ProjectID, CentroidLatitude, _
                                     CentroidLongitude, Attempts >= 2)
                                 If InStr(1, ResultText, "LOCPEND", vbBinaryCompare) > 0 Then
@@ -2887,12 +2889,13 @@ Private Sub DrawnLocationSweep(Optional ByVal ForceFull As Boolean = False)
                                         mProcessed(KeyText) = "NOROW:" & CStr(Attempts + 1)
                                 Else
                                     mProcessed(KeyText) = "DONE"
-                                    ResourcePersistKey KeyText
+                                    ResourcePersistPoint ProjectID, CentroidLatitude, CentroidLongitude
                                     If ResultText <> "SKIP-NO-BLANK" Then
                                         Application.StatusBar = "Solar EPC: " & ProjectID & " saved to RESOURCE_DB."
                                         DrawnLocationDiag ProjectID, ResultText, _
                                             CentroidLatitude, CentroidLongitude
                                     End If
+                                End If
                                 End If
                             Else
                                 mProcessed(KeyText) = "DONE"
@@ -2910,11 +2913,13 @@ Private Sub DrawnLocationSweep(Optional ByVal ForceFull As Boolean = False)
                 'INPUT!C8 / INPUT!C7 - never a guessed or invented location.
                 KeyText = "MANUAL|" & ReferenceText & "|" & ProjectID
                 StateText = CStr(mProcessed(KeyText) & "")
-                If mPersisted.Exists(KeyText) And Not ProjectExistsInCache(ProjectID) Then
-                    mProcessed(KeyText) = "MDONE"      'row was deleted by the user
-                ElseIf Left$(StateText, 5) <> "MDONE" And StateText <> "MFAIL" Then
+                If Left$(StateText, 5) <> "MDONE" And StateText <> "MFAIL" Then
                     Attempts = DrawnLocationAttempts(StateText)
                     If ResourceManualPoint(ProjectID, ManualLat, ManualLon, ErrorText) Then
+                        If PointPersisted(ProjectID, ManualLat, ManualLon) And _
+                           Not ProjectExistsInCache(ProjectID) Then
+                            mProcessed(KeyText) = "MDONE"  'deleted by the user
+                        Else
                         ResultText = FillResourceDbForSite(ProjectID, ManualLat, ManualLon, Attempts >= 2)
                         If InStr(1, ResultText, "LOCPEND", vbBinaryCompare) > 0 Then
                             If Attempts < AUTO_LABEL_RETRIES Then _
@@ -2924,7 +2929,7 @@ Private Sub DrawnLocationSweep(Optional ByVal ForceFull As Boolean = False)
                                 mProcessed(KeyText) = "NOROW:" & CStr(Attempts + 1)
                         Else
                             mProcessed(KeyText) = "MDONE"
-                            ResourcePersistKey KeyText
+                            ResourcePersistPoint ProjectID, ManualLat, ManualLon
                             If ResultText <> "SKIP-NO-BLANK" Then
                                 Application.StatusBar = "Solar EPC: " & ProjectID & " saved to RESOURCE_DB."
                                 DrawnLocationDiag ProjectID, "MANUAL " & ResultText, _
@@ -2933,17 +2938,18 @@ Private Sub DrawnLocationSweep(Optional ByVal ForceFull As Boolean = False)
                                 Application.StatusBar = "Solar EPC: " & ProjectID & " already complete."
                             End If
                         End If
+                        End If
                         'Record the proven point back into the BLANK Coordinates
                         'cell so the manual row becomes a first-class polygon row
                         '(blank-only; the square's centroid IS the proven point).
-                        If ResultText <> "NOROW" Then
+                        If Len(ResultText) > 0 And ResultText <> "NOROW" Then
                             Set CoordCell = Tbl.ListRows(R).Range.Cells(1, cCoords)
                             If Len(Trim$(CStr(CoordCell.Value2))) = 0 And Not CoordCell.HasFormula Then
                                 CoordCell.Value2 = ResourceSquarePolygonText(ManualLat, ManualLon)
                             End If
                         End If
                         'NASA columns for the manual site, queued exactly once.
-                        If Not mManualNasaSent.Exists(KeyText) Then
+                        If Len(ResultText) > 0 And Not mManualNasaSent.Exists(KeyText) Then
                             mManualNasaSent(KeyText) = True
                             ResourceStartForPoint ProjectID, ManualLat, ManualLon
                         End If
@@ -3562,7 +3568,7 @@ Public Sub SolarEPC_ManualFillNow()
     End If
 
     mProcessed(KeyText) = "MDONE"
-    ResourcePersistKey KeyText
+    ResourcePersistPoint ProjectID, Lat, Lon
     If Not mManualNasaSent.Exists(KeyText) Then
         mManualNasaSent(KeyText) = True
         ResourceStartForPoint ProjectID, Lat, Lon
@@ -4522,13 +4528,58 @@ Private Sub ResourceLoadPersistedKeys()
     On Error Resume Next
     Set ws = ThisWorkbook.Worksheets(CONFIG_SHEET)
     If ws Is Nothing Then Exit Sub
-    Arr = ws.Range("H2:H1001").Value2
+    Arr = ws.Range("H2:H5001").Value2
     On Error GoTo 0
     If Not IsArray(Arr) Then Exit Sub
     For i = 1 To UBound(Arr, 1)
         KeyText = Trim$(CStr(Arr(i, 1) & ""))
         If Len(KeyText) > 0 Then mPersisted(KeyText) = True
     Next i
+
+    'Seed from rows that already exist, so fills written by older module
+    'versions are protected too: deleting them is respected from now on.
+    Dim Rdb As ListObject
+    Dim cP As Long, cLa As Long, cLo As Long
+    Dim ProjArr As Variant, LatArr As Variant, LonArr As Variant
+    Dim n As Long, R As Long
+    Dim SeedKey As String
+
+    Set Rdb = ResourceDbTable()
+    If Rdb Is Nothing Then Exit Sub
+    cP = TableColumn(Rdb, "Project ID")
+    cLa = TableColumn(Rdb, "Latitude (" & ChrW(176) & ")")
+    cLo = TableColumn(Rdb, "Longitude (" & ChrW(176) & ")")
+    If cP = 0 Or cLa = 0 Or cLo = 0 Then Exit Sub
+    n = Rdb.ListRows.Count
+    If n = 0 Then Exit Sub
+    ProjArr = Rdb.ListColumns(cP).Range.Value2
+    LatArr = Rdb.ListColumns(cLa).Range.Value2
+    LonArr = Rdb.ListColumns(cLo).Range.Value2
+    For R = 2 To n + 1
+        If Len(Trim$(CStr(ProjArr(R, 1) & ""))) > 0 And _
+           Len(Trim$(CStr(LatArr(R, 1) & ""))) > 0 And _
+           Len(Trim$(CStr(LonArr(R, 1) & ""))) > 0 And _
+           IsNumeric(LatArr(R, 1)) And IsNumeric(LonArr(R, 1)) Then
+            SeedKey = ResourcePointKey(CStr(ProjArr(R, 1)), CDbl(LatArr(R, 1)), CDbl(LonArr(R, 1)))
+            If Not mPersisted.Exists(SeedKey) Then
+                mPersisted(SeedKey) = True
+                ResourcePersistKey SeedKey
+            End If
+        End If
+    Next R
+End Sub
+
+Private Function ResourcePointKey(ByVal ProjectID As String, ByVal Lat As Double, ByVal Lon As Double) As String
+    ResourcePointKey = LCase$(Trim$(ProjectID)) & "|" & Format$(Lat, "0.00000000") & "|" & Format$(Lon, "0.00000000")
+End Function
+
+Private Function PointPersisted(ByVal ProjectID As String, ByVal Lat As Double, ByVal Lon As Double) As Boolean
+    If mPersisted Is Nothing Then ResourceLoadPersistedKeys
+    PointPersisted = mPersisted.Exists(ResourcePointKey(ProjectID, Lat, Lon))
+End Function
+
+Private Sub ResourcePersistPoint(ByVal ProjectID As String, ByVal Lat As Double, ByVal Lon As Double)
+    ResourcePersistKey ResourcePointKey(ProjectID, Lat, Lon)
 End Sub
 
 Private Sub ResourcePersistKey(ByVal KeyText As String)
@@ -4543,7 +4594,7 @@ Private Sub ResourcePersistKey(ByVal KeyText As String)
     If ws Is Nothing Then Exit Sub
     i = ws.Cells(ws.Rows.Count, "H").End(xlUp).Row + 1
     If i < 2 Then i = 2
-    If i > 1000 Then Exit Sub
+    If i > 5000 Then Exit Sub
     ws.Cells(i, "H").Value2 = KeyText
     On Error GoTo 0
 End Sub
