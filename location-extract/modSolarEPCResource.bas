@@ -15,7 +15,7 @@ Private Declare PtrSafe Sub GetSystemTime Lib "kernel32" (lpSystemTime As SYSTEM
 
 '==========================================================================
 ' SOLAR EPC - NASA POWER HOURLY RESOURCE MODULE + AUTOMATIC LOCATION FILL
-' Version 3.11.1 (FINAL)
+' Version 3.12 (FINAL)
 '
 ' THIS FILE IS A COMPLETE REPLACEMENT FOR THE LEGACY modSolarEPCResource.
 '   - Every legacy capability keeps working unchanged: NASA POWER hourly
@@ -30,6 +30,12 @@ Private Declare PtrSafe Sub GetSystemTime Lib "kernel32" (lpSystemTime As SYSTEM
 '     its reason on the status bar; SolarEPC_DrawnLocationDebug produces a
 '     read-only report of the whole chain.
 '   - v3.11 FINAL: every user-facing message, status-bar line and debug
+'   - v3.12 FINAL: adaptive lightweight watcher. An idle tick now costs one
+'     bulk read of the small site table plus a signature compare (sub-ms,
+'     RESOURCE_DB untouched); the full sweep (one bulk RESOURCE_DB read +
+'     blank-only fills) runs only on change, on an open retry or at the
+'     ~30 s resync. Idle heartbeat 3 s, busy follow-up 2 s: faster fill
+'     after SAVE AND less work per minute than v3.11.
 '   - v3.11.1: restores one comment apostrophe that the translation step
 '     dropped (it made VBA read the comment as code: "Compile error:
 '     Syntax error" at import). No logic changed at all.
@@ -85,9 +91,11 @@ Private Declare PtrSafe Sub GetSystemTime Lib "kernel32" (lpSystemTime As SYSTEM
 '==========================================================================
 
 'Watcher tuning (all other constants already exist inside the module).
-Private Const AUTO_TICK_SECONDS As Long = 5
-Private Const AUTO_NOROW_RETRIES As Long = 12    'retry ~1 min when the RESOURCE_DB row is missing
-Private Const AUTO_LABEL_RETRIES As Long = 6     'limited retries while the label tier is offline
+Private Const AUTO_TICK_SECONDS As Long = 3       'idle heartbeat between change-driven sweeps
+Private Const AUTO_TICK_BUSY_SECONDS As Long = 2  'fast follow-up while a retry is pending
+Private Const AUTO_RESYNC_TICKS As Long = 10      'forced full sweep every ~10 idle ticks (~30 s)
+Private Const AUTO_NOROW_RETRIES As Long = 30     'retry ~1 min when the RESOURCE_DB row is missing
+Private Const AUTO_LABEL_RETRIES As Long = 15     'limited retries while the label tier is offline
 
 
 Private Const CONFIG_SHEET As String = "_CLOUD_CFG"
@@ -144,6 +152,9 @@ Private mAutoActive As Boolean
 Private mAutoNextRun As Date
 Private mProcessed As Object          'key = ReferenceID|Coordinates -> state
 Private mFilledCache As Object          'ProjectID -> row already carries lat/lon
+Private mSiteSignature As String        'concatenated SITE keys of the last full sweep
+Private mIdleTicks As Long              'idle ticks since the last full sweep
+Private mAutoPending As Boolean         'a retry (missing row / offline label) is open
 
 'One-time SYSTEM configuration. Dates are not added to customer INPUT fields.
 'Nothing is saved unless both dates are explicitly entered and validated.
@@ -2599,9 +2610,13 @@ End Function
 '--------------------------------------------------------------------------
 ' v2.3 - AUTOMATIC LOCATION FILL (no Alt+F8, no popups)
 '
-' The watcher starts when the workbook opens (Auto_Open) and inspects
-' DRAWING_DATA.autoLWHTbl every AUTO_TICK_SECONDS. As soon as a new or
-' modified SITE row appears:
+' The watcher starts when the workbook opens (Auto_Open) and monitors
+' DRAWING_DATA.autoLWHTbl with an ADAPTIVE scan: every idle tick costs one
+' bulk read of the small site table plus a signature compare (sub-ms, no
+' RESOURCE_DB access); a changed signature, an open retry or the ~30 s
+' resync opens the gate and runs one full sweep (a single bulk RESOURCE_DB
+' read, then blank-only fills). As soon as a new or modified SITE row
+' appears:
 '   1. the exact area-weighted centroid is computed offline
 '   2. the RESOURCE_DB row for that Project ID is located
 '   3. the exact centroid (identical to the Worker's) is written into the
@@ -2631,10 +2646,10 @@ Public Sub SolarEPC_DrawnLocationAutoStart()
     If mAutoActive Then Exit Sub
     If mProcessed Is Nothing Then Set mProcessed = CreateObject("Scripting.Dictionary")
     mAutoActive = True
-    DrawnLocationSweep
-    DrawnLocationSchedule AUTO_TICK_SECONDS
-    Application.StatusBar = "Solar EPC: drawn-site location AUTO-fill ON (scanning DRAWING_DATA every " & _
-        CStr(AUTO_TICK_SECONDS) & " s)."
+    DrawnLocationSweep True
+    DrawnLocationSchedule DrawnLocationNextDelay()
+    Application.StatusBar = "Solar EPC: drawn-site location AUTO-fill ON (adaptive scan of " & _
+        "DRAWING_DATA, " & CStr(AUTO_TICK_SECONDS) & " s idle heartbeat)."
     Exit Sub
 Failed:
     mAutoActive = False
@@ -2656,7 +2671,7 @@ End Sub
 Public Sub SolarEPC_DrawnLocationAutoNow()
     On Error GoTo Failed
     If mProcessed Is Nothing Then Set mProcessed = CreateObject("Scripting.Dictionary")
-    DrawnLocationSweep
+    DrawnLocationSweep True
     Exit Sub
 Failed:
 End Sub
@@ -2668,8 +2683,17 @@ Public Sub SolarEPC_DrawnLocationTick()
     On Error Resume Next
     If mProcessed Is Nothing Then Set mProcessed = CreateObject("Scripting.Dictionary")
     DrawnLocationSweep
-    DrawnLocationSchedule AUTO_TICK_SECONDS
+    DrawnLocationSchedule DrawnLocationNextDelay()
 End Sub
+
+'Idle heartbeat when quiet, fast follow-up while a retry is open.
+Private Function DrawnLocationNextDelay() As Long
+    If mAutoPending Then
+        DrawnLocationNextDelay = AUTO_TICK_BUSY_SECONDS
+    Else
+        DrawnLocationNextDelay = AUTO_TICK_SECONDS
+    End If
+End Function
 
 Private Sub DrawnLocationSchedule(ByVal SecondsFromNow As Long)
     On Error Resume Next
@@ -2683,15 +2707,28 @@ Private Sub DrawnLocationSchedule(ByVal SecondsFromNow As Long)
 End Sub
 
 'Inspect all SITE rows once; auto-fill any new or re-drawn site.
-Private Sub DrawnLocationSweep()
+'v3.12 ADAPTIVE + LIGHTWEIGHT: the tick takes ONE bulk read of the small site
+'table and compares its signature with the previous tick. Unchanged signature,
+'no open retry and no resync due -> the tick ends here (sub-millisecond, never
+'touches RESOURCE_DB). Anything else opens the gate: one bulk RESOURCE_DB read
+'and the blank-only fill loop below, driven entirely from in-memory arrays.
+Private Sub DrawnLocationSweep(Optional ByVal ForceFull As Boolean = False)
     Dim Tbl As ListObject
+    Dim Headers As Variant
+    Dim Body As Variant
     Dim R As Long
+    Dim H As Long
+    Dim cRef As Long
+    Dim cProject As Long
+    Dim cCoords As Long
+    Dim RowsPresent As Boolean
     Dim ReferenceText As String
     Dim ProjectID As String
     Dim CoordinateText As String
     Dim KeyText As String
     Dim StateText As String
     Dim Attempts As Long
+    Dim Signature As String
     Dim Latitudes() As Double
     Dim Longitudes() As Double
     Dim VertexCount As Long
@@ -2705,13 +2742,51 @@ Private Sub DrawnLocationSweep()
     Set Tbl = DrawnSiteTable()
     If Tbl Is Nothing Then Exit Sub
     If mProcessed Is Nothing Then Set mProcessed = CreateObject("Scripting.Dictionary")
+
+    'Two bulk reads (headers + body) replace every per-row COM call.
+    Headers = Tbl.HeaderRowRange.Value2
+    If Not IsArray(Headers) Then Exit Sub
+    For H = 1 To Tbl.ListColumns.Count
+        Select Case Trim$(CStr(Headers(1, H)))
+            Case "Reference id": cRef = H
+            Case "Project ID": cProject = H
+            Case "Coordinates": cCoords = H
+        End Select
+    Next H
+    If cRef = 0 Or cProject = 0 Or cCoords = 0 Then Exit Sub
+
+    RowsPresent = (Tbl.ListRows.Count > 0)
+    If RowsPresent Then
+        Body = Tbl.DataBodyRange.Value2
+        If Not IsArray(Body) Then Exit Sub
+        For R = 1 To UBound(Body, 1)
+            ReferenceText = Trim$(CStr(Body(R, cRef) & ""))
+            If UCase$(Left$(ReferenceText, 9)) = "SITE-MAP-" Then
+                Signature = Signature & ReferenceText & "|" & _
+                    Trim$(CStr(Body(R, cProject) & "")) & "|" & _
+                    Trim$(CStr(Body(R, cCoords) & "")) & vbLf
+            End If
+        Next R
+    End If
+
+    'Cheap gate: nothing changed, nothing pending, resync not due -> idle tick.
+    If Not ForceFull Then
+        If Signature = mSiteSignature And Not mAutoPending And _
+           mIdleTicks < AUTO_RESYNC_TICKS Then
+            mIdleTicks = mIdleTicks + 1
+            Exit Sub
+        End If
+    End If
+    mIdleTicks = 0
+    mSiteSignature = Signature
     Set mFilledCache = ResourceBuildFilledMap()
 
-    For R = 1 To Tbl.ListRows.Count
-        ReferenceText = RowCellText(Tbl, R, "Reference id")
+    If RowsPresent Then
+    For R = 1 To UBound(Body, 1)
+        ReferenceText = Trim$(CStr(Body(R, cRef) & ""))
         If UCase$(Left$(ReferenceText, 9)) = "SITE-MAP-" Then
-            ProjectID = RowCellText(Tbl, R, "Project ID")
-            CoordinateText = RowCellText(Tbl, R, "Coordinates")
+            ProjectID = Trim$(CStr(Body(R, cProject) & ""))
+            CoordinateText = Trim$(CStr(Body(R, cCoords) & ""))
             If Len(ProjectID) > 0 And Len(CoordinateText) > 0 Then
                 'The key includes the coordinates: re-drawing the site changes
                 'the key and the fill is attempted again.
@@ -2767,8 +2842,26 @@ Private Sub DrawnLocationSweep()
             End If
         End If
     Next R
+    End If
+    mAutoPending = DrawnLocationPending()
 Done:
 End Sub
+
+'True while any site still carries an open retry state (missing RESOURCE_DB
+'row or offline label tier). Keeps the fast 2 s follow-up alive only as long
+'as real work remains, then the watcher relaxes to the idle heartbeat.
+Private Function DrawnLocationPending() As Boolean
+    Dim K As Variant
+    Dim V As String
+    If mProcessed Is Nothing Then Exit Function
+    For Each K In mProcessed.Keys
+        V = CStr(mProcessed(K) & "")
+        If Left$(V, 5) = "NOROW" Or Left$(V, 7) = "LOCPEND" Then
+            DrawnLocationPending = True
+            Exit Function
+        End If
+    Next K
+End Function
 
 'Extract the attempt count from states such as "NOROW:3" / "LOCPEND:1".
 Private Function DrawnLocationAttempts(ByVal StateText As String) As Long
