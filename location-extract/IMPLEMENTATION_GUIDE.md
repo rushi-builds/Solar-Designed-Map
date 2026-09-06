@@ -423,3 +423,14 @@ khud naya label bhar dega.
   se bina touch kiye likhi jaati hain (validated hourly, missing=0).
 - Label tiers ab: VILLAGE_DB (aapka own) -> Google (key+billing ho to) ->
   OSM Nominatim -> BigDataCloud. Bas.
+
+### v3.5 - Date/Time stamp blank-only + har pehle fill pe
+- Stamp ab **watcher auto-fill AUR NASA import** dono pe chalta hai (jo pehle
+  ho) - par sirf BLANK cell me (blank-only; manual date sacred).
+- Column candidates: Date/Time -> Run Date-Time (Local) -> Date-Time ->
+  DateTime -> Date / Time. Column resource_db TABLE ke header row ke ANDAR
+  honi chahiye (sheet me table ke bahar add ki ho to table range me lao).
+- SolarEPC_DrawnLocationDebug ab batata hai: Date/Time column mil gayi ya
+  TABLE KE ANDAR NAHIN.
+- Purani rows ka din/samay record hua hi nahi tha -> wo blank rahengi; nayi
+  har fill pe stamp lagega.

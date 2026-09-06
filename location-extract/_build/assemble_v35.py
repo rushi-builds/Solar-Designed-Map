@@ -72,9 +72,9 @@ s = s.replace(old_skip,
     '    If Len(DidText) > 0 And DidText <> "SKIP-NO-BLANK" Then _\n        ResourceStampLocalRunTime Tbl, Target\n' + old_skip, 1)
 
 # 3) debug macro me Date/Time column report
-old_dims = '    Dim cProject As Long, cLat As Long, cLon As Long, cLoc As Long\n'
+old_dims = '    Dim cProject As Long, cLat As Long, cLon As Long, cLoc As Long\n    Dim RowProject As String, RowLat As String, RowLon As String, RowLoc As String\n'
 assert s.count(old_dims) == 1
-s = s.replace(old_dims, old_dims + '    Dim cDT As Long\n', 1)
+s = s.replace(old_dims, '    Dim cProject As Long, cLat As Long, cLon As Long, cLoc As Long\n    Dim cDT As Long\n    Dim RowProject As String, RowLat As String, RowLon As String, RowLoc As String\n', 1)
 old_cols = '        cLoc = TableColumn(Rdb, "Location")\n'
 assert s.count(old_cols) == 1
 s = s.replace(old_cols, old_cols + '        cDT = ResourceDateTimeColumn(Rdb)\n', 1)

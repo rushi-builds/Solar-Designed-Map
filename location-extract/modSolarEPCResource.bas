@@ -3,7 +3,7 @@ Option Explicit
 
 '==========================================================================
 ' SOLAR EPC - NASA POWER HOURLY RESOURCE MODULE + AUTOMATIC LOCATION FILL
-' Version 3.4
+' Version 3.5
 '
 ' YE FILE TUMHARE PURANE modSolarEPCResource KA POORA REPLACEMENT HAI.
 '   - v2.1/v2.2 ka SARA kaam waise hi chalta hai: NASA POWER hourly import,
@@ -17,6 +17,10 @@ Option Explicit
 '     bana deta hai (blank-only rules phir bhi lagute hain), status bar pe har
 '     step ka reason dikhta hai, aur ek diagnostic macro hai:
 '         SolarEPC_DrawnLocationDebug  -> poori chain ka report (read-only)
+'   - v3.5: Date/Time stamp ab BLANK-ONLY hai aur HAR pehle fill pe
+'     lagta hai (watcher auto-fill YA NASA import, jo pehle ho). Column
+'     candidates: Date/Time, Run Date-Time (Local), Date-Time, DateTime.
+'     Debug macro batata hai column table ke andar mili ya nahi.
 '   - v3.4 LEAN: GeoNames tier HATAYA (unke database me Indian
 '     revenue villages hain hi nahi - prove ho gaya). Ab user ka apna
 '     "Date/Time" column bharta hai (local Now, real date value);
@@ -2862,6 +2866,8 @@ Private Function FillResourceDbForSite(ByVal ProjectID As String, _
         End If
     End If
 
+    If Len(DidText) > 0 And DidText <> "SKIP-NO-BLANK" Then _
+        ResourceStampLocalRunTime Tbl, Target
     If Len(DidText) = 0 Then DidText = "SKIP-NO-BLANK"
     FillResourceDbForSite = DidText
     Exit Function
@@ -2953,6 +2959,7 @@ Public Sub SolarEPC_DrawnLocationDebug()
     Dim AreaM2 As Double
     Dim ErrorText As String
     Dim cProject As Long, cLat As Long, cLon As Long, cLoc As Long
+    Dim cDT As Long
     Dim RowProject As String, RowLat As String, RowLon As String, RowLoc As String
     Dim MatchRow As Long
     Dim LabelText As String
@@ -3014,9 +3021,13 @@ Public Sub SolarEPC_DrawnLocationDebug()
         cLat = TableColumn(Rdb, "Latitude (" & ChrW(176) & ")")
         cLon = TableColumn(Rdb, "Longitude (" & ChrW(176) & ")")
         cLoc = TableColumn(Rdb, "Location")
+        cDT = ResourceDateTimeColumn(Rdb)
         P2 = "4) resource_db table: " & CStr(Rdb.ListRows.Count) & " row(s); columns: " & _
              IIf(cProject > 0, "P", "-") & IIf(cLat > 0, "Lat", "-") & _
              IIf(cLon > 0, "Lon", "-") & IIf(cLoc > 0, "Loc", "-") & vbCrLf
+        P2 = P2 & "   Date/Time column: " & IIf(cDT > 0, _
+             "mil gayi (" & Rdb.ListColumns(cDT).Name & ")", _
+             "TABLE KE ANDAR NAHIN - header row ke andar add karo") & vbCrLf
         If cProject = 0 Or cLat = 0 Or cLon = 0 Then
             P2 = P2 & "   >> Required columns missing (Project ID / Latitude / Longitude)." & vbCrLf
         ElseIf Len(ProjectID) > 0 And CentroidLatitude <> 0 Then
@@ -3080,26 +3091,40 @@ End Sub
 ' ye column aapka apna local run-time hai, har import pe fresh update.
 ' Column na ho to pehli import par apne aap ban jaata hai (table ke end me).
 '--------------------------------------------------------------------------
+Private Function ResourceDateTimeColumn(ByVal Tbl As ListObject) As Long
+    Dim Names As Variant
+    Dim i As Long
+    Names = Array("Date/Time", "Run Date-Time (Local)", "Date-Time", _
+                  "DateTime", "Date / Time")
+    For i = LBound(Names) To UBound(Names)
+        ResourceDateTimeColumn = ResourceColumn(Tbl, CStr(Names(i)))
+        If ResourceDateTimeColumn > 0 Then Exit Function
+    Next i
+End Function
+
+'v3.5: BLANK-ONLY local run stamp. Jis event ne row pe pehla data likha
+'(watcher auto-fill ya NASA import), wahi din+samay stamp hota hai.
+'Kabhi overwrite nahi karta - manual date entry sacred hai.
 Private Sub ResourceStampLocalRunTime(ByVal Tbl As ListObject, ByVal Target As Range)
     Dim C As Long
     Dim Col As ListColumn
     Dim Cell As Range
 
     On Error Resume Next
-    C = ResourceColumn(Tbl, "Date/Time")              'user ka apna column
-    If C = 0 Then C = ResourceColumn(Tbl, "Run Date-Time (Local)")
+    C = ResourceDateTimeColumn(Tbl)
     If C = 0 Then
         Set Col = Tbl.ListColumns.Add(Tbl.ListColumns.Count + 1)
         If Not Col Is Nothing Then Col.Name = "Run Date-Time (Local)"
-        C = ResourceColumn(Tbl, "Run Date-Time (Local)")
+        C = ResourceDateTimeColumn(Tbl)
     End If
     On Error GoTo 0
     If C = 0 Then Exit Sub
     Set Cell = Target.Cells(1, C)
     If Cell Is Nothing Then Exit Sub
     If Cell.HasFormula Then Exit Sub
+    If Len(Trim$(CStr(Cell.Value2))) > 0 Then Exit Sub     'blank-only, hamesha
     Cell.NumberFormat = "dd-mm-yyyy hh:nn:ss"
-    Cell.Value2 = Now                                  'real date value, sortable
+    Cell.Value2 = Now                                      'real date value
 End Sub
 
 
