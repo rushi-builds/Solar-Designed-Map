@@ -1758,26 +1758,6 @@ function notifyParentLocation(txt,lat,lng){
   window.SOLAR_EPC_LAST_LOCATION=p;
 }
 
-function manualPointSquareCoordinates(){
-  // Manual (dimension-only) saves carry no drawn polygon. The point the user
-  // actually chose on the map (selected location, else the current map center)
-  // is the honest site point, so send the approved ~11 m marker square around
-  // it as a CLOSED 5-point ring (first point repeated last, the standard
-  // polygon convention) so every polygon gate downstream accepts it: the Excel
-  // module treats such a square exactly like a drawn site and fills
-  // RESOURCE_DB automatically - exact centroid, one new row per save.
-  const c=state.selectedLocation||state.map.getCenter();
-  if(!c||!Number.isFinite(+c.lat)||!Number.isFinite(+c.lng))return[];
-  const d=0.0001,lat=+Number(c.lat).toFixed(8),lon=+Number(c.lng).toFixed(8);
-  return[
-    {point:1,latitude:+(lat-d).toFixed(8),longitude:+(lon-d).toFixed(8)},
-    {point:2,latitude:+(lat-d).toFixed(8),longitude:+(lon+d).toFixed(8)},
-    {point:3,latitude:+(lat+d).toFixed(8),longitude:+(lon+d).toFixed(8)},
-    {point:4,latitude:+(lat+d).toFixed(8),longitude:+(lon-d).toFixed(8)},
-    {point:5,latitude:+(lat-d).toFixed(8),longitude:+(lon-d).toFixed(8)}
-  ];
-}
-
 /* =====================================================================
    SEARCH — Nominatim (worldwide) + Photon (fast POI)
    Finds cities, villages, houses, businesses, plots, roads — everything
@@ -2635,7 +2615,7 @@ function updateSiteStats(){
   $("pointCount").textContent=String(state.points.length);
   $("undoButton").disabled=state.points.length===0||state.closed;
   $("clearButton").disabled=state.points.length===0;
-  $("saveButton").disabled=!state.closed||!!state.boundarySaved;
+  $("saveButton").disabled=!state.closed;
   $("downloadButton").disabled=!state.closed;
   $("downloadButton").classList.toggle("needs-save",state.closed&&!state.boundarySaved);
   $("usableSection").style.display=state.closed?"block":"none";
@@ -3929,15 +3909,13 @@ function buildExcelBridgeText(p, messageId) {
   // Save the exact drawn site vertices, with the first point repeated last.
   const siteCoordinates = bridgeCoordinateText(p.siteCoordinates, true);
 
-  const siteRemarks = (p.obstaclePresent
+  const siteRemarks = p.obstaclePresent
     ? "Obstacle present: YES"
-    : "Obstacle present: NO") + "; THIS_SITE_ONLY";
+    : "Obstacle present: NO";
 
   const lines = ["SOLAR_EPC_MAP_SAVE_V1"];
   lines.push("TS|" + esc(p.timestamp));
   lines.push("PROJECT|" + esc(p.projectId));
-  lines.push("MODE|THIS_SITE_ONLY");
-  lines.push("FILL_SCOPE|LATEST_SITE_ONLY");
 
   // SITE|L|W|H|Area|Perimeter|Points|Reference|Coordinates|Remarks
   lines.push([
@@ -4047,7 +4025,7 @@ async function commitSave() {
       // Stop fast watch immediately. A tiny idle sentinel remains so fresh
       // drawing activity can wake Excel for another automatic SAVE.
       await setRelayIdleAfterSave();
-      setStatus("Saved this site only to Excel. Click Clear, draw the next site, then SAVE again.");
+      setStatus("Saved successfully to Excel DRAWING_DATA. Watcher idle; ready for another drawing.");
     } else {
       setStatus(
         "Cloud relay retained the data safely; Excel acknowledgement is still pending."
@@ -4110,10 +4088,6 @@ function buildPayload(){
     usableArea=uFinal?GeometryEngine.featureArea(uFinal):0;
   }
 
-  //One source of truth: the coordinates actually sent. Manual saves send the
-  //approved marker square, and point_count must match it so the workbook-side
-  //relay stores the Coordinates cell (never 0 for a save that carries a point).
-  const siteCoordsToSend=(state.points&&state.points.length)?state.points.map((p,i)=>({point:i+1,latitude:+p.lat.toFixed(8),longitude:+p.lng.toFixed(8)})):manualPointSquareCoordinates();
   return {
     type:"solar_epc_site_boundary",projectId,
     calculationError:GeometryEngine.lastError()||null,
@@ -4128,13 +4102,13 @@ function buildPayload(){
     coordinateSource:state.coordinateSource||null,
     googleMapsUrl:googleMapsUrlForLocation(state.lastCleanLocation),
     internalMapUrl:internalMapUrlForLocation(state.lastCleanLocation,state.selectedLocation?.lat,state.selectedLocation?.lng),
-    siteCoordinates:siteCoordsToSend,
+    siteCoordinates:state.points.map((p,i)=>({point:i+1,latitude:+p.lat.toFixed(8),longitude:+p.lng.toFixed(8)})),
     siteLength:+obb.length.toFixed(2),siteWidth:+obb.width.toFixed(2),
     siteArea:+siteArea.toFixed(2),sitePerimeter:+sitePerimeter.toFixed(2),
     siteObbAngle:+obb.angleDeg.toFixed(2),
     length_m:+obb.length.toFixed(2),width_m:+obb.width.toFixed(2),
     area_m2:+siteArea.toFixed(2),perimeter_m:+sitePerimeter.toFixed(2),
-    point_count:siteCoordsToSend.length,
+    point_count:state.points.length,
     obstaclePresent:!!state.obstaclePresent,
     obstacles:(state.obstaclePresent?state.obstacles:[]).map((o,i)=>({
       obstacleId:o.id,index:i+1,obstacleType:o.type,geometry:o.geometry,
