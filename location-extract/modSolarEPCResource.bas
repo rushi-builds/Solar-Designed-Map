@@ -14,14 +14,14 @@ End Type
 Private Declare PtrSafe Sub GetSystemTime Lib "kernel32" (lpSystemTime As SYSTEMTIME)
 
 '==========================================================================
-' SOLAR EPC RESOURCE MODULE  v4.2.0
+' SOLAR EPC RESOURCE MODULE  v4.0.8
 ' Single replacement for modSolarEPCResource.
 ' Fast watcher, no hourglass cursor, RESOURCE_DB fills stack top-down
 ' (next completely blank row). Manual Fill always appends a new row when
 ' the project already has lat/lon. Watcher labels stay OFFLINE (VILLAGE_DB
 ' only); online reverse-geocode runs only on user macros.
 ' Import: remove old modSolarEPCResource + modSolarEPCDrawnLocation, then
-' Import File this .bas. Run SolarEPC_ShowModuleVersion -> v4.2.0
+' Import File this .bas. Run SolarEPC_ShowModuleVersion -> v4.0.8
 '==========================================================================
 
 'Watcher tuning (all other constants already exist inside the module).
@@ -33,7 +33,7 @@ Private Const AUTO_LABEL_RETRIES As Long = 15     'limited retries while the lab
 Private Const MANUAL_POINT_RETRIES As Long = 15   'retries while a manual site's point is unprovable
 Private Const MANUAL_SQUARE_HALF_DEG As Double = 0.0001  '~11 m half-side of the manual NASA square
 Private Const INPUT_SHEET As String = "INPUT"
-Private Const MODULE_VERSION As String = "4.2.0"     'single source of the version tag
+Private Const MODULE_VERSION As String = "4.0.8"     'single source of the version tag
 
 
 Private Const CONFIG_SHEET As String = "_CLOUD_CFG"
@@ -2860,7 +2860,7 @@ Private Sub DrawnLocationSweep(Optional ByVal ForceFull As Boolean = False)
                                CentroidLatitude, CentroidLongitude, AreaM2, ErrorText) Then
                             If AreaM2 >= SITE_MIN_AREA_M2 Then
                                 ResultText = FillResourceDbForSite(ProjectID, CentroidLatitude, _
-                                    CentroidLongitude, Attempts >= 2)
+                                    CentroidLongitude, True, True)
                                 If InStr(1, ResultText, "LOCPEND", vbBinaryCompare) > 0 Then
                                     'lat/lon filled, label tier offline - limited retries.
                                     If Attempts < AUTO_LABEL_RETRIES Then _
@@ -2897,7 +2897,7 @@ Private Sub DrawnLocationSweep(Optional ByVal ForceFull As Boolean = False)
                 If Left$(StateText, 5) <> "MDONE" And StateText <> "MFAIL" Then
                     Attempts = DrawnLocationAttempts(StateText)
                     If ResourceManualPoint(ProjectID, ManualLat, ManualLon, ErrorText) Then
-                        ResultText = FillResourceDbForSite(ProjectID, ManualLat, ManualLon, Attempts >= 2)
+                        ResultText = FillResourceDbForSite(ProjectID, ManualLat, ManualLon, True, True)
                         If InStr(1, ResultText, "LOCPEND", vbBinaryCompare) > 0 Then
                             If Attempts < AUTO_LABEL_RETRIES Then _
                                 mProcessed(KeyText) = "LOCPEND:" & CStr(Attempts + 1)
@@ -3978,7 +3978,6 @@ Private Function FillResourceDbForSite(ByVal ProjectID As String, _
     Dim Tbl As ListObject
     Dim R As Long
     Dim cProject As Long, cLat As Long, cLon As Long, cLoc As Long
-    Dim RowRange As Range
     Dim Target As Range
     Dim RowProject As String
     Dim RowLat As String, RowLon As String
@@ -3986,7 +3985,8 @@ Private Function FillResourceDbForSite(ByVal ProjectID As String, _
     Dim LabelText As String
     Dim DidText As String
     Dim LatBlank As Boolean, LonBlank As Boolean, LocBlank As Boolean
-    Dim LastUsed As Long
+    Dim ProjArr As Variant, LatArr As Variant, LonArr As Variant
+    Dim n As Long, TargetRow As Long
 
     On Error GoTo Failed
     Set Tbl = ResourceDbTable()
@@ -3996,98 +3996,81 @@ Private Function FillResourceDbForSite(ByVal ProjectID As String, _
     End If
     cProject = TableColumn(Tbl, "Project ID")
     cLat = TableColumn(Tbl, "Latitude (" & ChrW(176) & ")")
+    If cLat = 0 Then cLat = TableColumnFuzzy(Tbl, "Latitude")
     cLon = TableColumn(Tbl, "Longitude (" & ChrW(176) & ")")
+    If cLon = 0 Then cLon = TableColumnFuzzy(Tbl, "Longitude")
     cLoc = TableColumn(Tbl, "Location")
     If cProject = 0 Or cLat = 0 Or cLon = 0 Then
         FillResourceDbForSite = "NOROW"
         Exit Function
     End If
 
-    'Reuse only when NOT appending: blank lat/lon for this project, or
-    'same centroid. Manual Fill always AppendNew so every click lands on
-    'the next empty row under the last filled one.
-    If Not AppendNew Then
-        For R = 1 To Tbl.ListRows.Count
-            Set RowRange = Tbl.ListRows(R).Range
-            RowProject = Trim$(CStr(RowRange.Cells(1, cProject).Value2))
-            If StrComp(RowProject, ProjectID, vbTextCompare) = 0 Then
-                RowLat = Trim$(CStr(RowRange.Cells(1, cLat).Value2))
-                RowLon = Trim$(CStr(RowRange.Cells(1, cLon).Value2))
-                If Len(RowLat) = 0 And Len(RowLon) = 0 Then
-                    Set Target = RowRange
-                    Exit For
-                ElseIf IsNumeric(RowLat) And IsNumeric(RowLon) Then
-                    If Abs(CDbl(RowLat) - CentroidLatitude) < 0.0000005 And _
-                       Abs(CDbl(RowLon) - CentroidLongitude) < 0.0000005 Then
-                        Set Target = RowRange
+    n = Tbl.ListRows.Count
+    If n > 0 Then
+        ProjArr = Tbl.ListColumns(cProject).Range.Value2
+        LatArr = Tbl.ListColumns(cLat).Range.Value2
+        LonArr = Tbl.ListColumns(cLon).Range.Value2
+        If Not AppendNew Then
+            For R = 2 To n + 1
+                RowProject = Trim$(SafeCellText(ProjArr(R, 1)))
+                If StrComp(RowProject, ProjectID, vbTextCompare) = 0 Then
+                    RowLat = Trim$(SafeCellText(LatArr(R, 1)))
+                    RowLon = Trim$(SafeCellText(LonArr(R, 1)))
+                    If Len(RowLat) = 0 And Len(RowLon) = 0 Then
+                        TargetRow = R
                         Exit For
+                    ElseIf Len(RowLat) > 0 And Len(RowLon) > 0 And _
+                           IsNumeric(LatArr(R, 1)) And IsNumeric(LonArr(R, 1)) Then
+                        If Abs(CDbl(RowLat) - CentroidLatitude) < 0.00005 And _
+                           Abs(CDbl(RowLon) - CentroidLongitude) < 0.00005 Then
+                            TargetRow = R
+                            Exit For
+                        End If
                     End If
                 End If
-            End If
-        Next R
+            Next R
+        End If
+        If TargetRow = 0 Then
+            For R = 2 To n + 1
+                If Len(Trim$(SafeCellText(ProjArr(R, 1)))) = 0 And _
+                   Len(Trim$(SafeCellText(LatArr(R, 1)))) = 0 And _
+                   Len(Trim$(SafeCellText(LonArr(R, 1)))) = 0 Then
+                    TargetRow = R
+                    Exit For
+                End If
+            Next R
+        End If
     End If
-    'Next completely blank row AFTER the last used content so fills stack
-    'ek-ke-niche-ek. Never reuse a filled row.
-    LastUsed = 0
-    For R = 1 To Tbl.ListRows.Count
-        Set RowRange = Tbl.ListRows(R).Range
-        If Len(Trim$(CStr(RowRange.Cells(1, cProject).Value2 & ""))) > 0 Then LastUsed = R
-        If Len(Trim$(CStr(RowRange.Cells(1, cLat).Value2 & ""))) > 0 Then LastUsed = R
-        If Len(Trim$(CStr(RowRange.Cells(1, cLon).Value2 & ""))) > 0 Then LastUsed = R
-    Next R
-    If Target Is Nothing Then
-        For R = LastUsed + 1 To Tbl.ListRows.Count
-            Set RowRange = Tbl.ListRows(R).Range
-            If Len(Trim$(CStr(RowRange.Cells(1, cProject).Value2 & ""))) = 0 And _
-               Len(Trim$(CStr(RowRange.Cells(1, cLat).Value2 & ""))) = 0 And _
-               Len(Trim$(CStr(RowRange.Cells(1, cLon).Value2 & ""))) = 0 Then
-                Set Target = RowRange
-                Exit For
-            End If
-        Next R
-    End If
-    'v2.5: create the missing row - a drawn site must appear in RESOURCE_DB.
-    'Remaining columns are filled by the NASA import or manually.
-    If Target Is Nothing Then
+
+    If TargetRow = 0 Then
         If Not AllowCreate Then
             FillResourceDbForSite = "NOROW"
             Exit Function
         End If
-        If LastUsed > 0 And LastUsed < Tbl.ListRows.Count Then
-            Set Target = Tbl.ListRows.Add(LastUsed + 1).Range
-        Else
-            Set Target = Tbl.ListRows.Add.Range
-        End If
-        If cProject > 0 Then
-            Set Cell = Target.Cells(1, cProject)
-            If Len(Trim$(CStr(Cell.Value2))) = 0 And Not Cell.HasFormula Then Cell.Value2 = ProjectID
-        End If
+        Set Target = Tbl.ListRows.Add.Range
         DidText = "NEWROW "
+    Else
+        Set Target = Tbl.ListRows(TargetRow - 1).Range
     End If
+    Set Cell = Target.Cells(1, cProject)
+    If Len(Trim$(CStr(Cell.Value2 & ""))) = 0 And Not Cell.HasFormula Then Cell.Value2 = ProjectID
 
-    If cProject > 0 Then
-        Set Cell = Target.Cells(1, cProject)
-        If Len(Trim$(CStr(Cell.Value2))) = 0 And Not Cell.HasFormula Then Cell.Value2 = ProjectID
-    End If
-
-    '1. exact centroid - BLANK lat/lon cells only.
     Set Cell = Target.Cells(1, cLat)
-    LatBlank = (Len(Trim$(CStr(Cell.Value2))) = 0)
+    LatBlank = (Len(Trim$(CStr(Cell.Value2 & ""))) = 0)
     If LatBlank And Not Cell.HasFormula Then
         Cell.Value2 = CentroidLatitude
         DidText = DidText & "lat "
     End If
     Set Cell = Target.Cells(1, cLon)
-    LonBlank = (Len(Trim$(CStr(Cell.Value2))) = 0)
+    LonBlank = (Len(Trim$(CStr(Cell.Value2 & ""))) = 0)
     If LonBlank And Not Cell.HasFormula Then
         Cell.Value2 = CentroidLongitude
         DidText = DidText & "lon "
     End If
 
-    '2. descriptive Location label - BLANK cell only, existing tiers se.
     If cLoc > 0 Then
         Set Cell = Target.Cells(1, cLoc)
-        LocBlank = (Len(Trim$(CStr(Cell.Value2))) = 0)
+        LocBlank = (Len(Trim$(CStr(Cell.Value2 & ""))) = 0)
         If LocBlank And Not Cell.HasFormula Then
             LabelText = ResourceLocationLabel(Decimal8(CentroidLatitude), Decimal8(CentroidLongitude))
             If Len(LabelText) > 0 Then
