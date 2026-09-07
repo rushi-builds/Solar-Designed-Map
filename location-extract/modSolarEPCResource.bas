@@ -14,14 +14,14 @@ End Type
 Private Declare PtrSafe Sub GetSystemTime Lib "kernel32" (lpSystemTime As SYSTEMTIME)
 
 '==========================================================================
-' SOLAR EPC RESOURCE MODULE  v4.0.10
+' SOLAR EPC RESOURCE MODULE  v4.0.11
 ' Single replacement for modSolarEPCResource.
 ' Fast watcher, no hourglass cursor, RESOURCE_DB fills stack top-down
 ' (next completely blank row). Manual Fill always appends a new row when
 ' the project already has lat/lon. Watcher labels stay OFFLINE (VILLAGE_DB
 ' only); online reverse-geocode runs only on user macros.
 ' Import: remove old modSolarEPCResource + modSolarEPCDrawnLocation, then
-' Import File this .bas. Run SolarEPC_ShowModuleVersion -> v4.0.10
+' Import File this .bas. Run SolarEPC_ShowModuleVersion -> v4.0.11
 '==========================================================================
 
 'Watcher tuning (all other constants already exist inside the module).
@@ -33,7 +33,7 @@ Private Const AUTO_LABEL_RETRIES As Long = 15     'limited retries while the lab
 Private Const MANUAL_POINT_RETRIES As Long = 15   'retries while a manual site's point is unprovable
 Private Const MANUAL_SQUARE_HALF_DEG As Double = 0.0001  '~11 m half-side of the manual NASA square
 Private Const INPUT_SHEET As String = "INPUT"
-Private Const MODULE_VERSION As String = "4.0.10"     'single source of the version tag
+Private Const MODULE_VERSION As String = "4.0.11"     'single source of the version tag
 
 
 Private Const CONFIG_SHEET As String = "_CLOUD_CFG"
@@ -2647,11 +2647,13 @@ End Function
 Public Sub Auto_Open()
     On Error Resume Next
     SolarEPC_DrawnLocationAutoStart
+    LabelAsyncEnsureRunning
     If mNextRun = 0 Then ResourceSchedule 3
 End Sub
 
 Public Sub Auto_Close()
     On Error Resume Next
+    LabelAsyncStop
     SolarEPC_DrawnLocationAutoStop
 End Sub
 
@@ -2662,6 +2664,7 @@ Public Sub SolarEPC_DrawnLocationAutoStart()
     mAutoActive = True
     Application.Cursor = xlDefault
     DrawnLocationSchedule 1
+    LabelAsyncEnsureRunning
     Application.StatusBar = "Solar EPC: auto-fill ON (v" & MODULE_VERSION & ")."
     Exit Sub
 Failed:
@@ -4069,7 +4072,9 @@ Private Function FillResourceDbForSite(ByVal ProjectID As String, _
         Set Cell = Target.Cells(1, cLoc)
         LocBlank = (Len(Trim$(CStr(Cell.Value2 & ""))) = 0)
         If LocBlank And Not Cell.HasFormula Then
-            LabelText = ResourceLocationLabel(Decimal8(CentroidLatitude), Decimal8(CentroidLongitude))
+            LabelText = ResourceVillageDbLabel(CentroidLatitude, CentroidLongitude)
+            If Len(LabelText) = 0 Then LabelText = ResourceLocationLabelOfflineSafe(CentroidLatitude, CentroidLongitude)
+            LabelAsyncEnsureRunning
             If Len(LabelText) > 0 Then
                 Cell.Value2 = LabelText
                 DidText = DidText & "location(" & LabelText & ")"
