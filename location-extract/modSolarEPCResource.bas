@@ -14,14 +14,14 @@ End Type
 Private Declare PtrSafe Sub GetSystemTime Lib "kernel32" (lpSystemTime As SYSTEMTIME)
 
 '==========================================================================
-' SOLAR EPC RESOURCE MODULE  v4.0.8
+' SOLAR EPC RESOURCE MODULE  v4.0.9
 ' Single replacement for modSolarEPCResource.
 ' Fast watcher, no hourglass cursor, RESOURCE_DB fills stack top-down
 ' (next completely blank row). Manual Fill always appends a new row when
 ' the project already has lat/lon. Watcher labels stay OFFLINE (VILLAGE_DB
 ' only); online reverse-geocode runs only on user macros.
 ' Import: remove old modSolarEPCResource + modSolarEPCDrawnLocation, then
-' Import File this .bas. Run SolarEPC_ShowModuleVersion -> v4.0.8
+' Import File this .bas. Run SolarEPC_ShowModuleVersion -> v4.0.9
 '==========================================================================
 
 'Watcher tuning (all other constants already exist inside the module).
@@ -33,7 +33,7 @@ Private Const AUTO_LABEL_RETRIES As Long = 15     'limited retries while the lab
 Private Const MANUAL_POINT_RETRIES As Long = 15   'retries while a manual site's point is unprovable
 Private Const MANUAL_SQUARE_HALF_DEG As Double = 0.0001  '~11 m half-side of the manual NASA square
 Private Const INPUT_SHEET As String = "INPUT"
-Private Const MODULE_VERSION As String = "4.0.8"     'single source of the version tag
+Private Const MODULE_VERSION As String = "4.0.9"     'single source of the version tag
 
 
 Private Const CONFIG_SHEET As String = "_CLOUD_CFG"
@@ -96,6 +96,8 @@ Private mAutoPending As Boolean         'a retry (missing row / offline label) i
 Private mManualBaseline As Object       'no-coordinate SITE rows present at watcher start
 Private mManualBaseDone As Boolean      'baseline captured once per session
 Private mManualNasaSent As Object       'manual key -> NASA start already queued
+Private mOpenKeys As Object             'site keys present at session start
+Private mOpenSnapshotTaken As Boolean   'first sweep has snapshotted open keys
 Private mManualPointCacheKey As String  'INPUT!C7+C8 text behind the cached manual point
 Private mManualPointCacheLat As Double
 Private mManualPointCacheLon As Double
@@ -2765,12 +2767,17 @@ Private Sub DrawnLocationSweep(Optional ByVal ForceFull As Boolean = False)
     Dim ManualLon As Double
     Dim CurrentProject As String
     Dim CoordCell As Range
+    Dim SnapshotFirst As Boolean
+    Dim DrawnAppend As Boolean
+    Dim ManualAppend As Boolean
 
     On Error GoTo Done
     Set Tbl = DrawnSiteTable()
     If Tbl Is Nothing Then Exit Sub
     If mProcessed Is Nothing Then Set mProcessed = CreateObject("Scripting.Dictionary")
     If mManualNasaSent Is Nothing Then Set mManualNasaSent = CreateObject("Scripting.Dictionary")
+    If mOpenKeys Is Nothing Then Set mOpenKeys = CreateObject("Scripting.Dictionary")
+    SnapshotFirst = Not mOpenSnapshotTaken
     ResourceCheckManualPointHttp
 
     'Two bulk reads (headers + body) replace every per-row COM call.
@@ -2847,9 +2854,12 @@ Private Sub DrawnLocationSweep(Optional ByVal ForceFull As Boolean = False)
                 'The key includes the coordinates: re-drawing the site changes
                 'the key and the fill is attempted again.
                 KeyText = ReferenceText & "|" & CoordinateText
+                DrawnAppend = Not SnapshotFirst And Not mOpenKeys.Exists(KeyText)
+                mOpenKeys(KeyText) = True
                 If Not mProcessed.Exists(KeyText) Or _
                    Left$(CStr(mProcessed(KeyText)), 5) = "NOROW" Or _
                    Left$(CStr(mProcessed(KeyText)), 7) = "LOCPEND" Or _
+                   DrawnAppend Or _
                    Not ProjectFilledInCache(ProjectID) Then
 
                     StateText = CStr(mProcessed(KeyText) & "")
@@ -2860,7 +2870,7 @@ Private Sub DrawnLocationSweep(Optional ByVal ForceFull As Boolean = False)
                                CentroidLatitude, CentroidLongitude, AreaM2, ErrorText) Then
                             If AreaM2 >= SITE_MIN_AREA_M2 Then
                                 ResultText = FillResourceDbForSite(ProjectID, CentroidLatitude, _
-                                    CentroidLongitude, True, True)
+                                    CentroidLongitude, True, DrawnAppend)
                                 If InStr(1, ResultText, "LOCPEND", vbBinaryCompare) > 0 Then
                                     'lat/lon filled, label tier offline - limited retries.
                                     If Attempts < AUTO_LABEL_RETRIES Then _
@@ -2893,11 +2903,13 @@ Private Sub DrawnLocationSweep(Optional ByVal ForceFull As Boolean = False)
                 'geographic identity is the Google-proven project point from
                 'INPUT!C8 / INPUT!C7 - never a guessed or invented location.
                 KeyText = "MANUAL|" & ReferenceText & "|" & ProjectID
+                ManualAppend = Not SnapshotFirst And Not mOpenKeys.Exists(KeyText)
+                mOpenKeys(KeyText) = True
                 StateText = CStr(mProcessed(KeyText) & "")
                 If Left$(StateText, 5) <> "MDONE" And StateText <> "MFAIL" Then
                     Attempts = DrawnLocationAttempts(StateText)
                     If ResourceManualPoint(ProjectID, ManualLat, ManualLon, ErrorText) Then
-                        ResultText = FillResourceDbForSite(ProjectID, ManualLat, ManualLon, True, True)
+                        ResultText = FillResourceDbForSite(ProjectID, ManualLat, ManualLon, True, ManualAppend)
                         If InStr(1, ResultText, "LOCPEND", vbBinaryCompare) > 0 Then
                             If Attempts < AUTO_LABEL_RETRIES Then _
                                 mProcessed(KeyText) = "LOCPEND:" & CStr(Attempts + 1)
@@ -2946,6 +2958,7 @@ Private Sub DrawnLocationSweep(Optional ByVal ForceFull As Boolean = False)
         End If
     Next R
     End If
+    mOpenSnapshotTaken = True
     mAutoPending = DrawnLocationPending()
 Done:
 End Sub
@@ -3476,29 +3489,12 @@ Public Sub SolarEPC_ManualFillNow()
     End If
     On Error GoTo Failed
 
-    'Pass 1: a manual row without coordinates. Pass 2: any site row whose
-    'RESOURCE_DB row is still missing or unfilled (e.g. an earlier manual
-    'square whose fill never landed).
+    'Only the LAST site row (the one just saved). Never replay older sites.
     RowFound = 0
     For R = 1 To UBound(Body, 1)
-        If Len(SafeCellText(Body(R, cProject))) > 0 And _
-           Len(SafeCellText(Body(R, cCoords))) = 0 Then RowFound = R
+        If Len(SafeCellText(Body(R, cProject))) > 0 Then RowFound = R
     Next R
-    If RowFound = 0 Then
-        For R = 1 To UBound(Body, 1)
-            If Len(SafeCellText(Body(R, cProject))) > 0 Then
-                If Not ResourceProjectFilledInDb(DbTbl, SafeCellText(Body(R, cProject))) Then RowFound = R
-            End If
-        Next R
-    End If
-    If RowFound = 0 Then
-        For R = 1 To UBound(Body, 1)
-            If Len(SafeCellText(Body(R, cProject))) > 0 And Len(SafeCellText(Body(R, cCoords))) > 0 Then
-                RowFound = R
-                AppendMode = True
-            End If
-        Next R
-    End If
+    AppendMode = True
     If RowFound = 0 Then
         MsgBox "Every site row already has a filled RESOURCE_DB row." & vbCrLf & vbCrLf & _
             "  Module           : v" & MODULE_VERSION & vbCrLf & _
@@ -4740,11 +4736,6 @@ Private Sub ResourceNasaPowerFill(ByVal ProjectID As String, _
     If Tbl Is Nothing Then Exit Sub
     Set Target = ResourceFindExistingSiteRow(Tbl, ProjectID, Lat, Lon)
     If Target Is Nothing Then Exit Sub
-    cGhi = TableColumn(Tbl, "GHI")
-    If cGhi > 0 Then
-        If Len(Trim$(CStr(Target.Cells(1, cGhi).Value2 & ""))) > 0 Then Exit Sub
-    End If
-
     UrlText = "https://power.larc.nasa.gov/api/temporal/climatology/point" & _
         "?parameters=ALLSKY_SFC_SW_DWN,ALLSKY_SFC_SW_DNI,ALLSKY_SFC_SW_DIFF," & _
         "T2M,T2M_MIN,T2M_MAX,WS10M,WD10M,RH2M,PS,PRECTOTCORR,ALLSKY_SRF_ALB" & _
@@ -4752,6 +4743,15 @@ Private Sub ResourceNasaPowerFill(ByVal ProjectID As String, _
         "&latitude=" & Replace$(CStr(Lat), ",", ".") & "&format=JSON"
 
     JsonText = ResourceHttpGetJson(UrlText)
+    If Len(JsonText) < 40 Then
+        UrlText = "https://power.larc.nasa.gov/api/temporal/monthly/point" & _
+            "?parameters=ALLSKY_SFC_SW_DWN,ALLSKY_SFC_SW_DNI,ALLSKY_SFC_SW_DIFF," & _
+            "T2M,T2M_MIN,T2M_MAX,WS10M,WD10M,RH2M,PS,PRECTOTCORR,ALLSKY_SRF_ALB" & _
+            "&community=RE&longitude=" & Replace$(CStr(Lon), ",", ".") & _
+            "&latitude=" & Replace$(CStr(Lat), ",", ".") & _
+            "&start=202001&end=202412&format=JSON"
+        JsonText = ResourceHttpGetJson(UrlText)
+    End If
     If Len(JsonText) < 40 Then
         ResourceWriteNamed Tbl, Target, "Data Status", "NASA HTTP EMPTY"
         Exit Sub
@@ -4868,7 +4868,44 @@ Private Function NasaJsonAnn(ByVal JsonText As String, ByVal ParamName As String
             Exit Do
         End If
     Loop
+    If Len(OutText) = 0 Then OutText = NasaJsonMean(Chunk)
     NasaJsonAnn = OutText
+End Function
+
+Private Function NasaJsonMean(ByVal Chunk As String) As String
+    Dim Months As Variant
+    Dim i As Long
+    Dim Q As Long
+    Dim Token As String
+    Dim j As Long
+    Dim Ch As String
+    Dim NumText As String
+    Dim Total As Double
+    Dim CountN As Long
+    Months = Array("JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC")
+    For i = LBound(Months) To UBound(Months)
+        Q = InStr(1, Chunk, """" & CStr(Months(i)) & """", vbTextCompare)
+        If Q > 0 Then
+            Token = Mid$(Chunk, Q, 40)
+            j = InStr(1, Token, ":", vbBinaryCompare)
+            If j > 0 Then
+                NumText = vbNullString
+                For j = j + 1 To Len(Token)
+                    Ch = Mid$(Token, j, 1)
+                    If (Ch >= "0" And Ch <= "9") Or Ch = "." Or Ch = "-" Then
+                        NumText = NumText & Ch
+                    ElseIf Len(NumText) > 0 Then
+                        Exit For
+                    End If
+                Next j
+                If Len(NumText) > 0 Then
+                    Total = Total + Val(Replace$(NumText, ",", "."))
+                    CountN = CountN + 1
+                End If
+            End If
+        End If
+    Next i
+    If CountN > 0 Then NasaJsonMean = Replace$(CStr(Total / CountN), ",", ".")
 End Function
 
 Private Sub ResourceWriteDateTimeCell(ByVal Cell As Range, ByVal WhenTime As Date)
