@@ -1762,8 +1762,10 @@ function manualPointSquareCoordinates(){
   // Manual (dimension-only) saves carry no drawn polygon. The point the user
   // actually chose on the map (selected location, else the current map center)
   // is the honest site point, so send the approved ~11 m marker square around
-  // it: the Excel module treats such a square exactly like a proven manual
-  // point and fills RESOURCE_DB automatically, one row per save.
+  // it as a CLOSED 5-point ring (first point repeated last, the standard
+  // polygon convention) so every polygon gate downstream accepts it: the Excel
+  // module treats such a square exactly like a drawn site and fills
+  // RESOURCE_DB automatically - exact centroid, one new row per save.
   const c=state.selectedLocation||state.map.getCenter();
   if(!c||!Number.isFinite(+c.lat)||!Number.isFinite(+c.lng))return[];
   const d=0.0001,lat=+Number(c.lat).toFixed(8),lon=+Number(c.lng).toFixed(8);
@@ -1771,7 +1773,8 @@ function manualPointSquareCoordinates(){
     {point:1,latitude:+(lat-d).toFixed(8),longitude:+(lon-d).toFixed(8)},
     {point:2,latitude:+(lat-d).toFixed(8),longitude:+(lon+d).toFixed(8)},
     {point:3,latitude:+(lat+d).toFixed(8),longitude:+(lon+d).toFixed(8)},
-    {point:4,latitude:+(lat+d).toFixed(8),longitude:+(lon-d).toFixed(8)}
+    {point:4,latitude:+(lat+d).toFixed(8),longitude:+(lon-d).toFixed(8)},
+    {point:5,latitude:+(lat-d).toFixed(8),longitude:+(lon-d).toFixed(8)}
   ];
 }
 
