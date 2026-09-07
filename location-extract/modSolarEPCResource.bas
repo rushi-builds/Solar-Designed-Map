@@ -14,18 +14,18 @@ End Type
 Private Declare PtrSafe Sub GetSystemTime Lib "kernel32" (lpSystemTime As SYSTEMTIME)
 
 '==========================================================================
-' SOLAR EPC RESOURCE MODULE  v4.0.9
+' SOLAR EPC RESOURCE MODULE  v4.0.10
 ' Single replacement for modSolarEPCResource.
 ' Fast watcher, no hourglass cursor, RESOURCE_DB fills stack top-down
 ' (next completely blank row). Manual Fill always appends a new row when
 ' the project already has lat/lon. Watcher labels stay OFFLINE (VILLAGE_DB
 ' only); online reverse-geocode runs only on user macros.
 ' Import: remove old modSolarEPCResource + modSolarEPCDrawnLocation, then
-' Import File this .bas. Run SolarEPC_ShowModuleVersion -> v4.0.9
+' Import File this .bas. Run SolarEPC_ShowModuleVersion -> v4.0.10
 '==========================================================================
 
 'Watcher tuning (all other constants already exist inside the module).
-Private Const AUTO_TICK_SECONDS As Long = 8       'idle heartbeat (was 3s; hourglass fix)
+Private Const AUTO_TICK_SECONDS As Long = 12      'idle; no HTTP on idle ticks
 Private Const AUTO_TICK_BUSY_SECONDS As Long = 4  'follow-up while a retry is pending
 Private Const AUTO_RESYNC_TICKS As Long = 20      'forced full sweep ~160 s idle
 Private Const AUTO_NOROW_RETRIES As Long = 30     'retry ~1 min when the RESOURCE_DB row is missing
@@ -33,7 +33,7 @@ Private Const AUTO_LABEL_RETRIES As Long = 15     'limited retries while the lab
 Private Const MANUAL_POINT_RETRIES As Long = 15   'retries while a manual site's point is unprovable
 Private Const MANUAL_SQUARE_HALF_DEG As Double = 0.0001  '~11 m half-side of the manual NASA square
 Private Const INPUT_SHEET As String = "INPUT"
-Private Const MODULE_VERSION As String = "4.0.9"     'single source of the version tag
+Private Const MODULE_VERSION As String = "4.0.10"     'single source of the version tag
 
 
 Private Const CONFIG_SHEET As String = "_CLOUD_CFG"
@@ -2705,9 +2705,9 @@ Public Sub SolarEPC_DrawnLocationTick()
     On Error Resume Next
     Application.Cursor = xlDefault
     If mProcessed Is Nothing Then Set mProcessed = CreateObject("Scripting.Dictionary")
-    mLabelOnlineOk = False
+    'Idle ticks never call NASA/Google. Location geocode runs only inside
+    'FillResourceDbForSite when a NEW site is actually written.
     DrawnLocationSweep
-    ResourceBackfillMissingNasa
     DrawnLocationSchedule DrawnLocationNextDelay()
     Application.Cursor = xlDefault
 End Sub
@@ -2869,8 +2869,10 @@ Private Sub DrawnLocationSweep(Optional ByVal ForceFull As Boolean = False)
                         If CentroidLocalProjection(Latitudes, Longitudes, VertexCount, _
                                CentroidLatitude, CentroidLongitude, AreaM2, ErrorText) Then
                             If AreaM2 >= SITE_MIN_AREA_M2 Then
+                                mLabelOnlineOk = True
                                 ResultText = FillResourceDbForSite(ProjectID, CentroidLatitude, _
                                     CentroidLongitude, True, DrawnAppend)
+                                mLabelOnlineOk = False
                                 If InStr(1, ResultText, "LOCPEND", vbBinaryCompare) > 0 Then
                                     'lat/lon filled, label tier offline - limited retries.
                                     If Attempts < AUTO_LABEL_RETRIES Then _
@@ -2886,7 +2888,6 @@ Private Sub DrawnLocationSweep(Optional ByVal ForceFull As Boolean = False)
                                         DrawnLocationDiag ProjectID, ResultText, _
                                             CentroidLatitude, CentroidLongitude
                                     End If
-                                    ResourceEnsureNasaFill ProjectID, CentroidLatitude, CentroidLongitude
                                 End If
                             Else
                                 mProcessed(KeyText) = "DONE"
@@ -2909,7 +2910,9 @@ Private Sub DrawnLocationSweep(Optional ByVal ForceFull As Boolean = False)
                 If Left$(StateText, 5) <> "MDONE" And StateText <> "MFAIL" Then
                     Attempts = DrawnLocationAttempts(StateText)
                     If ResourceManualPoint(ProjectID, ManualLat, ManualLon, ErrorText) Then
+                        mLabelOnlineOk = True
                         ResultText = FillResourceDbForSite(ProjectID, ManualLat, ManualLon, True, ManualAppend)
+                        mLabelOnlineOk = False
                         If InStr(1, ResultText, "LOCPEND", vbBinaryCompare) > 0 Then
                             If Attempts < AUTO_LABEL_RETRIES Then _
                                 mProcessed(KeyText) = "LOCPEND:" & CStr(Attempts + 1)
@@ -2936,7 +2939,6 @@ Private Sub DrawnLocationSweep(Optional ByVal ForceFull As Boolean = False)
                             End If
                         End If
                         'NASA columns for the manual site, queued exactly once.
-                        ResourceEnsureNasaFill ProjectID, ManualLat, ManualLon
                     Else
                         'v3.20: asynchronous online resolution - the request runs
                         'in the background and never blocks the workbook; its
@@ -3577,8 +3579,7 @@ Public Sub SolarEPC_ManualFillNow()
     End If
 
     mProcessed(KeyText) = "MDONE"
-    SolarEPC_DrawnLocationAutoStart
-    ResourceEnsureNasaFill ProjectID, Lat, Lon
+    ResourceStartForPoint ProjectID, Lat, Lon
     MsgBox "Manual site filled." & vbCrLf & vbCrLf & _
         "  Module  : v" & MODULE_VERSION & vbCrLf & _
         "  Workbook: " & ThisWorkbook.Name & vbCrLf & _
@@ -4612,12 +4613,8 @@ Private Sub ResourceEnsureNasaFill(ByVal ProjectID As String, _
     SolarEPC_DrawnLocationAutoStart
     If mManualNasaSent Is Nothing Then Set mManualNasaSent = CreateObject("Scripting.Dictionary")
     KeyText = ProjectID & "|" & Format$(Lat, "0.0000") & "|" & Format$(Lon, "0.0000")
-    ResourceNasaPowerFill ProjectID, Lat, Lon
-    If ResourceProjectHasGhi(ProjectID, Lat, Lon) Then
-        mManualNasaSent(KeyText) = True
-    Else
-        ResourceStartForPoint ProjectID, Lat, Lon
-    End If
+    ResourceStartForPoint ProjectID, Lat, Lon
+    mManualNasaSent(KeyText) = True
 End Sub
 
 'Every idle tick: any RESOURCE_DB row with lat/lon but empty GHI gets NASA.
