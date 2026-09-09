@@ -534,7 +534,7 @@ button.wide{width:100%}
       <button id="export4KButton" class="map-tool" type="button" title="Export a 3840 by 2160 vector site plan">▧ 4K PLAN</button>
     </div>
 
-    <div id="buildBadge" style="position:absolute;right:12px;top:52px;z-index:899;padding:3px 7px;border-radius:4px;background:rgba(11,82,119,.86);color:#fff;font:800 8px Segoe UI,Arial;letter-spacing:.4px;pointer-events:none">GODLEVEL FIXED • BUILD 2026-08-26</div>
+    <div id="buildBadge" style="position:absolute;right:12px;top:52px;z-index:899;padding:3px 7px;border-radius:4px;background:rgba(11,82,119,.86);color:#fff;font:800 8px Segoe UI,Arial;letter-spacing:.4px;pointer-events:none">GODLEVEL FIXED • BUILD 2026-09-09</div>
 
     <div class="mapTypeToggle" aria-label="Base map type">
       <button id="satBtn" class="active" type="button" title="Sharp satellite imagery">SATELLITE</button>
@@ -3951,8 +3951,17 @@ function buildExcelBridgeText(p, messageId) {
   ].join("|"));
 
   (p.obstacles || []).forEach(obstacle => {
+    // obstacle.coordinates is not used; points come from coords/feature.
+    const obstacleSource = (obstacle.coords && obstacle.coords.length)
+      ? obstacle.coords
+      : (obstacle.feature ? GeometryEngine.allOuterPoints(obstacle.feature) : []);
+    const obstaclePoints = (obstacleSource || []).map((pt, i) => ({
+      point: i + 1,
+      latitude: +Number(pt.lat).toFixed(8),
+      longitude: +Number(pt.lng).toFixed(8)
+    }));
     const obstacleCoordinates = bridgeCoordinateText(
-      obstacle.coordinates,
+      obstaclePoints,
       obstacle.geometry !== "polyline"
     );
 
@@ -3971,7 +3980,7 @@ function buildExcelBridgeText(p, messageId) {
       num(obstacle.clearance),
       num(obstacle.area),
       num(obstacle.perimeter),
-      String((obstacle.coordinates || []).length),
+      String(obstaclePoints.length),
       esc(obstacle.obstacleId),
       esc(obstacleCoordinates),
       esc(obstacleRemarks)
