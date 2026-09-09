@@ -3932,14 +3932,7 @@ function buildExcelBridgeText(p, messageId) {
   ].join("|"));
 
     (p.obstacles || []).forEach(obstacle => {
-    const obstacleSource = (obstacle.coords && obstacle.coords.length)
-      ? obstacle.coords
-      : (obstacle.feature ? GeometryEngine.allOuterPoints(obstacle.feature) : []);
-    const obstaclePoints = (obstacleSource || []).map((pt, i) => ({
-      point: i + 1,
-      latitude: +Number(pt.lat).toFixed(8),
-      longitude: +Number(pt.lng).toFixed(8)
-    }));
+        const obstaclePoints = Array.isArray(obstacle.coordinates) ? obstacle.coordinates : [];
     const obstacleCoordinates = bridgeCoordinateText(
       obstaclePoints,
       obstacle.geometry !== "polyline"
