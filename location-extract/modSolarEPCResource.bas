@@ -14,14 +14,14 @@ End Type
 Private Declare PtrSafe Sub GetSystemTime Lib "kernel32" (lpSystemTime As SYSTEMTIME)
 
 '==========================================================================
-' SOLAR EPC RESOURCE MODULE  v4.0.11
+' SOLAR EPC RESOURCE MODULE  v4.0.12
 ' Single replacement for modSolarEPCResource.
 ' Fast watcher, no hourglass cursor, RESOURCE_DB fills stack top-down
 ' (next completely blank row). Manual Fill always appends a new row when
 ' the project already has lat/lon. Watcher labels stay OFFLINE (VILLAGE_DB
 ' only); online reverse-geocode runs only on user macros.
 ' Import: remove old modSolarEPCResource + modSolarEPCDrawnLocation, then
-' Import File this .bas. Run SolarEPC_ShowModuleVersion -> v4.0.11
+' Import File this .bas. Run SolarEPC_ShowModuleVersion -> v4.0.12
 '==========================================================================
 
 'Watcher tuning (all other constants already exist inside the module).
@@ -33,7 +33,7 @@ Private Const AUTO_LABEL_RETRIES As Long = 15     'limited retries while the lab
 Private Const MANUAL_POINT_RETRIES As Long = 15   'retries while a manual site's point is unprovable
 Private Const MANUAL_SQUARE_HALF_DEG As Double = 0.0001  '~11 m half-side of the manual NASA square
 Private Const INPUT_SHEET As String = "INPUT"
-Private Const MODULE_VERSION As String = "4.0.11"     'single source of the version tag
+Private Const MODULE_VERSION As String = "4.0.12"     'single source of the version tag
 
 
 Private Const CONFIG_SHEET As String = "_CLOUD_CFG"
@@ -3203,6 +3203,32 @@ Failed:
 End Function
 
 'Extracts lat/lon from one URL or from a bare "lat,lon" pair.
+
+'Accept "17.99, 74.43" or "17.99 74.43" from INPUT C7/C8 without geocoding.
+Private Function ResourceLooseLatLon(ByVal TextValue As String, _
+    ByRef LatOut As Double, ByRef LonOut As Double) As Boolean
+    Dim Re As Object
+    Dim M As Object
+    Dim Lat As Double, Lon As Double
+    On Error GoTo Failed
+    TextValue = Trim$(TextValue)
+    If Len(TextValue) = 0 Then Exit Function
+    Set Re = CreateObject("VBScript.RegExp")
+    Re.Global = False
+    Re.IgnoreCase = True
+    Re.Pattern = "(-?[0-9]+(?:\.[0-9]+)?)\s*[, ]\s*(-?[0-9]+(?:\.[0-9]+)?)"
+    If Not Re.Test(TextValue) Then Exit Function
+    Set M = Re.Execute(TextValue)
+    Lat = CDbl(M(0).SubMatches(0))
+    Lon = CDbl(M(0).SubMatches(1))
+    If ResourcePointInRange(Lat, Lon) Then
+        LatOut = Lat
+        LonOut = Lon
+        ResourceLooseLatLon = True
+    End If
+Failed:
+End Function
+
 Private Function ResourcePointFromUrlText(ByVal UrlText As String, _
     ByRef LatOut As Double, ByRef LonOut As Double) As Boolean
 
@@ -3216,6 +3242,10 @@ Private Function ResourcePointFromUrlText(ByVal UrlText As String, _
     UrlText = Trim$(UrlText)
     If Len(UrlText) = 0 Then Exit Function
 
+    If ResourceLooseLatLon(UrlText, LatOut, LonOut) Then
+        ResourcePointFromUrlText = True
+        Exit Function
+    End If
     'Bare pair: 18.5204,73.8567
     If InStr(1, UrlText, "://", vbBinaryCompare) = 0 And InStr(1, UrlText, ",") > 0 Then
         Parts = Split(UrlText, ",")
@@ -3494,11 +3524,23 @@ Public Sub SolarEPC_ManualFillNow()
     End If
     On Error GoTo Failed
 
-    'Only the LAST site row (the one just saved). Never replay older sites.
+    'Last SITE with coordinates (never an obstacle row with blank coords).
     RowFound = 0
     For R = 1 To UBound(Body, 1)
-        If Len(SafeCellText(Body(R, cProject))) > 0 Then RowFound = R
+        If Len(SafeCellText(Body(R, cProject))) > 0 And _
+           Len(SafeCellText(Body(R, cCoords))) > 0 Then RowFound = R
     Next R
+    If RowFound = 0 Then
+        For R = 1 To UBound(Body, 1)
+            If UCase$(Left$(SafeCellText(Body(R, cRef)), 9)) = "SITE-MAP-" And _
+               Len(SafeCellText(Body(R, cProject))) > 0 Then RowFound = R
+        Next R
+    End If
+    If RowFound = 0 Then
+        For R = 1 To UBound(Body, 1)
+            If Len(SafeCellText(Body(R, cProject))) > 0 Then RowFound = R
+        Next R
+    End If
     AppendMode = True
     If RowFound = 0 Then
         MsgBox "Every site row already has a filled RESOURCE_DB row." & vbCrLf & vbCrLf & _
@@ -3528,10 +3570,12 @@ Public Sub SolarEPC_ManualFillNow()
     If Len(TierText) = 0 Then
         If ResourceManualPoint(ProjectID, Lat, Lon, Reason) Then
             TierText = "offline tiers (VILLAGE_DB / INPUT!C8 / INPUT!C7 / project history)"
+        ElseIf ResourcePointFromUrlText(ResourceSettingCell(INPUT_SHEET, "C8"), Lat, Lon) Then
+            TierText = "INPUT!C8 coordinates"
+        ElseIf ResourcePointFromUrlText(ResourceSettingCell(INPUT_SHEET, "C7"), Lat, Lon) Then
+            TierText = "INPUT!C7 coordinates"
         ElseIf ResourcePointFromMapLink(ResourceSettingCell(INPUT_SHEET, "C8"), Lat, Lon, Reason) Then
             TierText = "INPUT!C8 link (online)"
-        ElseIf ResourcePointFromPlaceText(ResourceSettingCell(INPUT_SHEET, "C7"), Lat, Lon, Reason) Then
-            TierText = "forward geocoding of INPUT!C7 (online)"
         Else
             ResourceSettingDiag "A18", "MANUAL POINT LAST ERROR", "B18", ProjectID & ": " & Reason
             MsgBox "The project point could not be proven for:" & vbCrLf & _
