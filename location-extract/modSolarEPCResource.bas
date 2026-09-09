@@ -33,7 +33,7 @@ Private Const AUTO_LABEL_RETRIES As Long = 15     'limited retries while the lab
 Private Const MANUAL_POINT_RETRIES As Long = 15   'retries while a manual site's point is unprovable
 Private Const MANUAL_SQUARE_HALF_DEG As Double = 0.0001  '~11 m half-side of the manual NASA square
 Private Const INPUT_SHEET As String = "INPUT"
-Private Const MODULE_VERSION As String = "4.0.12"     'single source of the version tag
+Private Const MODULE_VERSION As String = "4.0.10"     'single source of the version tag
 
 
 Private Const CONFIG_SHEET As String = "_CLOUD_CFG"
@@ -3266,6 +3266,18 @@ Private Function ResourcePointFromUrlText(ByVal UrlText As String, _
     Set Re = CreateObject("VBScript.RegExp")
     Re.Global = False
     Re.IgnoreCase = True
+    Re.Pattern = "(?:[?&](?:query|q)=)(-?[0-9]+(?:\.[0-9]+)?)(?:,|%2C)(-?[0-9]+(?:\.[0-9]+)?)"
+    If Re.Test(UrlText) Then
+        Set M = Re.Execute(UrlText)
+        Lat = CDbl(M(0).SubMatches(0))
+        Lon = CDbl(M(0).SubMatches(1))
+        If ResourcePointInRange(Lat, Lon) Then
+            LatOut = Lat
+            LonOut = Lon
+            ResourcePointFromUrlText = True
+        End If
+        Exit Function
+    End If
     Re.Pattern = "@(-?[0-9]+(?:\.[0-9]+)?),(-?[0-9]+(?:\.[0-9]+)?)"
     If Re.Test(UrlText) Then
         Set M = Re.Execute(UrlText)
