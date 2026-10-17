@@ -152,6 +152,22 @@ body{display:flex;flex-direction:column}
   border-radius:5px;min-height:0
 }
 
+.site-stack{margin-top:9px}
+.site-stack-head{font:800 9px "Segoe UI",Arial,sans-serif;letter-spacing:.6px;color:#0b5277;text-transform:uppercase;margin-bottom:5px}
+.sites-list{display:flex;flex-direction:column;gap:6px}
+.site-card{
+  border:1px solid #d7e2e7;border-radius:8px;background:linear-gradient(180deg,#fff,#f8fbfc);
+  padding:8px 10px;position:relative;overflow:hidden
+}
+.site-card::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:#8b5cf6}
+.site-card.active{box-shadow:0 0 0 2px #6d28d9,0 3px 10px rgba(109,40,217,.18)}
+.site-card.incomplete{opacity:.72}
+.site-card.incomplete::before{background:#a9b7bf}
+.site-active-tag{
+  font-size:8px;font-weight:800;color:#5b21b6;background:#ede9fe;border-radius:8px;
+  padding:2px 6px;letter-spacing:.4px;margin-left:4px
+}
+
 .obs-form{
   background:#fdf3ec;border:1px dashed #d19a76;border-radius:8px;padding:10px;
   margin-top:8px;display:none
@@ -641,6 +657,15 @@ button.wide{width:100%}
         <button id="undoButton" class="undo" type="button" disabled>↶ UNDO</button>
         <button id="clearButton" type="button" disabled>CLEAR</button>
       </div>
+
+      <div class="btn-row">
+        <button id="addSiteButton" type="button" class="orange" disabled>➕ ADD ANOTHER SITE</button>
+      </div>
+
+      <div class="site-stack" id="siteStack" style="display:none">
+        <div class="site-stack-head" id="siteStackCount">1 SITE</div>
+        <div class="sites-list" id="sitesList"></div>
+      </div>
     </section>
 
     <!-- OBSTACLE PRESENT -->
@@ -1097,7 +1122,11 @@ const state = {
   obsPreviewLayer:null, obsMeasurementLayers:[], obsLiveMeasurementLayers:[], selectedObstacleId:null,
 
   setbackLayer:null, clearanceLayer:null, usableLayer:null,
-  labelsVisible:false, siteSetback:0, siteHeight:null, boundarySaved:false
+  labelsVisible:false, siteSetback:0, siteHeight:null, boundarySaved:false,
+
+  sites:[],
+  activeSeq:1,
+  ghostLayers:[]
 };
 
 /* =====================================================================
@@ -1119,11 +1148,23 @@ function plainObstacle(o){
     height:Number.isFinite(Number(o.height))?Number(o.height):null
   };
 }
+function plainSiteRecord(site){
+  return{
+    seq:Number(site.seq)||1,
+    points:(site.points||[]).map(plainPoint),
+    closed:!!site.closed,
+    siteSetback:Number(site.siteSetback)||0,
+    siteHeight:Number.isFinite(Number(site.siteHeight))?Number(site.siteHeight):null,
+    obstaclePresent:!!site.obstaclePresent,
+    obstacles:(site.obstacles||[]).map(plainObstacle)
+  };
+}
 function captureDesignSnapshot(){
   return{
-    version:1,points:(state.points||[]).map(plainPoint),closed:!!state.closed,
+    version:2,points:(state.points||[]).map(plainPoint),closed:!!state.closed,
     siteSetback:Number(state.siteSetback)||0,siteHeight:Number.isFinite(Number(state.siteHeight))?Number(state.siteHeight):null,
     obstaclePresent:!!state.obstaclePresent,obstacles:(state.obstacles||[]).map(plainObstacle),
+    activeSeq:Number(state.activeSeq)||1,sites:(state.sites||[]).map(plainSiteRecord),
     mode:String(state.mode||"pan"),
     drawingObstacle:state.drawingObstacle?{
       type:String(state.drawingObstacle.type||"polygon"),
@@ -1171,6 +1212,8 @@ function restoreDesignSnapshot(snapshot,label){
     state.obstacles.forEach(removeObstacleLayers);clearOverlays();
 
     state.points=(snapshot.points||[]).map(plainPoint);
+    state.sites=(snapshot.sites||[]).map(plainSiteRecord);
+    state.activeSeq=Number(snapshot.activeSeq)||nextSiteSeq();
     state.closed=!!snapshot.closed;
     state.siteSetback=Number(snapshot.siteSetback)||0;
     state.siteHeight=Number.isFinite(Number(snapshot.siteHeight))?Number(snapshot.siteHeight):null;
@@ -1194,7 +1237,7 @@ function restoreDesignSnapshot(snapshot,label){
     $("obsNoBtn").classList.toggle("active",!state.obstaclePresent);
     $("obstacleSection").style.display=state.obstaclePresent?"block":"none";
     state.boundarySaved=false;
-    renderObstacleList();recomputeUsable();
+    renderObstacleList();recomputeUsable();renderSiteGhosts();renderSitesList();
     const restoreMode=(snapshot.mode==="draw-site"&&!state.closed)?"draw-site":
       (snapshot.mode==="draw-obstacle"&&state.drawingObstacle)?"draw-obstacle":"pan";
     if(restoreMode==="draw-obstacle"){
@@ -2617,8 +2660,11 @@ function updateSiteStats(){
   $("clearButton").disabled=state.points.length===0;
   $("saveButton").disabled=!state.closed;
   $("downloadButton").disabled=!state.closed;
+  const addBtn=$("addSiteButton");
+  if(addBtn)addBtn.disabled=!state.closed||state.points.length<3;
   $("downloadButton").classList.toggle("needs-save",state.closed&&!state.boundarySaved);
   $("usableSection").style.display=state.closed?"block":"none";
+  renderSitesList();
 }
 
 function setMode(mode){
@@ -2886,6 +2932,162 @@ $("undoButton").addEventListener("click",undoSite);
 $("clearButton").addEventListener("click",clearAllSite);
 
 /* =====================================================================
+   MULTI-SITE DRAWING
+   state.points / state.obstacles always describe the ACTIVE site
+   (state.activeSeq). Finished sites wait in state.sites, keyed by seq.
+   ===================================================================== */
+function nextSiteSeq(){
+  let max=Number(state.activeSeq)||0;
+  (state.sites||[]).forEach(s=>{max=Math.max(max,Number(s.seq)||0);});
+  return max+1;
+}
+function liveSiteRecord(){
+  return plainSiteRecord({
+    seq:state.activeSeq,
+    points:state.points,
+    closed:state.closed,
+    siteSetback:state.siteSetback,
+    siteHeight:state.siteHeight,
+    obstaclePresent:state.obstaclePresent,
+    obstacles:state.obstacles
+  });
+}
+function siteRecords(){
+  return state.sites.concat([liveSiteRecord()]).sort((a,b)=>a.seq-b.seq);
+}
+function closedSiteRecords(){
+  return siteRecords().filter(s=>s.closed&&(s.points||[]).length>=3);
+}
+function clearSiteGhosts(){
+  (state.ghostLayers||[]).forEach(l=>{try{state.map.removeLayer(l)}catch(e){}});
+  state.ghostLayers=[];
+}
+function renderSiteGhosts(){
+  clearSiteGhosts();
+  if(!state.map)return;
+  siteRecords().forEach(site=>{
+    if(site.seq===state.activeSeq||!site.closed||site.points.length<3)return;
+    const ring=site.points.map(p=>[p.lat,p.lng]);
+    const layer=L.polygon(ring,{color:"#5b21b6",weight:2,dashArray:"7 5",fillColor:"#8b5cf6",fillOpacity:.10,interactive:false});
+    layer.addTo(state.map);
+    state.ghostLayers.push(layer);
+  });
+}
+var siteListSignature="";
+function renderSitesList(force){
+  const list=$("sitesList");
+  if(!list)return;
+  const records=siteRecords();
+  const signature=records.map(s=>{
+    const active=s.seq===state.activeSeq;
+    const base=[s.seq,(s.points||[]).length,s.closed?1:0,(s.obstacles||[]).length,
+      Number.isFinite(Number(s.siteHeight))?Number(s.siteHeight):""].join(":");
+    return active?base:base+":"+fmt(GeometryEngine.polygonArea(s.points));
+  }).join("|");
+  if(!force&&signature===siteListSignature)return;
+  siteListSignature=signature;
+  list.innerHTML="";
+  records.forEach(site=>{
+    const active=site.seq===state.activeSeq;
+    const area=site.closed&&site.points.length>=3?GeometryEngine.polygonArea(site.points):0;
+    const row=document.createElement("div");
+    row.className="site-card"+(active?" active":"")+(site.closed?"":" incomplete");
+    row.innerHTML=`
+      <div class="obs-header">
+        <div class="obs-title">SITE ${site.seq}${active?' <span class="site-active-tag">DRAWING NOW</span>':""}</div>
+        <div class="obs-type-badge">${active?"current":site.closed?fmt(area)+" m²":"unfinished"}</div>
+      </div>
+      <div class="obs-grid">
+        <span class="k">Points</span><span class="v">${site.points.length}</span>
+        <span class="k">Obstacles</span><span class="v">${(site.obstacles||[]).length}</span>
+        <span class="k">Setback</span><span class="v">${fmt(site.siteSetback)} m</span>
+        <span class="k">Height</span><span class="v">${Number.isFinite(Number(site.siteHeight))?fmt(Number(site.siteHeight)):"—"} m</span>
+      </div>
+      ${active?"":`<div class="obs-actions">
+        <button data-act="edit" data-seq="${site.seq}" class="small">EDIT</button>
+        <button data-act="delete" data-seq="${site.seq}" class="small cancel">DEL</button>
+      </div>`}`;
+    list.appendChild(row);
+  });
+  list.querySelectorAll("button[data-act]").forEach(b=>{
+    b.addEventListener("click",e=>{
+      e.stopPropagation();
+      const seq=Number(b.getAttribute("data-seq"));
+      if(b.getAttribute("data-act")==="edit")editSite(seq);else deleteSite(seq);
+    });
+  });
+  const label=$("siteStackCount");
+  if(label)label.textContent=records.length+" SITES IN THIS DRAWING";
+  const stack=$("siteStack");
+  if(stack)stack.style.display=records.length>1?"block":"none";
+}
+function hydrateLiveSite(site){
+  state.points=(site.points||[]).map(plainPoint);
+  state.closed=!!site.closed;
+  state.siteSetback=Number(site.siteSetback)||0;
+  state.siteHeight=Number.isFinite(Number(site.siteHeight))?Number(site.siteHeight):null;
+  state.obstaclePresent=!!site.obstaclePresent;
+  state.obstacles=(site.obstacles||[]).map(x=>{
+    const o=plainObstacle(x);
+    o.feature=rebuildObstacleFeature(o);
+    o.mapLayers=[];
+    return o;
+  });
+  state.markers=state.points.map((p,i)=>createSiteMarker(p,i));
+  $("siteSetback").value=String(state.siteSetback);
+  $("obsYesBtn").classList.toggle("active",state.obstaclePresent);
+  $("obsNoBtn").classList.toggle("active",!state.obstaclePresent);
+  $("obstacleSection").style.display=state.obstaclePresent?"block":"none";
+  state.obstacles.forEach(drawObstacleOnMap);
+  redrawSite();
+  renderObstacleList();
+}
+function addAnotherSite(){
+  if(!state.closed||state.points.length<3){setStatus("Close the current SITE before adding another one.");return;}
+  const stored=liveSiteRecord();
+  state.sites.push(stored);
+  state.activeSeq=nextSiteSeq();
+  clearAllSite();
+  renderSiteGhosts();
+  renderSitesList(true);
+  updateSiteStats();
+  setMode("draw-site");
+  historyCheckpoint("Store site "+stored.seq);
+  setStatus("SITE "+stored.seq+" stored. Now draw SITE "+state.activeSeq+" — its obstacles belong to it.");
+}
+function editSite(seq){
+  const index=state.sites.findIndex(s=>s.seq===seq);
+  if(index<0)return;
+  const discard=!state.closed&&state.points.length>0;
+  if(discard&&!confirm("SITE "+state.activeSeq+" is unfinished and will be discarded. Continue?"))return;
+  const carryOver=state.closed&&state.points.length>=3?liveSiteRecord():null;
+  const chosen=state.sites[index];
+  state.sites.splice(index,1);
+  if(carryOver)state.sites.push(carryOver);
+  state.activeSeq=chosen.seq;
+  clearAllSite();
+  hydrateLiveSite(chosen);
+  renderSiteGhosts();
+  renderSitesList(true);
+  updateSiteStats();
+  setMode("pan");
+  historyCheckpoint("Edit site "+chosen.seq);
+  setStatus("Editing SITE "+chosen.seq+". Change corners or obstacles, then click ADD SITE or SAVE.");
+}
+function deleteSite(seq){
+  const site=(state.sites||[]).find(s=>s.seq===seq);
+  if(!site)return;
+  if(!confirm("Delete SITE "+seq+" with "+(site.obstacles||[]).length+" obstacle(s)? This cannot be undone by UNDO."))return;
+  state.sites=state.sites.filter(s=>s.seq!==seq);
+  renderSiteGhosts();
+  renderSitesList(true);
+  updateSiteStats();
+  historyCheckpoint("Delete site "+seq);
+  setStatus("SITE "+seq+" removed from this drawing.");
+}
+$("addSiteButton").addEventListener("click",addAnotherSite);
+
+/* =====================================================================
    OBSTACLE UI
    ===================================================================== */
 $("obsNoBtn").addEventListener("click",()=>setObstaclePresent(false));
@@ -3002,6 +3204,10 @@ function makeObsIcon(n,first){
   return L.divIcon({className:"",html:'<div class="obs-point'+(first?" first":"")+'">'+n+'</div>',
     iconSize:[20,20],iconAnchor:[10,10]});
 }
+function addObsMarkerPoint(latlng,i){
+  const m=L.marker(latlng,{icon:makeObsIcon(i+1,i===0),zIndexOffset:900,interactive:false}).addTo(state.map);
+  state.obsMarkers.push(m);
+}
 function clearObsMarkers(){state.obsMarkers.forEach(m=>state.map.removeLayer(m));state.obsMarkers=[]}
 function clearObsSideLabels(){state.obsSideLabels.forEach(m=>state.map.removeLayer(m));state.obsSideLabels=[]}
 function clearObsLive(){
@@ -3074,11 +3280,6 @@ function redrawObsPreview(){
   }
 }
 
-function addObsMarkerPoint(latlng,i){
-  const m=L.marker(latlng,{icon:makeObsIcon(i+1,i===0),zIndexOffset:900}).addTo(state.map);
-  state.obsMarkers.push(m);
-}
-
 function addObsPoint(latlng){
   const d=state.drawingObstacle;if(!d)return;
   const t=d.type;
@@ -3086,8 +3287,12 @@ function addObsPoint(latlng){
 
   // Polygon close detection remains based on the user's actual click.
   if((t==="polygon"||t==="other")&&d.points.length>=3){
-    const dist=GeometryEngine.distanceMeters(raw,d.points[0]);
-    if(dist<=3){finishObstacleDrawing();return;}
+    let closePx=Infinity;
+    try{
+      closePx=state.map.latLngToContainerPoint(d.points[0])
+        .distanceTo(state.map.latLngToContainerPoint([raw.lat,raw.lng]));
+    }catch(e){closePx=GeometryEngine.distanceMeters(raw,d.points[0]);}
+    if(closePx<=14){finishObstacleDrawing();return;}
   }
 
   let target=raw;
@@ -3170,6 +3375,11 @@ function finishObstacleDrawing(){
   if(t==="polygon"||t==="other"){
     if(d.points.length<3){setStatus("Need at least 3 points for polygon.");return;}
     const coords=d.points.slice();
+    if(!GeometryEngine.toTurfPolygon(coords)){
+      setStatus((GeometryEngine.lastError()||"Invalid obstacle polygon.")+" Drawing kept — fix the points or press ESC to cancel.");
+      return;
+    }
+    GeometryEngine.clearError();
     const area=GeometryEngine.polygonArea(coords);
     const peri=GeometryEngine.perimeterOfRing(coords);
     const obb=GeometryEngine.minAreaOBB(coords);
@@ -3214,6 +3424,9 @@ function finishObstacleDrawing(){
   }
 }
 
+function obstacleDraftError(message){
+  setStatus(String(message||"Obstacle could not be saved.")+" Drawing kept — adjust the points and click FINISH again, or press ESC to cancel.");
+}
 function finalizeObstacle(obstacle){
   GeometryEngine.clearError();
   const sitePoly=GeometryEngine.toTurfPolygon(state.points);
@@ -3232,11 +3445,11 @@ function finalizeObstacle(obstacle){
 
   if(obstacle.geometry!=="polyline"){
     const inter=GeometryEngine.intersectFeatures(sitePoly,obsFeat);
-    if(GeometryEngine.hasError()){setStatus(GeometryEngine.lastError());hideObsForm();return;}
-    if(!inter){setStatus("Obstacle completely outside site — rejected.");hideObsForm();return;}
+    if(GeometryEngine.hasError()){obstacleDraftError(GeometryEngine.lastError());return;}
+    if(!inter){obstacleDraftError("Obstacle is outside the active site.");return;}
     obstacle.feature=inter;
     const clippedArea=GeometryEngine.featureArea(inter);
-    if(GeometryEngine.hasError()){setStatus(GeometryEngine.lastError());hideObsForm();return;}
+    if(GeometryEngine.hasError()){obstacleDraftError(GeometryEngine.lastError());return;}
     if(clippedArea<obstacle.area*0.999){
       const cp=GeometryEngine.allOuterPoints(inter);
       if(cp.length>=3){
@@ -3246,13 +3459,13 @@ function finalizeObstacle(obstacle){
         obstacle.length=obb.length; obstacle.width=obb.width;
         obstacle.geometry="polygon"; obstacle.radius=null; obstacle.center=null;
         setStatus("Obstacle clipped to site — only inside portion kept.");
-      }else{setStatus("Clipped obstacle has no drawable outer ring.");hideObsForm();return;}
+      }else{obstacleDraftError("The part of the obstacle inside the site is too thin to keep.");return;}
     }
   }else{
     try{
       const line=turf.lineString(obstacle.coords.map(p=>[p.lng,p.lat]));
-      if(!turf.booleanIntersects(line,sitePoly)){setStatus("Line obstacle outside site — rejected.");hideObsForm();return;}
-    }catch(e){setStatus("Line intersection check failed.");hideObsForm();return;}
+      if(!turf.booleanIntersects(line,sitePoly)){obstacleDraftError("Line obstacle is outside the active site.");return;}
+    }catch(e){obstacleDraftError("Line intersection check failed.");return;}
   }
 
   if(state.editingObstacleId){
@@ -3270,6 +3483,7 @@ function finalizeObstacle(obstacle){
   hideObsForm();
   renderObstacleList();
   recomputeUsable();
+  (obstacle.mapLayers||[]).forEach(l=>{try{l.bringToFront()}catch(e){}});
   setStatus("Obstacle saved: "+typeLabel(obstacle.type)+" ("+state.obstacles.length+" total).");
   historyCheckpoint("Save obstacle");
 }
@@ -3277,20 +3491,21 @@ function finalizeObstacle(obstacle){
 function drawObstacleOnMap(obstacle){
   obstacle.mapLayers=obstacle.mapLayers||[];
   const style={color:"#a04519",weight:2,fillColor:"#c0663a",fillOpacity:.35};
-  let layer;
+  let layer=null;
   if(obstacle.geometry==="polyline"){
     layer=L.polyline(obstacle.coords.map(p=>[p.lat,p.lng]),{color:"#a04519",weight:3,opacity:.95});
   }else if(obstacle.geometry==="circle"&&obstacle.center&&Number.isFinite(Number(obstacle.radius))){
     layer=L.circle([obstacle.center.lat,obstacle.center.lng],Object.assign({},style,{radius:Number(obstacle.radius)}));
   }else if(obstacle.feature){
     const rings=GeometryEngine.featureToLeafletLatLngs(obstacle.feature);
-    layer=L.polygon(rings,style);
-  }else if(obstacle.geometry==="rectangle"&&obstacle.coords?.length>=2){
+    if(rings.length)layer=L.polygon(rings,style);
+  }
+  if(!layer&&obstacle.geometry==="rectangle"&&obstacle.coords?.length>=2){
     const lats=obstacle.coords.map(p=>p.lat),lngs=obstacle.coords.map(p=>p.lng);
     layer=L.rectangle([[Math.min(...lats),Math.min(...lngs)],[Math.max(...lats),Math.max(...lngs)]],style);
-  }else{
-    layer=L.polygon(obstacle.coords.map(p=>[p.lat,p.lng]),style);
   }
+  if(!layer&&obstacle.coords?.length>=3)layer=L.polygon(obstacle.coords.map(p=>[p.lat,p.lng]),style);
+  if(!layer)return;
   layer.addTo(state.map);
   layer.on("click",()=>selectObstacle(obstacle.id));
   obstacle.mapLayers.push(layer);
@@ -3327,6 +3542,7 @@ function obstacleBounds(o){
 }
 
 function renderObstacleList(){
+  renderSitesList();
   const list=$("obstacleList"); list.innerHTML="";
   if(!state.obstacles.length){
     list.innerHTML='<div style="padding:10px;text-align:center;color:#8195a0;font-size:10px;font-style:italic">No obstacles added yet.</div>';
@@ -3834,8 +4050,11 @@ let heightWizardItems=[],heightWizardIndex=0;
 function renderHeightWizardStep(){
   const item=heightWizardItems[heightWizardIndex];
   if(!item)return;
-  $("heightWizardStep").textContent="SAVE DETAILS • "+(heightWizardIndex+1)+" / "+heightWizardItems.length;
-  $("heightWizardTitle").textContent=item.kind==="site"?"Enter site height":"Enter height for Obstacle #"+item.index;
+  const many=heightWizardItems.some(x=>x.seq!==heightWizardItems[0].seq);
+  $("heightWizardStep").textContent="SAVE DETAILS • "+(heightWizardIndex+1)+" / "+heightWizardItems.length+(many?" • SITE "+item.seq:"");
+  $("heightWizardTitle").textContent=item.kind==="site"
+    ?"Enter site height"+(many?" — SITE "+item.seq:"")
+    :"Enter height for Obstacle #"+item.index+(many?" of SITE "+item.seq:"");
   $("heightWizardInput").value=Number.isFinite(Number(item.value))?item.value:"";
   $("heightWizardNext").textContent=heightWizardIndex===heightWizardItems.length-1?"SAVE":"NEXT";
   setTimeout(()=>$("heightWizardInput").focus(),30);
@@ -3846,18 +4065,32 @@ function closeHeightWizard(){
 }
 function openHeightWizard(){
   if(!state.closed)return;
-  heightWizardItems=[{kind:"site",value:state.siteHeight}];
-  state.obstacles.forEach((o,i)=>heightWizardItems.push({kind:"obstacle",index:i+1,id:o.id,value:o.height}));
+  heightWizardItems=[];
+  closedSiteRecords().forEach(site=>{
+    heightWizardItems.push({kind:"site",seq:site.seq,value:site.siteHeight});
+    (site.obstacles||[]).forEach((o,i)=>heightWizardItems.push({kind:"obstacle",seq:site.seq,index:i+1,id:o.id,value:o.height}));
+  });
+  if(!heightWizardItems.length)return;
   heightWizardIndex=0;
   $("heightWizard").classList.add("show");
   renderHeightWizardStep();
+}
+function siteObstacleList(seq){
+  if(seq===state.activeSeq)return state.obstacles;
+  const site=(state.sites||[]).find(s=>s.seq===seq);
+  return site?site.obstacles:[];
 }
 function acceptHeightWizardStep(){
   const input=$("heightWizardInput"),value=Number(input.value);
   if(!Number.isFinite(value)||value<0){input.focus();setStatus("Enter a valid height in metres before saving.");return;}
   const item=heightWizardItems[heightWizardIndex];
-  if(item.kind==="site")state.siteHeight=value;
-  else{const o=state.obstacles.find(x=>x.id===item.id);if(o)o.height=value;}
+  if(item.kind==="site"){
+    if(item.seq===state.activeSeq)state.siteHeight=value;
+    else{const site=(state.sites||[]).find(s=>s.seq===item.seq);if(site)site.height=value;}
+  }else{
+    const o=siteObstacleList(item.seq).find(x=>x.id===item.id);
+    if(o)o.height=value;
+  }
   heightWizardIndex++;
   if(heightWizardIndex>=heightWizardItems.length){closeHeightWizard();commitSave();}
   else renderHeightWizardStep();
@@ -3903,61 +4136,68 @@ function buildExcelBridgeText(p, messageId) {
       ? Number(value).toFixed(decimals)
       : "0.00";
 
-  // Every MAP save gets a unique site Reference ID.
-  const siteReference = "SITE-MAP-" + String(messageId || Date.now());
-
-  // Save the exact drawn site vertices, with the first point repeated last.
-  const siteCoordinates = bridgeCoordinateText(p.siteCoordinates, true);
-
-  const siteRemarks = p.obstaclePresent
-    ? "Obstacle present: YES"
-    : "Obstacle present: NO";
+  const baseReference = "SITE-MAP-" + String(messageId || Date.now());
+  const sites = Array.isArray(p.sites) && p.sites.length ? p.sites : [p];
+  const singleSite = sites.length === 1;
 
   const lines = ["SOLAR_EPC_MAP_SAVE_V1"];
   lines.push("TS|" + esc(p.timestamp));
   lines.push("PROJECT|" + esc(p.projectId));
 
-  // SITE|L|W|H|Area|Perimeter|Points|Reference|Coordinates|Remarks
-  lines.push([
-    "SITE",
-    num(p.siteLength),
-    num(p.siteWidth),
-    num(p.siteHeight || 0),
-    num(p.siteArea),
-    num(p.sitePerimeter),
-    String(p.point_count || 0),
-    esc(siteReference),
-    esc(siteCoordinates),
-    esc(siteRemarks)
-  ].join("|"));
+  sites.forEach(site => {
+    // One site keeps the original reference; several sites get -S<seq> suffixes.
+    const siteReference = singleSite
+      ? baseReference
+      : baseReference + "-S" + Number(site.seq || 1);
 
-    (p.obstacles || []).forEach(obstacle => {
-        const obstaclePoints = Array.isArray(obstacle.coordinates) ? obstacle.coordinates : [];
-    const obstacleCoordinates = bridgeCoordinateText(
-      obstaclePoints,
-      obstacle.geometry !== "polyline"
-    );
+    const siteRemarks = site.obstaclePresent
+      ? "Obstacle present: YES"
+      : "Obstacle present: NO";
 
-    const enteredRemarks = String(obstacle.remarks || "").trim();
-    const obstacleRemarks = enteredRemarks ||
-      ("Map obstacle: " + String(obstacle.obstacleType || "unknown"));
-
-    // OBSTACLE|No|Type|L|W|H|Clearance|Area|Perimeter|Points|Reference|Coordinates|Remarks
+    // SITE|L|W|H|Area|Perimeter|Points|Reference|Coordinates|Remarks
     lines.push([
-      "OBSTACLE",
-      String(obstacle.index),
-      esc(obstacle.obstacleType),
-      num(obstacle.length),
-      num(obstacle.width),
-      num(obstacle.height || 0),
-      num(obstacle.clearance),
-      num(obstacle.area),
-      num(obstacle.perimeter),
-      String(obstaclePoints.length),
-      esc(obstacle.obstacleId),
-      esc(obstacleCoordinates),
-      esc(obstacleRemarks)
+      "SITE",
+      num(site.siteLength),
+      num(site.siteWidth),
+      num(site.siteHeight || 0),
+      num(site.siteArea),
+      num(site.sitePerimeter),
+      String(site.point_count || 0),
+      esc(siteReference),
+      esc(bridgeCoordinateText(site.siteCoordinates, true)),
+      esc(siteRemarks)
     ].join("|"));
+
+    (site.obstacles || []).forEach(obstacle => {
+      const obstaclePoints = Array.isArray(obstacle.coordinates) ? obstacle.coordinates : [];
+      const obstacleCoordinates = bridgeCoordinateText(
+        obstaclePoints,
+        obstacle.geometry !== "polyline"
+      );
+
+      const enteredRemarks = String(obstacle.remarks || "").trim();
+      const obstacleRemarks = enteredRemarks ||
+        ("Map obstacle: " + String(obstacle.obstacleType || "unknown"));
+
+      // OBSTACLE|No|Type|L|W|H|Clearance|Area|Perimeter|Points|Reference|Coordinates|Remarks
+      lines.push([
+        "OBSTACLE",
+        String(obstacle.index),
+        esc(obstacle.obstacleType),
+        num(obstacle.length),
+        num(obstacle.width),
+        num(obstacle.height || 0),
+        num(obstacle.clearance),
+        num(obstacle.area),
+        num(obstacle.perimeter),
+        String(obstaclePoints.length),
+        esc(obstacle.obstacleId),
+        esc(obstacleCoordinates),
+        esc(singleSite
+          ? obstacleRemarks
+          : ("Site Ref: " + siteReference + " " + obstacleRemarks))
+      ].join("|"));
+    });
   });
 
   lines.push("END");
@@ -3969,6 +4209,7 @@ async function commitSave() {
 
   if (p.calculationError) {
     setStatus("Calculation failed: " + p.calculationError);
+    finishExcelTimer(false, "Calculation failed — not saved");
     return;
   }
 
@@ -4022,11 +4263,20 @@ async function commitSave() {
     updateSiteStats();
     renderObstacleList();
 
+    finishExcelTimer(
+      acknowledged,
+      acknowledged
+        ? "Successfully imported to Excel ✓"
+        : "Excel import pending — data retained safely"
+    );
+
     if (acknowledged) {
       // Stop fast watch immediately. A tiny idle sentinel remains so fresh
       // drawing activity can wake Excel for another automatic SAVE.
       await setRelayIdleAfterSave();
-      setStatus("Saved successfully to Excel DRAWING_DATA. Watcher idle; ready for another drawing.");
+      setStatus(p.sites.length>1
+        ? "Saved all "+p.sites.length+" sites to Excel DRAWING_DATA. Watcher idle; ready for another drawing."
+        : "Saved successfully to Excel DRAWING_DATA. Watcher idle; ready for another drawing.");
     } else {
       setStatus(
         "Cloud relay retained the data safely; Excel acknowledgement is still pending."
@@ -4039,6 +4289,10 @@ async function commitSave() {
     state.boundarySaved = copied;
     updateSiteStats();
     renderObstacleList();
+    finishExcelTimer(
+      false,
+      copied ? "Excel Bridge unavailable — data copied" : "Could not reach Excel Bridge"
+    );
 
     if (copied) {
       setStatus(
@@ -4057,39 +4311,81 @@ async function commitSave() {
   }
 }
 
-function buildPayload(){
-  GeometryEngine.clearError();
-  const obb=state.closed?GeometryEngine.minAreaOBB(state.points):{length:0,width:0,angleDeg:0};
-  const siteArea=state.closed?GeometryEngine.polygonArea(state.points):0;
-  const sitePerimeter=state.closed?GeometryEngine.perimeterOfRing(state.points):0;
+function obstacleExportPoints(o){
+  const feature=o.feature||obstacleTurfFeature(o);
+  return feature?GeometryEngine.allOuterPoints(feature):(o.coords||[]);
+}
+
+function computeSiteData(site){
+  const closed=!!site.closed&&(site.points||[]).length>=3;
+  const obb=closed?GeometryEngine.minAreaOBB(site.points):{length:0,width:0,angleDeg:0};
+  const siteArea=closed?GeometryEngine.polygonArea(site.points):0;
+  const sitePerimeter=closed?GeometryEngine.perimeterOfRing(site.points):0;
 
   let setbackArea=0,obstacleAreaUnion=0,clearanceArea=0,usableArea=0;
-  if(state.closed){
-    const site=GeometryEngine.toTurfPolygon(state.points);
-    let inner=state.siteSetback>0?GeometryEngine.bufferFeature(site,-state.siteSetback):site;
-    if(state.siteSetback>0&&inner)setbackArea=siteArea-GeometryEngine.featureArea(inner);
-    else if(state.siteSetback>0&&!inner)setbackArea=siteArea;
+  if(closed){
+    const sitePolygon=GeometryEngine.toTurfPolygon(site.points);
+    let inner=site.siteSetback>0?GeometryEngine.bufferFeature(sitePolygon,-site.siteSetback):sitePolygon;
+    if(site.siteSetback>0&&inner)setbackArea=siteArea-GeometryEngine.featureArea(inner);
+    else if(site.siteSetback>0&&!inner)setbackArea=siteArea;
 
     const bareArr=[],expArr=[];
-    (state.obstaclePresent?state.obstacles:[]).forEach(o=>{
+    (site.obstaclePresent?site.obstacles:[]).forEach(o=>{
       const base=obstacleTurfFeature(o);
       if(!base)return;
-      const bC=GeometryEngine.intersectFeatures(base,site); if(bC)bareArr.push(bC);
+      const bC=GeometryEngine.intersectFeatures(base,sitePolygon); if(bC)bareArr.push(bC);
       let exp;
       if(o.geometry==="polyline"){try{exp=turf.buffer(turf.lineString(o.coords.map(p=>[p.lng,p.lat])),Math.max(o.clearance,0.001)/1000,{units:"kilometers"})}catch(e){GeometryEngine.setError("Obstacle clearance buffer failed.");exp=null}}
       else exp=o.clearance>0?GeometryEngine.bufferFeature(base,o.clearance):base;
-      const eC=GeometryEngine.intersectFeatures(exp,site); if(eC)expArr.push(eC);
+      const eC=GeometryEngine.intersectFeatures(exp,sitePolygon); if(eC)expArr.push(eC);
     });
     const uBare=GeometryEngine.unionFeatures(bareArr);
     const uExp=GeometryEngine.unionFeatures(expArr);
     obstacleAreaUnion=GeometryEngine.featureArea(uBare);
     clearanceArea=Math.max(0,GeometryEngine.featureArea(uExp)-obstacleAreaUnion);
-    let uFinal=inner||site;
+    let uFinal=inner||sitePolygon;
     if(uFinal&&uExp)uFinal=GeometryEngine.differenceFeatures(uFinal,uExp);
     usableArea=uFinal?GeometryEngine.featureArea(uFinal):0;
   }
 
   return {
+    seq:site.seq,
+    siteCoordinates:(site.points||[]).map((p,i)=>({point:i+1,latitude:+p.lat.toFixed(8),longitude:+p.lng.toFixed(8)})),
+    siteLength:+obb.length.toFixed(2),siteWidth:+obb.width.toFixed(2),
+    siteArea:+siteArea.toFixed(2),sitePerimeter:+sitePerimeter.toFixed(2),
+    siteObbAngle:+obb.angleDeg.toFixed(2),
+    length_m:+obb.length.toFixed(2),width_m:+obb.width.toFixed(2),
+    area_m2:+siteArea.toFixed(2),perimeter_m:+sitePerimeter.toFixed(2),
+    point_count:(site.points||[]).length,
+    obstaclePresent:!!site.obstaclePresent,
+    obstacles:(site.obstaclePresent?site.obstacles:[]).map((o,i)=>({
+      obstacleId:o.id,index:i+1,obstacleType:o.type,geometry:o.geometry,
+      coordinates:obstacleExportPoints(o).map(p=>({latitude:+p.lat.toFixed(8),longitude:+p.lng.toFixed(8)})),
+      area:+o.area.toFixed(2),perimeter:+o.perimeter.toFixed(2),
+      length:+o.length.toFixed(2),width:+o.width.toFixed(2),
+      clearance:+o.clearance.toFixed(2),
+      clearanceArea:+(o.clearanceArea||computeClearanceAreaFor(o)).toFixed(2),
+      remarks:o.remarks||"",radius:o.radius?+o.radius.toFixed(3):null,
+      height:Number.isFinite(Number(o.height))?+Number(o.height).toFixed(2):null
+    })),
+    totalObstacleArea:+obstacleAreaUnion.toFixed(2),
+    setbackArea:+setbackArea.toFixed(2),
+    clearanceArea:+clearanceArea.toFixed(2),
+    usableArea:+usableArea.toFixed(2),
+    siteSetback:+(Number(site.siteSetback)||0).toFixed(2),
+    siteHeight:Number.isFinite(Number(site.siteHeight))?+Number(site.siteHeight).toFixed(2):null
+  };
+}
+
+function buildPayload(){
+  GeometryEngine.clearError();
+  const records=closedSiteRecords();
+  const sites=(records.length?records:[liveSiteRecord()]).map(computeSiteData);
+  const primaryIndex=sites.findIndex(s=>s.seq===state.activeSeq);
+  const primary=sites[primaryIndex<0?0:primaryIndex];
+  const sum=key=>+sites.reduce((total,s)=>total+(Number(s[key])||0),0).toFixed(2);
+
+  return Object.assign({
     type:"solar_epc_site_boundary",projectId,
     calculationError:GeometryEngine.lastError()||null,
     location:state.lastCleanLocation,
@@ -4103,32 +4399,16 @@ function buildPayload(){
     coordinateSource:state.coordinateSource||null,
     googleMapsUrl:googleMapsUrlForLocation(state.lastCleanLocation),
     internalMapUrl:internalMapUrlForLocation(state.lastCleanLocation,state.selectedLocation?.lat,state.selectedLocation?.lng),
-    siteCoordinates:state.points.map((p,i)=>({point:i+1,latitude:+p.lat.toFixed(8),longitude:+p.lng.toFixed(8)})),
-    siteLength:+obb.length.toFixed(2),siteWidth:+obb.width.toFixed(2),
-    siteArea:+siteArea.toFixed(2),sitePerimeter:+sitePerimeter.toFixed(2),
-    siteObbAngle:+obb.angleDeg.toFixed(2),
-    length_m:+obb.length.toFixed(2),width_m:+obb.width.toFixed(2),
-    area_m2:+siteArea.toFixed(2),perimeter_m:+sitePerimeter.toFixed(2),
-    point_count:state.points.length,
-    obstaclePresent:!!state.obstaclePresent,
-    obstacles:(state.obstaclePresent?state.obstacles:[]).map((o,i)=>({
-      obstacleId:o.id,index:i+1,obstacleType:o.type,geometry:o.geometry,
-      coordinates:(o.feature?GeometryEngine.allOuterPoints(o.feature):o.coords).map(p=>({latitude:+p.lat.toFixed(8),longitude:+p.lng.toFixed(8)})), 
-      area:+o.area.toFixed(2),perimeter:+o.perimeter.toFixed(2),
-      length:+o.length.toFixed(2),width:+o.width.toFixed(2),
-      clearance:+o.clearance.toFixed(2),
-      clearanceArea:+(o.clearanceArea||computeClearanceAreaFor(o)).toFixed(2),
-      remarks:o.remarks||"",radius:o.radius?+o.radius.toFixed(3):null,
-      height:Number.isFinite(Number(o.height))?+Number(o.height).toFixed(2):null
-    })), 
-    totalObstacleArea:+obstacleAreaUnion.toFixed(2),
-    setbackArea:+setbackArea.toFixed(2),
-    clearanceArea:+clearanceArea.toFixed(2),
-    usableArea:+usableArea.toFixed(2),
-    siteSetback:+state.siteSetback.toFixed(2),
-    siteHeight:Number.isFinite(Number(state.siteHeight))?+Number(state.siteHeight).toFixed(2):null,
+    siteCount:sites.length,
+    sites,
+    totalSiteArea:sum("siteArea"),
+    totalSitePerimeter:sum("sitePerimeter"),
+    totalObstacleArea:sum("totalObstacleArea"),
+    totalSetbackArea:sum("setbackArea"),
+    totalClearanceArea:sum("clearanceArea"),
+    totalUsableArea:sum("usableArea"),
     timestamp:new Date().toISOString()
-  };
+  },primary);
 }
 
 $("saveButton").addEventListener("click",openHeightWizard);
@@ -4156,15 +4436,65 @@ $("downloadButton").addEventListener("click",()=>{
 
 function buildReportHTML(p){
   const date=new Date(p.timestamp).toLocaleString();
-  const obsRows=p.obstacles.map(o=>`
+  const sites=Array.isArray(p.sites)&&p.sites.length?p.sites:[p];
+  const many=sites.length>1;
+  const obsRows=site=>(site.obstacles||[]).map(o=>`
     <tr>
       <td>${o.index}</td><td>${escapeHtml(typeLabel(o.obstacleType))}</td>
       <td>${o.height==null?"—":o.height}</td><td>${o.length}</td><td>${o.width}</td><td>${o.area}</td>
       <td>${o.perimeter}</td><td>${o.clearance}</td><td>${o.clearanceArea}</td>
       <td>${escapeHtml(o.remarks)}</td>
     </tr>`).join("");
-  const coordRows=p.siteCoordinates.map(c=>`
+  const coordRows=site=>(site.siteCoordinates||[]).map(c=>`
     <tr><td>${c.point}</td><td>${c.latitude}</td><td>${c.longitude}</td></tr>`).join("");
+  const siteBlock=site=>`
+<h2>Site Dimensions${many?" • SITE "+site.seq:""}</h2>
+<div class="summary">
+  <div class="card"><div class="l">Length (OBB)</div><div class="v">${site.siteLength} m</div></div>
+  <div class="card"><div class="l">Width (OBB)</div><div class="v">${site.siteWidth} m</div></div>
+  <div class="card"><div class="l">OBB Angle</div><div class="v">${site.siteObbAngle}°</div></div>
+  <div class="card ok"><div class="l">Site Area</div><div class="v">${site.siteArea} m²</div></div>
+  <div class="card"><div class="l">Perimeter</div><div class="v">${site.sitePerimeter} m</div></div>
+  <div class="card"><div class="l">Points</div><div class="v">${site.point_count}</div></div>
+  <div class="card"><div class="l">Site Height</div><div class="v">${site.siteHeight==null?"—":site.siteHeight+" m"}</div></div>
+</div>
+
+<h2>Site Coordinates${many?" • SITE "+site.seq:""}</h2>
+<table><thead><tr><th>Point #</th><th>Latitude</th><th>Longitude</th></tr></thead>
+<tbody>${coordRows(site)}</tbody></table>
+
+${site.obstaclePresent && (site.obstacles||[]).length ? `
+<h2>Obstacles (${site.obstacles.length})${many?" • SITE "+site.seq:""}</h2>
+<table><thead><tr><th>#</th><th>Type</th><th>Height (m)</th><th>Length (m)</th><th>Width (m)</th>
+<th>Area (m²)</th><th>Perimeter (m)</th><th>Clearance (m)</th><th>Exclusion (m²)</th><th>Remarks</th></tr></thead>
+<tbody>${obsRows(site)}</tbody></table>
+` : `<h2>Obstacles${many?" • SITE "+site.seq:""}</h2><p style='font-size:11px;color:#71848d'>No obstacles.</p>`}
+
+<h2>Usable Area Calculation${many?" • SITE "+site.seq:""}</h2>
+<div class="summary">
+  <div class="card"><div class="l">Site Area</div><div class="v">${site.siteArea} m²</div></div>
+  <div class="card warn"><div class="l">Setback (${site.siteSetback} m)</div><div class="v">−${site.setbackArea} m²</div></div>
+  <div class="card warn"><div class="l">Obstacle Area</div><div class="v">−${site.totalObstacleArea} m²</div></div>
+  <div class="card warn"><div class="l">Clearance</div><div class="v">−${site.clearanceArea} m²</div></div>
+  <div class="card ok"><div class="l">USABLE SOLAR AREA</div><div class="v">${site.usableArea} m²</div></div>
+  <div class="card ok"><div class="l">Utilization</div><div class="v">${site.siteArea>0?((site.usableArea/site.siteArea)*100).toFixed(1):0}%</div></div>
+</div>
+`;
+  const totalBlock=many?`
+<h2>All Sites In This Drawing (${sites.length} sites)</h2>
+<table><thead><tr><th>Site</th><th>Area (m²)</th><th>Perimeter (m)</th><th>Height (m)</th>
+<th>Obstacles</th><th>Setback (m²)</th><th>Clearance (m²)</th><th>Usable (m²)</th></tr></thead>
+<tbody>${sites.map(site=>`
+    <tr>
+      <td>SITE ${site.seq}</td><td>${site.siteArea}</td><td>${site.sitePerimeter}</td>
+      <td>${site.siteHeight==null?"—":site.siteHeight}</td><td>${(site.obstacles||[]).length}</td>
+      <td>${site.setbackArea}</td><td>${site.clearanceArea}</td><td>${site.usableArea}</td>
+    </tr>`).join("")}
+    <tr><td><b>TOTAL</b></td><td><b>${p.totalSiteArea}</b></td><td>${p.totalSitePerimeter||""}</td><td>—</td>
+    <td><b>${sites.reduce((n,s)=>n+(s.obstacles||[]).length,0)}</b></td>
+    <td><b>${p.totalSetbackArea}</b></td><td><b>${p.totalClearanceArea}</b></td><td><b>${p.totalUsableArea}</b></td></tr>
+  </tbody></table>
+`: "";
   return `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Solar EPC Site Report</title>
 <style>
 body{font-family:"Segoe UI",Arial,sans-serif;margin:30px;color:#183747;background:#fff}
@@ -4184,46 +4514,14 @@ tr:nth-child(even) td{background:#f7fafc}
 .footer{margin-top:24px;padding-top:10px;border-top:1px solid #d0dbe0;font-size:10px;color:#71848d;text-align:center}
 @media print{body{margin:15mm}}
 </style></head><body>
-<h1>Solar EPC — Site Boundary & Obstacle Report</h1>
+<h1>Solar EPC — Site Boundary & Obstacle Report${many?" • "+sites.length+" Sites":""}</h1>
 <div class="meta">
   <b>Project:</b> ${escapeHtml(p.projectId||"—")}<br>
   <b>Location:</b> ${escapeHtml(p.location)}<br>
   <b>Google Maps:</b> <a href="${p.googleMapsUrl}">${p.googleMapsUrl}</a><br>
   <b>Generated:</b> ${date}
 </div>
-
-<h2>Site Dimensions</h2>
-<div class="summary">
-  <div class="card"><div class="l">Length (OBB)</div><div class="v">${p.siteLength} m</div></div>
-  <div class="card"><div class="l">Width (OBB)</div><div class="v">${p.siteWidth} m</div></div>
-  <div class="card"><div class="l">OBB Angle</div><div class="v">${p.siteObbAngle}°</div></div>
-  <div class="card ok"><div class="l">Site Area</div><div class="v">${p.siteArea} m²</div></div>
-  <div class="card"><div class="l">Perimeter</div><div class="v">${p.sitePerimeter} m</div></div>
-  <div class="card"><div class="l">Points</div><div class="v">${p.point_count}</div></div>
-  <div class="card"><div class="l">Site Height</div><div class="v">${p.siteHeight==null?"—":p.siteHeight+" m"}</div></div>
-</div>
-
-<h2>Site Coordinates</h2>
-<table><thead><tr><th>Point #</th><th>Latitude</th><th>Longitude</th></tr></thead>
-<tbody>${coordRows}</tbody></table>
-
-${p.obstaclePresent && p.obstacles.length ? `
-<h2>Obstacles (${p.obstacles.length})</h2>
-<table><thead><tr><th>#</th><th>Type</th><th>Height (m)</th><th>Length (m)</th><th>Width (m)</th>
-<th>Area (m²)</th><th>Perimeter (m)</th><th>Clearance (m)</th><th>Exclusion (m²)</th><th>Remarks</th></tr></thead>
-<tbody>${obsRows}</tbody></table>
-` : "<h2>Obstacles</h2><p style='font-size:11px;color:#71848d'>No obstacles.</p>"}
-
-<h2>Usable Area Calculation</h2>
-<div class="summary">
-  <div class="card"><div class="l">Site Area</div><div class="v">${p.siteArea} m²</div></div>
-  <div class="card warn"><div class="l">Setback (${p.siteSetback} m)</div><div class="v">−${p.setbackArea} m²</div></div>
-  <div class="card warn"><div class="l">Obstacle Area</div><div class="v">−${p.totalObstacleArea} m²</div></div>
-  <div class="card warn"><div class="l">Clearance</div><div class="v">−${p.clearanceArea} m²</div></div>
-  <div class="card ok"><div class="l">USABLE SOLAR AREA</div><div class="v">${p.usableArea} m²</div></div>
-  <div class="card ok"><div class="l">Utilization</div><div class="v">${p.siteArea>0?((p.usableArea/p.siteArea)*100).toFixed(1):0}%</div></div>
-</div>
-
+${sites.map(siteBlock).join("")}${totalBlock}
 <div class="footer">Solar EPC — Site Geometry Report • Auto-generated ${date}</div>
 </body></html>`;
 }
@@ -4271,7 +4569,26 @@ $("proAngleApply")?.addEventListener("click",applyAngleSetting);$("proAngleClear
 const originalFixedSite=getFixedSiteCursorPoint;getFixedSiteCursorPoint=function(last,cursor){if(last){let base=0;if(state.points.length>1){const p=state.points[state.points.length-2];base=turf.bearing(turf.point([p.lng,p.lat]),turf.point([last.lng,last.lat]));}const b=activeCornerBearing(base);if(b!=null){const metres=Number(state.siteFixedSegmentLength)>0?Number(state.siteFixedSegmentLength):GeometryEngine.distanceMeters(last,cursor);return destinationAt(last,metres,b);}}return originalFixedSite(last,cursor);};
 const originalFixedObs=getFixedObstacleCursorPoint;getFixedObstacleCursorPoint=function(last,cursor){const pts=state.drawingObstacle?.points||[];if(last&&pts.length>1){const p=pts[pts.length-2],base=turf.bearing(turf.point([p.lng,p.lat]),turf.point([last.lng,last.lat])),b=activeCornerBearing(base);if(b!=null){const metres=Number(state.obsFixedSegmentLength)>0?Number(state.obsFixedSegmentLength):GeometryEngine.distanceMeters(last,cursor);return destinationAt(last,metres,b);}}return originalFixedObs(last,cursor);};
 function duplicateSelected(){const o=state.obstacles.find(x=>x.id===state.selectedObstacleId);if(!o){alert("Select an obstacle first.");return;}const metres=Number(prompt("Duplicate offset distance in metres:","2"));if(!(metres>0))return;const bearing=normBearing(prompt("Offset bearing (0=N, 90=E):","45"));if(bearing==null)return;const c=plainObstacle(o);c.id="OBS-"+Date.now()+"-dup";c.coords=c.coords.map(p=>destinationAt(p,metres,bearing));if(c.center)c.center=destinationAt(c.center,metres,bearing);c.feature=rebuildObstacleFeature(c);c.mapLayers=[];finalizeObstacle(c);}
-function validateDesign(){const issues=[];if(!state.closed)issues.push("ERROR: SITE boundary is not closed.");if(state.points.length<3)issues.push("ERROR: SITE requires at least 3 points.");GeometryEngine.clearError();if(state.closed&&!GeometryEngine.toTurfPolygon(state.points))issues.push("ERROR: "+(GeometryEngine.lastError()||"Invalid SITE polygon."));state.obstacles.forEach((o,i)=>{if(!o.coords?.length)issues.push("ERROR: Obstacle #"+(i+1)+" has no coordinates.");if(!(Number(o.length)>=0&&Number(o.width)>=0))issues.push("ERROR: Obstacle #"+(i+1)+" has invalid dimensions.");if(!Number.isFinite(Number(o.height)))issues.push("WARNING: Obstacle #"+(i+1)+" height is missing.");});if(state.closed&&GeometryEngine.polygonArea(state.points)<=0)issues.push("ERROR: SITE area is zero.");alert(issues.length?"GEOMETRY REVIEW\n\n"+issues.join("\n"):"READY TO SAVE\n\nNo geometry errors detected.");}
+function validateDesign(){
+  const issues=[];
+  const records=siteRecords();
+  const many=records.length>1;
+  records.forEach(site=>{
+    const word=many?"SITE "+site.seq:"SITE";
+    if(!site.closed)issues.push("ERROR: "+word+" boundary is not closed.");
+    if((site.points||[]).length<3)issues.push("ERROR: "+word+" requires at least 3 points.");
+    GeometryEngine.clearError();
+    if(site.closed&&!GeometryEngine.toTurfPolygon(site.points))issues.push("ERROR: "+(GeometryEngine.lastError()||"Invalid SITE polygon."));
+    (site.obstacles||[]).forEach((o,i)=>{
+      const name="Obstacle #"+(i+1)+(many?" of SITE "+site.seq:"");
+      if(!o.coords?.length)issues.push("ERROR: "+name+" has no coordinates.");
+      if(!(Number(o.length)>=0&&Number(o.width)>=0))issues.push("ERROR: "+name+" has invalid dimensions.");
+      if(!Number.isFinite(Number(o.height)))issues.push("WARNING: "+name+" height is missing.");
+    });
+    if(site.closed&&GeometryEngine.polygonArea(site.points)<=0)issues.push("ERROR: "+word+" area is zero.");
+  });
+  alert(issues.length?"GEOMETRY REVIEW\n\n"+issues.join("\n"):"READY TO SAVE\n\nNo geometry errors detected.");
+}
 function replaceSiteFromPoints(points,label){if(!Array.isArray(points)||points.length<3){alert("At least 3 valid points are required.");return;}for(const p of points)if(!Number.isFinite(p.lat)||!Number.isFinite(p.lng)||Math.abs(p.lat)>90||Math.abs(p.lng)>180){alert("Invalid latitude/longitude found.");return;}if(!confirm("Preview: "+points.length+" SITE points. Replace current SITE?"))return;clearAllSite();points.forEach(p=>originalAddSitePoint(p));finishSite();historyCheckpoint(label);state.map.fitBounds(L.latLngBounds(points.map(p=>[p.lat,p.lng])),{padding:[40,40]});}
 function parseCoordinateText(text){return String(text).trim().split(/\r?\n|;/).map(x=>x.trim()).filter(Boolean).map(x=>{const a=x.split(/[\s,]+/).map(Number);return{lat:a[0],lng:a[1]};});}
 function coordinateEntry(){const t=prompt("Enter one point as latitude,longitude:","");if(!t)return;const p=parseCoordinateText(t)[0];if(!p||!Number.isFinite(p.lat)||!Number.isFinite(p.lng)||Math.abs(p.lat)>90||Math.abs(p.lng)>180){alert("Invalid latitude/longitude.");return;}if(state.mode==="draw-obstacle"&&state.drawingObstacle)addObsPoint(p);else{if(state.closed){alert("Clear or undo the closed SITE before appending another SITE point.");return;}if(state.mode!=="draw-site")setMode("draw-site");addSitePoint(p);}state.map.panTo([p.lat,p.lng]);}
@@ -4314,7 +4631,7 @@ let excelTimerStart=0,excelTimerHandle=0;const originalSetStatus=setStatus;
 function renderExcelTimer(kind,text){const el=$("excelSaveTimer");if(!el)return;el.className="excel-save-timer show"+(kind?" "+kind:"");el.textContent=text;}
 function startExcelTimer(){excelTimerStart=Date.now();clearInterval(excelTimerHandle);renderExcelTimer("","Saving to Excel… 00:00");excelTimerHandle=setInterval(()=>{const n=Math.floor((Date.now()-excelTimerStart)/1000);renderExcelTimer("","Saving to Excel… "+String(Math.floor(n/60)).padStart(2,"0")+":"+String(n%60).padStart(2,"0"));},250);}
 function finishExcelTimer(ok,text){clearInterval(excelTimerHandle);excelTimerHandle=0;renderExcelTimer(ok?"success":"error",text);if(ok)setTimeout(()=>{$("excelSaveTimer").className="excel-save-timer";},3500);}
-setStatus=function(text){originalSetStatus(text);const t=String(text||"");if(t.includes("Saved successfully to Excel"))finishExcelTimer(true,"Successfully imported to Excel ✓");else if(t.includes("acknowledgement is still pending")||t.includes("SAVE failed"))finishExcelTimer(false,"Excel import pending — data retained safely");else if(t.includes("Save cancelled")){clearInterval(excelTimerHandle);excelTimerHandle=0;$("excelSaveTimer").className="excel-save-timer";}};
+setStatus=function(text){originalSetStatus(text);const t=String(text||"");if(t.includes("Saved successfully to Excel")||t.includes("Saved all "))finishExcelTimer(true,"Successfully imported to Excel ✓");else if(t.includes("acknowledgement is still pending")||t.includes("SAVE failed"))finishExcelTimer(false,"Excel import pending — data retained safely");else if(t.includes("Save cancelled")){clearInterval(excelTimerHandle);excelTimerHandle=0;$("excelSaveTimer").className="excel-save-timer";}};
 $("saveButton").addEventListener("click",startExcelTimer,true);
 $("historyUndoButton").addEventListener("click",historyUndo);
 $("historyRedoButton").addEventListener("click",historyRedo);
