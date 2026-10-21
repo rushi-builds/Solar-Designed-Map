@@ -4511,7 +4511,7 @@ function buildPayload(){
   const primary=sites[primaryIndex<0?0:primaryIndex];
   const sum=key=>+sites.reduce((total,s)=>total+(Number(s[key])||0),0).toFixed(2);
 
-  return Object.assign({
+  return Object.assign({},primary,{
     type:"solar_epc_site_boundary",projectId,
     calculationError:GeometryEngine.lastError()||null,
     location:state.lastCleanLocation,
@@ -4534,7 +4534,7 @@ function buildPayload(){
     totalClearanceArea:sum("clearanceArea"),
     totalUsableArea:sum("usableArea"),
     timestamp:new Date().toISOString()
-  },primary);
+  });
 }
 
 $("saveButton").addEventListener("click",openHeightWizard);
