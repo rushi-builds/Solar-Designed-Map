@@ -3320,7 +3320,7 @@ function redrawObsPreview(){
     for(let i=0;i<4;i++){
       const a1=corners[i], b1=corners[(i+1)%4];
       const d1=GeometryEngine.distanceMeters(a1,b1);
-      if(d1>=5)state.obsSideLabels.push(createSideLabel(a1,b1,fmt(d1),"obs"));
+      if(d1>=0.3)state.obsSideLabels.push(createSideLabel(a1,b1,fmt(d1),"obs"));
     }
 
     return;
@@ -3336,12 +3336,12 @@ function redrawObsPreview(){
     }
     for(let i=1;i<d.points.length;i++){
       const d1=GeometryEngine.distanceMeters(d.points[i-1],d.points[i]);
-      if(d1>=5)state.obsSideLabels.push(createSideLabel(d.points[i-1],d.points[i],fmt(d1),"obs"));
+      if(d1>=0.3)state.obsSideLabels.push(createSideLabel(d.points[i-1],d.points[i],fmt(d1),"obs"));
     }
     // Closing edge preview if polygon has 3+ points
     if(isArea&&d.points.length>=3){
       const d1=GeometryEngine.distanceMeters(d.points[d.points.length-1],d.points[0]);
-      if(d1>=5)state.obsSideLabels.push(createSideLabel(d.points[d.points.length-1],d.points[0],fmt(d1),"obs"));
+      if(d1>=0.3)state.obsSideLabels.push(createSideLabel(d.points[d.points.length-1],d.points[0],fmt(d1),"obs"));
     }
   }
 }
@@ -3388,9 +3388,9 @@ function addObsPoint(latlng){
   const t=d.type;
   const raw={lat:latlng.lat,lng:latlng.lng};
 
-  // Close on the actual click: near the first point (classic close) or
-  // near the last point (most users click where they finished drawing).
-  if((t==="polygon"||t==="other")&&obstacleCloseProbe(raw)){finishObstacleDrawing();return;}
+  // Closing is decided on the RAW click in the snap wrapper below: probing a
+  // snapped point both missed real closes and closed early when snapping
+  // happened to land on the last corner.
 
   let target=raw;
   if(d.points.length&&state.obsFixedSegmentLength!=null){
@@ -3617,7 +3617,7 @@ function drawObstacleOnMap(obstacle){
   layer.addTo(state.map);
   layer.on("click",()=>selectObstacle(obstacle.id));
   obstacle.mapLayers.push(layer);
-  if(obstacle.geometry!=="circle")addRingSideMeasurements(obstacle.coords,obstacle.mapLayers,"obs",5);
+  if(obstacle.geometry!=="circle")addRingSideMeasurements(obstacle.coords,obstacle.mapLayers,"obs",0.3);
 
 }
 function removeObstacleLayers(o){
@@ -4724,7 +4724,15 @@ function showSnapCandidate(c){if(snapCandidateMarker){state.map.removeLayer(snap
 function snappedPoint(raw){const c=findSnapCandidate(raw);showSnapCandidate(c);return c?{lat:c.point.lat,lng:c.point.lng}:raw;}
 state.map.on("mousemove",e=>{if(state.mode==="draw-site"||state.mode==="draw-obstacle")showSnapCandidate(findSnapCandidate({lat:e.latlng.lat,lng:e.latlng.lng}));});
 const originalAddSitePoint=addSitePoint;addSitePoint=function(p){const c=findSnapCandidate(p);if(state.mode==="draw-site"&&!state.closed&&state.points.length>=3&&c&&c.type==="VERTEX"){const first=state.points[0];if(Math.abs(c.point.lat-first.lat)<1e-10&&Math.abs(c.point.lng-first.lng)<1e-10){showSnapCandidate(c);finishSite();setStatus("SITE closed automatically at Point 1. Review or drag any corner before SAVE.");return;}}showSnapCandidate(c);return originalAddSitePoint(c?{lat:c.point.lat,lng:c.point.lng}:p);};
-const originalAddObsPoint=addObsPoint;addObsPoint=function(p){return originalAddObsPoint(snappedPoint(p));};
+const originalAddObsPoint=addObsPoint;
+addObsPoint=function(p){
+  // Close on the RAW click: snapping can pull a click on the last point onto a
+  // nearby site edge, which made the close probe measure the wrong spot and the
+  // small obstacle never closed.
+  const d=state.drawingObstacle;
+  if(d&&(d.type==="polygon"||d.type==="other")&&obstacleCloseProbe(p)){finishObstacleDrawing();return;}
+  return originalAddObsPoint(snappedPoint(p));
+};
 let selectedAngleVertexIndex=null,angleSelectionMarker=null;
 function activeCornerBearing(base){const a=Number($("proAngleInput")?.value);if(!Number.isFinite(a)||a<=0||a>=180)return null;const turn=180-a,side=$("proAngleSide")?.value||"LEFT";return normBearing(base+(side==="RIGHT"?turn:-turn));}
 function updatePrecisionState(message){const a=$("proAngleInput")?.value,side=$("proAngleSide")?.value||"LEFT";$("proPrecisionState").textContent=message||(a?"ANGLE: "+a+"° "+side+" • setting ready":"ANGLE: FREE • draw next point or select a SITE point");}
