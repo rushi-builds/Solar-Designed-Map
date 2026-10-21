@@ -3557,6 +3557,14 @@ function finalizeObstacle(obstacle){
   }else{
     state.obstacles.push(obstacle);
   }
+  if(!state.obstaclePresent){
+    // Drawing an obstacle proves the site has one — a NO toggle here silently
+    // kept its area out of usable totals and out of the Excel payload.
+    state.obstaclePresent=true;
+    $("obsYesBtn").classList.add("active");
+    $("obsNoBtn").classList.remove("active");
+    $("obstacleSection").style.display="block";
+  }
   state.boundarySaved=false;
   drawObstacleOnMap(obstacle);
   hideObsForm();
