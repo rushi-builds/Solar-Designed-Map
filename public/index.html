@@ -3267,11 +3267,28 @@ function makeObsIcon(n,first){
     iconSize:[20,20],iconAnchor:[10,10]});
 }
 function addObsMarkerPoint(latlng,i){
-  // Deliberately non-interactive: an interactive marker swallows the map click,
-  // and a 20 px marker covers the whole area of a small obstacle, so clicks
-  // meant for the next corner did nothing. Clicks now fall through to the map
-  // and closing is decided by the size-aware probe below.
-  const m=L.marker(latlng,{icon:makeObsIcon(i+1,i===0),zIndexOffset:900,interactive:false}).addTo(state.map);
+  // The Leaflet layer stays non-interactive so it never fires a duplicate point.
+  // A raw DOM listener on the 20 px icon catches a real tap ON a marker, which
+  // a metre-based probe cannot: a finger lands several pixels off, and on a
+  // small obstacle that tolerance is only 1-2 px.
+  // Later points stack above earlier ones: on a small obstacle the 20 px icons
+  // overlap, and the tap must land on the last point the user just placed.
+  const m=L.marker(latlng,{icon:makeObsIcon(i+1,i===0),zIndexOffset:900+i,interactive:false}).addTo(state.map);
+  const el=m.getElement();
+  if(el){
+    el.style.pointerEvents="auto";
+    el.addEventListener("click",ev=>{
+      const d=state.drawingObstacle;
+      if(!d||(d.type!=="polygon"&&d.type!=="other")||d.points.length<3)return;
+      ev.preventDefault();ev.stopPropagation();
+      const last=d.points[d.points.length-1],first=d.points[0];
+      const here=m.getLatLng();
+      const onLast=i===d.points.length-1,onFirst=i===0;
+      // Icons of neighbouring corners overlap on a small obstacle, so the tap
+      // may land on an earlier point's icon; the whole last-point cluster closes.
+      if(onLast||onFirst||obstacleScreenDistance(here,last)<=16||obstacleScreenDistance(here,first)<=16)finishObstacleDrawing();
+    });
+  }
   state.obsMarkers.push(m);
 }
 function clearObsMarkers(){state.obsMarkers.forEach(m=>state.map.removeLayer(m));state.obsMarkers=[]}
@@ -3365,12 +3382,20 @@ function obstacleCloseToleranceM(d){
   }catch(e){}
   return Math.max(0.3,Math.min(metrePerPx*10,minSpan/3,6));
 }
+function obstacleScreenDistance(a,b){
+  try{
+    const p=state.map.latLngToContainerPoint([a.lat,a.lng]);
+    const q=state.map.latLngToContainerPoint([b.lat,b.lng]);
+    return Math.hypot(p.x-q.x,p.y-q.y);
+  }catch(e){return Infinity;}
+}
 function obstacleCloseProbe(raw){
   const d=state.drawingObstacle;
   if(!d||d.points.length<3)return false;
-  const tol=obstacleCloseToleranceM(d);
-  const first=d.points[0],last=d.points[d.points.length-1];
-  return GeometryEngine.distanceMeters(raw,first)<=tol||GeometryEngine.distanceMeters(raw,last)<=tol;
+  const first=d.points[0];
+  // Taps on the point markers are handled by the marker DOM handler below;
+  // this metric probe covers a click on the map near the first corner.
+  return GeometryEngine.distanceMeters(raw,first)<=obstacleCloseToleranceM(d);
 }
 function dedupeRingPoints(points,isRing){
   const out=[];
