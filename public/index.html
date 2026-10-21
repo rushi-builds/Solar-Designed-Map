@@ -3251,18 +3251,11 @@ function makeObsIcon(n,first){
     iconSize:[20,20],iconAnchor:[10,10]});
 }
 function addObsMarkerPoint(latlng,i){
-  const m=L.marker(latlng,{icon:makeObsIcon(i+1,i===0),zIndexOffset:900}).addTo(state.map);
-  // Same close-handle behaviour as site drawing: Leaflet markers swallow map
-  // clicks, so the first (green) and last point must finish the obstacle themselves.
-  m.on("click",e=>{
-    const d=state.drawingObstacle;
-    if(!d||state.mode!=="draw-obstacle")return;
-    const isArea=(d.type==="polygon"||d.type==="other");
-    if(isArea&&d.points.length>=3&&(i===0||i===d.points.length-1)){
-      L.DomEvent.stop(e);
-      finishObstacleDrawing();
-    }
-  });
+  // Deliberately non-interactive: an interactive marker swallows the map click,
+  // and a 20 px marker covers the whole area of a small obstacle, so clicks
+  // meant for the next corner did nothing. Clicks now fall through to the map
+  // and closing is decided by the size-aware probe below.
+  const m=L.marker(latlng,{icon:makeObsIcon(i+1,i===0),zIndexOffset:900,interactive:false}).addTo(state.map);
   state.obsMarkers.push(m);
 }
 function clearObsMarkers(){state.obsMarkers.forEach(m=>state.map.removeLayer(m));state.obsMarkers=[]}
@@ -3337,19 +3330,31 @@ function redrawObsPreview(){
   }
 }
 
+function obstacleCloseToleranceM(d){
+  // A fixed pixel radius is wrong for small obstacles: 20 px is ~12 m at z18,
+  // so a 3 m obstacle closed on its own. Cap the close zone at the marker's
+  // own radius on screen AND at a third of the polygon's smallest span.
+  let minSpan=Infinity;
+  for(let i=0;i<d.points.length;i++){
+    for(let j=i+1;j<d.points.length;j++){
+      const gap=GeometryEngine.distanceMeters(d.points[i],d.points[j]);
+      if(gap<minSpan)minSpan=gap;
+    }
+  }
+  if(!Number.isFinite(minSpan))minSpan=0;
+  let metrePerPx=1;
+  try{
+    const a=state.map.containerPointToLatLng([0,0]),b=state.map.containerPointToLatLng([10,0]);
+    metrePerPx=GeometryEngine.distanceMeters({lat:a.lat,lng:a.lng},{lat:b.lat,lng:b.lng})/10;
+  }catch(e){}
+  return Math.max(0.3,Math.min(metrePerPx*10,minSpan/3,6));
+}
 function obstacleCloseProbe(raw){
   const d=state.drawingObstacle;
   if(!d||d.points.length<3)return false;
+  const tol=obstacleCloseToleranceM(d);
   const first=d.points[0],last=d.points[d.points.length-1];
-  let pxFirst=Infinity,pxLast=Infinity;
-  try{
-    const p=state.map.latLngToContainerPoint([raw.lat,raw.lng]);
-    pxFirst=p.distanceTo(state.map.latLngToContainerPoint(first));
-    pxLast=p.distanceTo(state.map.latLngToContainerPoint(last));
-  }catch(e){}
-  const mFirst=GeometryEngine.distanceMeters(raw,first);
-  const mLast=GeometryEngine.distanceMeters(raw,last);
-  return pxFirst<=20||mFirst<=5||pxLast<=14||mLast<=2;
+  return GeometryEngine.distanceMeters(raw,first)<=tol||GeometryEngine.distanceMeters(raw,last)<=tol;
 }
 function dedupeRingPoints(points,isRing){
   const out=[];
