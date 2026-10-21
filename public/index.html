@@ -152,6 +152,14 @@ body{display:flex;flex-direction:column}
   border-radius:5px;min-height:0
 }
 
+.obs-site-head{
+  font:800 9px "Segoe UI",Arial,sans-serif;letter-spacing:.6px;color:#8f4818;
+  text-transform:uppercase;margin:4px 0 1px
+}
+.obstacle-card.readonly{cursor:default}
+.project-totals{margin-top:9px;padding-top:8px;border-top:2px solid #d0dbe0}
+.project-totals-head{font:800 9px "Segoe UI",Arial,sans-serif;letter-spacing:.6px;color:#0b5277;text-transform:uppercase;margin-bottom:4px}
+
 .site-stack{margin-top:9px}
 .site-stack-head{font:800 9px "Segoe UI",Arial,sans-serif;letter-spacing:.6px;color:#0b5277;text-transform:uppercase;margin-bottom:5px}
 .sites-list{display:flex;flex-direction:column;gap:6px}
@@ -746,6 +754,16 @@ button.wide{width:100%}
         <tr><td class="label">Usable Area</td><td class="value ok" id="uUsable">— m²</td></tr>
         <tr><td class="label">Utilization</td><td class="value ok" id="uPct">— %</td></tr>
       </table>
+      <div class="project-totals" id="projectTotals" style="display:none">
+        <div class="project-totals-head">Project Totals — <span id="projectTotalsSites">0</span> closed sites</div>
+        <table class="stats-table">
+          <tr><td class="label">Total Site Area</td><td class="value" id="tSite">— m²</td></tr>
+          <tr><td class="label">Total Obstacle Area</td><td class="value warn" id="tObstacle">— m²</td></tr>
+          <tr><td class="label">Total Clearance Area</td><td class="value warn" id="tClearance">— m²</td></tr>
+          <tr><td class="label">Total Usable Area</td><td class="value ok" id="tUsable">— m²</td></tr>
+          <tr><td class="label">Project Utilization</td><td class="value ok" id="tPct">— %</td></tr>
+        </table>
+      </div>
       <div style="margin-top:8px;padding-top:8px;border-top:1px dashed #d0dbe0">
         <div class="legend-item"><span class="legend-swatch" style="background:rgba(43,131,173,.2);border-color:#075b8c"></span> Site Boundary</div>
         <div class="legend-item"><span class="legend-swatch" style="background:rgba(192,102,58,.3);border-color:#a04519"></span> Obstacle</div>
@@ -1145,7 +1163,7 @@ function plainObstacle(o){
     clearance:Number(o.clearance)||0,remarks:String(o.remarks||""),
     manualLength:Number.isFinite(Number(o.manualLength))?Number(o.manualLength):null,
     manualWidth:Number.isFinite(Number(o.manualWidth))?Number(o.manualWidth):null,
-    height:Number.isFinite(Number(o.height))?Number(o.height):null
+    height:(o.height!=null&&Number.isFinite(Number(o.height)))?Number(o.height):null
   };
 }
 function plainSiteRecord(site){
@@ -1154,7 +1172,7 @@ function plainSiteRecord(site){
     points:(site.points||[]).map(plainPoint),
     closed:!!site.closed,
     siteSetback:Number(site.siteSetback)||0,
-    siteHeight:Number.isFinite(Number(site.siteHeight))?Number(site.siteHeight):null,
+    siteHeight:(site.siteHeight!=null&&Number.isFinite(Number(site.siteHeight)))?Number(site.siteHeight):null,
     obstaclePresent:!!site.obstaclePresent,
     obstacles:(site.obstacles||[]).map(plainObstacle)
   };
@@ -1162,7 +1180,7 @@ function plainSiteRecord(site){
 function captureDesignSnapshot(){
   return{
     version:2,points:(state.points||[]).map(plainPoint),closed:!!state.closed,
-    siteSetback:Number(state.siteSetback)||0,siteHeight:Number.isFinite(Number(state.siteHeight))?Number(state.siteHeight):null,
+    siteSetback:Number(state.siteSetback)||0,siteHeight:(state.siteHeight!=null&&Number.isFinite(Number(state.siteHeight)))?Number(state.siteHeight):null,
     obstaclePresent:!!state.obstaclePresent,obstacles:(state.obstacles||[]).map(plainObstacle),
     activeSeq:Number(state.activeSeq)||1,sites:(state.sites||[]).map(plainSiteRecord),
     mode:String(state.mode||"pan"),
@@ -1216,7 +1234,7 @@ function restoreDesignSnapshot(snapshot,label){
     state.activeSeq=Number(snapshot.activeSeq)||nextSiteSeq();
     state.closed=!!snapshot.closed;
     state.siteSetback=Number(snapshot.siteSetback)||0;
-    state.siteHeight=Number.isFinite(Number(snapshot.siteHeight))?Number(snapshot.siteHeight):null;
+    state.siteHeight=(snapshot.siteHeight!=null&&Number.isFinite(Number(snapshot.siteHeight)))?Number(snapshot.siteHeight):null;
     state.obstaclePresent=!!snapshot.obstaclePresent;
     state.selectedLocation=snapshot.selectedLocation?plainPoint(snapshot.selectedLocation):null;
     state.selectedObstacleId=null;state.editingObstacleId=null;
@@ -1297,7 +1315,12 @@ const FALLBACK_TILE_OPTIONS={
 const SmartGoogleTileLayer=L.TileLayer.extend({
   createTile(coords,done){
     const tile=L.TileLayer.prototype.createTile.call(this,coords,done);
-    tile.addEventListener("load",()=>{if(looksLikeNoDataTile(tile))tile.style.opacity="0"},{once:true});
+    tile.style.visibility="hidden";
+    tile.addEventListener("load",()=>{
+      if(looksLikeNoDataTile(tile))tile.style.opacity="0";
+      else tile.style.visibility="visible";
+    },{once:true});
+    tile.addEventListener("error",()=>{tile.style.opacity="0"},{once:true});
     return tile;
   }
 });
@@ -1327,8 +1350,10 @@ const esriSat=L.tileLayer(
 const ClarityImagery=L.TileLayer.extend({
   createTile(coords,done){
     const tile=L.TileLayer.prototype.createTile.call(this,coords,done);
+    tile.style.visibility="hidden";
     tile.addEventListener("load",()=>{
       if(looksLikeNoDataTile(tile))tile.style.opacity="0";
+      else tile.style.visibility="visible";
     },{once:true});
     tile.addEventListener("error",()=>{tile.style.opacity="0"},{once:true});
     return tile;
@@ -1380,7 +1405,12 @@ function looksLikeNoDataTile(tile){
 const SmartBingAerial=BingAerial.extend({
   createTile(coords,done){
     const tile=L.TileLayer.prototype.createTile.call(this,coords,done);
-    tile.addEventListener("load",()=>{if(looksLikeNoDataTile(tile))tile.style.opacity="0"},{once:true});
+    tile.style.visibility="hidden";
+    tile.addEventListener("load",()=>{
+      if(looksLikeNoDataTile(tile))tile.style.opacity="0";
+      else tile.style.visibility="visible";
+    },{once:true});
+    tile.addEventListener("error",()=>{tile.style.opacity="0"},{once:true});
     return tile;
   }
 });
@@ -2698,7 +2728,7 @@ function setMode(mode){
 
     if(isCircle) setStatus("Click the CENTER of the "+t+".");
     else if(isRect) setStatus("Click TWO opposite corners of the rectangle.");
-    else if(isPolygon) setStatus("Click corners; click GREEN (first) point to close, or press FINISH.");
+    else if(isPolygon) setStatus("Click corners; click the GREEN (first) point or the last point to close, or press ✓ FINISH.");
     else if(isLine) setStatus("Click along the "+t.replace("_"," ")+"; press FINISH when done.");
   }else{
     $("obsUndoPoint").style.display="none";
@@ -2899,7 +2929,7 @@ function addSitePoint(latlng){
 function finishSite(){
   clearLiveSegment();
   if(state.points.length<3){setStatus("Need at least 3 points.");return;}
-  state.closed=true; redrawSite(); setMode("pan");
+  state.closed=true; redrawSite(); renderObstacleList(); setMode("pan");
   setStatus("Site boundary closed. Length/Width/Area/Perimeter calculated.");
   historyCheckpoint("Close site boundary");
 }
@@ -2974,6 +3004,17 @@ function renderSiteGhosts(){
   });
 }
 var siteListSignature="";
+function siteMetrics(site){
+  const m={length:null,width:null,area:null,perimeter:null,angle:null};
+  if(!site||!site.closed||(site.points||[]).length<3)return m;
+  try{
+    const obb=GeometryEngine.minAreaOBB(site.points);
+    m.area=GeometryEngine.polygonArea(site.points);
+    m.perimeter=GeometryEngine.perimeterOfRing(site.points);
+    m.length=obb.length;m.width=obb.width;m.angle=obb.angleDeg;
+  }catch(e){}
+  return m;
+}
 function renderSitesList(force){
   const list=$("sitesList");
   if(!list)return;
@@ -2981,7 +3022,7 @@ function renderSitesList(force){
   const signature=records.map(s=>{
     const active=s.seq===state.activeSeq;
     const base=[s.seq,(s.points||[]).length,s.closed?1:0,(s.obstacles||[]).length,
-      Number.isFinite(Number(s.siteHeight))?Number(s.siteHeight):""].join(":");
+      Number(s.siteSetback),Number.isFinite(Number(s.siteHeight))?Number(s.siteHeight):""].join(":");
     return active?base:base+":"+fmt(GeometryEngine.polygonArea(s.points));
   }).join("|");
   if(!force&&signature===siteListSignature)return;
@@ -2989,19 +3030,23 @@ function renderSitesList(force){
   list.innerHTML="";
   records.forEach(site=>{
     const active=site.seq===state.activeSeq;
-    const area=site.closed&&site.points.length>=3?GeometryEngine.polygonArea(site.points):0;
+    const m=siteMetrics(site);
     const row=document.createElement("div");
     row.className="site-card"+(active?" active":"")+(site.closed?"":" incomplete");
     row.innerHTML=`
       <div class="obs-header">
-        <div class="obs-title">SITE ${site.seq}${active?' <span class="site-active-tag">DRAWING NOW</span>':""}</div>
-        <div class="obs-type-badge">${active?"current":site.closed?fmt(area)+" m²":"unfinished"}</div>
+        <div class="obs-title">SITE ${site.seq}${active?' <span class="site-active-tag">'+(site.closed?"CURRENT":"DRAWING NOW")+'</span>':""}</div>
+        <div class="obs-type-badge">${site.closed?fmt(m.area)+" m²":"unfinished"}</div>
       </div>
       <div class="obs-grid">
+        <span class="k">Length (OBB)</span><span class="v">${m.length==null?"—":fmt(m.length)+" m"}</span>
+        <span class="k">Width (OBB)</span><span class="v">${m.width==null?"—":fmt(m.width)+" m"}</span>
+        <span class="k">Area (actual)</span><span class="v">${m.area==null?"—":fmt(m.area)+" m²"}</span>
+        <span class="k">Perimeter</span><span class="v">${m.perimeter==null?"—":fmt(m.perimeter)+" m"}</span>
         <span class="k">Points</span><span class="v">${site.points.length}</span>
         <span class="k">Obstacles</span><span class="v">${(site.obstacles||[]).length}</span>
         <span class="k">Setback</span><span class="v">${fmt(site.siteSetback)} m</span>
-        <span class="k">Height</span><span class="v">${Number.isFinite(Number(site.siteHeight))?fmt(Number(site.siteHeight)):"—"} m</span>
+        <span class="k">Height</span><span class="v">${(site.siteHeight!=null&&Number.isFinite(Number(site.siteHeight)))?fmt(Number(site.siteHeight)):"—"} m</span>
       </div>
       ${active?"":`<div class="obs-actions">
         <button data-act="edit" data-seq="${site.seq}" class="small">EDIT</button>
@@ -3025,7 +3070,7 @@ function hydrateLiveSite(site){
   state.points=(site.points||[]).map(plainPoint);
   state.closed=!!site.closed;
   state.siteSetback=Number(site.siteSetback)||0;
-  state.siteHeight=Number.isFinite(Number(site.siteHeight))?Number(site.siteHeight):null;
+  state.siteHeight=(site.siteHeight!=null&&Number.isFinite(Number(site.siteHeight)))?Number(site.siteHeight):null;
   state.obstaclePresent=!!site.obstaclePresent;
   state.obstacles=(site.obstacles||[]).map(x=>{
     const o=plainObstacle(x);
@@ -3050,7 +3095,7 @@ function addAnotherSite(){
   clearAllSite();
   renderSiteGhosts();
   renderSitesList(true);
-  updateSiteStats();
+  recomputeUsable();
   setMode("draw-site");
   historyCheckpoint("Store site "+stored.seq);
   setStatus("SITE "+stored.seq+" stored. Now draw SITE "+state.activeSeq+" — its obstacles belong to it.");
@@ -3081,7 +3126,8 @@ function deleteSite(seq){
   state.sites=state.sites.filter(s=>s.seq!==seq);
   renderSiteGhosts();
   renderSitesList(true);
-  updateSiteStats();
+  renderObstacleList();
+  recomputeUsable();
   historyCheckpoint("Delete site "+seq);
   setStatus("SITE "+seq+" removed from this drawing.");
 }
@@ -3280,20 +3326,39 @@ function redrawObsPreview(){
   }
 }
 
+function obstacleCloseProbe(raw){
+  const d=state.drawingObstacle;
+  if(!d||d.points.length<3)return false;
+  const first=d.points[0],last=d.points[d.points.length-1];
+  let pxFirst=Infinity,pxLast=Infinity;
+  try{
+    const p=state.map.latLngToContainerPoint([raw.lat,raw.lng]);
+    pxFirst=p.distanceTo(state.map.latLngToContainerPoint(first));
+    pxLast=p.distanceTo(state.map.latLngToContainerPoint(last));
+  }catch(e){}
+  const mFirst=GeometryEngine.distanceMeters(raw,first);
+  const mLast=GeometryEngine.distanceMeters(raw,last);
+  return pxFirst<=20||mFirst<=5||pxLast<=14||mLast<=2;
+}
+function dedupeRingPoints(points,isRing){
+  const out=[];
+  (points||[]).forEach(p=>{
+    const pt={lat:Number(p.lat),lng:Number(p.lng)};
+    if(!Number.isFinite(pt.lat)||!Number.isFinite(pt.lng))return;
+    const prev=out[out.length-1];
+    if(!prev||GeometryEngine.distanceMeters(prev,pt)>0.05)out.push(pt);
+  });
+  if(isRing!==false&&out.length>=4&&GeometryEngine.distanceMeters(out[0],out[out.length-1])<=0.05)out.pop();
+  return out;
+}
 function addObsPoint(latlng){
   const d=state.drawingObstacle;if(!d)return;
   const t=d.type;
   const raw={lat:latlng.lat,lng:latlng.lng};
 
-  // Polygon close detection remains based on the user's actual click.
-  if((t==="polygon"||t==="other")&&d.points.length>=3){
-    let closePx=Infinity;
-    try{
-      closePx=state.map.latLngToContainerPoint(d.points[0])
-        .distanceTo(state.map.latLngToContainerPoint([raw.lat,raw.lng]));
-    }catch(e){closePx=GeometryEngine.distanceMeters(raw,d.points[0]);}
-    if(closePx<=14){finishObstacleDrawing();return;}
-  }
+  // Close on the actual click: near the first point (classic close) or
+  // near the last point (most users click where they finished drawing).
+  if((t==="polygon"||t==="other")&&obstacleCloseProbe(raw)){finishObstacleDrawing();return;}
 
   let target=raw;
   if(d.points.length&&state.obsFixedSegmentLength!=null){
@@ -3374,7 +3439,8 @@ function finishObstacleDrawing(){
 
   if(t==="polygon"||t==="other"){
     if(d.points.length<3){setStatus("Need at least 3 points for polygon.");return;}
-    const coords=d.points.slice();
+    const coords=dedupeRingPoints(d.points,true);
+    if(coords.length<3){setStatus("Need at least 3 distinct corners for polygon.");return;}
     if(!GeometryEngine.toTurfPolygon(coords)){
       setStatus((GeometryEngine.lastError()||"Invalid obstacle polygon.")+" Drawing kept — fix the points or press ESC to cancel.");
       return;
@@ -3396,7 +3462,8 @@ function finishObstacleDrawing(){
 
   if(t==="walkway"){
     if(d.points.length<2){setStatus("Need at least 2 points.");return;}
-    const coords=d.points.slice();
+    const coords=dedupeRingPoints(d.points,false);
+    if(coords.length<2){setStatus("Need at least 2 distinct points.");return;}
     const lineLen=GeometryEngine.lengthOfPolyline(coords);
     finalizeObstacle({
       id:"OBS-"+Date.now()+"-"+Math.random().toString(36).slice(2,6),
@@ -3411,7 +3478,8 @@ function finishObstacleDrawing(){
 
   if(t==="safety_line"||t==="handrail"||t==="property_line"){
     if(d.points.length<2){setStatus("Need at least 2 points.");return;}
-    const coords=d.points.slice();
+    const coords=dedupeRingPoints(d.points,false);
+    if(coords.length<2){setStatus("Need at least 2 distinct points.");return;}
     const lineLen=GeometryEngine.lengthOfPolyline(coords);
     finalizeObstacle({
       id:"OBS-"+Date.now()+"-"+Math.random().toString(36).slice(2,6),
@@ -3544,17 +3612,32 @@ function obstacleBounds(o){
 function renderObstacleList(){
   renderSitesList();
   const list=$("obstacleList"); list.innerHTML="";
-  if(!state.obstacles.length){
+  const closed=siteRecords().filter(s=>s.closed);
+  const total=closed.reduce((n,s)=>n+((s.obstacles||[]).length),0);
+  if(!total){
     list.innerHTML='<div style="padding:10px;text-align:center;color:#8195a0;font-size:10px;font-style:italic">No obstacles added yet.</div>';
     return;
   }
-  state.obstacles.forEach((o,i)=>{
-    const ca=computeClearanceAreaFor(o); o.clearanceArea=ca;
-    const card=document.createElement("div");
-    card.className="obstacle-card"+(state.selectedObstacleId===o.id?" selected":"");
-    card.innerHTML=`
+  const multi=closed.length>1;
+  closed.forEach(site=>{
+    const obstacles=site.obstacles||[];
+    if(!obstacles.length)return;
+    const active=site.seq===state.activeSeq;
+    const sitePoly=GeometryEngine.toTurfPolygon(site.points);
+    if(multi){
+      const head=document.createElement("div");
+      head.className="obs-site-head";
+      head.textContent="SITE "+site.seq+(active?" (CURRENT)":"");
+      list.appendChild(head);
+    }
+    obstacles.forEach((o,i)=>{
+      const ca=computeClearanceAreaFor(o,sitePoly); o.clearanceArea=ca;
+      const card=document.createElement("div");
+      card.className="obstacle-card"+(active?(state.selectedObstacleId===o.id?" selected":""):" readonly");
+      if(active)card.setAttribute("data-oid",o.id);
+      card.innerHTML=`
       <div class="obs-header">
-        <div class="obs-title">Obstacle #${i+1}</div>
+        <div class="obs-title">Obstacle #${i+1}${multi?" • SITE "+site.seq:""}</div>
         <div class="obs-type-badge">${escapeHtml(typeLabel(o.type))}</div>
       </div>
       <div class="obs-grid">
@@ -3562,20 +3645,20 @@ function renderObstacleList(){
         <span class="k">Perimeter</span><span class="v">${fmt(o.perimeter)} m</span>
         <span class="k">Length</span><span class="v">${fmt(o.length)} m</span>
         <span class="k">Width</span><span class="v">${fmt(o.width)} m</span>
-        <span class="k">Height</span><span class="v">${Number.isFinite(Number(o.height))?fmt(Number(o.height)):"—"} m</span>
+        <span class="k">Height</span><span class="v">${(o.height!=null&&Number.isFinite(Number(o.height)))?fmt(Number(o.height)):"—"} m</span>
         <span class="k">Clearance</span><span class="v">${fmt(o.clearance)} m</span>
         <span class="k">Exclusion</span><span class="v">${fmt(ca)} m²</span>
         ${o.remarks?`<span class="k">Remarks</span><span class="v" style="font-weight:600">${escapeHtml(o.remarks)}</span>`:""}
       </div>
-      <div class="obs-actions">
+      ${active?`<div class="obs-actions">
         <button data-act="edit" data-id="${o.id}" class="small">EDIT</button>
         <button data-act="redraw" data-id="${o.id}" class="small orange">REDRAW</button>
         <button data-act="focus" data-id="${o.id}" class="small">FOCUS</button>
         <button data-act="delete" data-id="${o.id}" class="small cancel">DEL</button>
-      </div>`;
-    list.appendChild(card);
+      </div>`:""}`;
+      list.appendChild(card);
+    });
   });
-
   list.querySelectorAll("button[data-act]").forEach(b=>{
     b.addEventListener("click",e=>{
       e.stopPropagation();
@@ -3603,8 +3686,8 @@ function renderObstacleList(){
       }
     });
   });
-  list.querySelectorAll(".obstacle-card").forEach((c,i)=>{
-    c.addEventListener("click",()=>selectObstacle(state.obstacles[i].id));
+  list.querySelectorAll(".obstacle-card[data-oid]").forEach(c=>{
+    c.addEventListener("click",()=>selectObstacle(c.getAttribute("data-oid")));
   });
 }
 
@@ -3616,18 +3699,26 @@ function obstacleTurfFeature(o){
     return GeometryEngine.toTurfPolygon(o.coords);
   }catch(e){GeometryEngine.setError("Obstacle geometry could not be created.");return null;}
 }
-function computeClearanceAreaFor(o){
+function computeClearanceAreaFor(o,sitePoly){
   try{
+    let base=null,exp=null;
     if(o.geometry==="polyline"){
       const line=turf.lineString(o.coords.map(p=>[p.lng,p.lat]));
-      const buf=turf.buffer(line,Math.max(o.clearance,0.001)/1000,{units:"kilometers"});
-      return GeometryEngine.featureArea(buf);
+      base=turf.buffer(line,0.001/1000,{units:"kilometers"});
+      exp=turf.buffer(line,Math.max(o.clearance,0.001)/1000,{units:"kilometers"});
+    }else{
+      base=obstacleTurfFeature(o);
+      if(!base)return 0;
+      if(o.clearance<=0)return 0;
+      exp=GeometryEngine.bufferFeature(base,o.clearance);
     }
-    const base=obstacleTurfFeature(o);
-    if(!base)return 0;
-    if(o.clearance<=0)return 0;
-    const buf=GeometryEngine.bufferFeature(base,o.clearance);
-    return Math.max(0,GeometryEngine.featureArea(buf)-GeometryEngine.featureArea(base));
+    if(sitePoly){
+      exp=GeometryEngine.intersectFeatures(exp,sitePoly);
+      if(base)base=GeometryEngine.intersectFeatures(base,sitePoly);
+    }
+    const expArea=exp?GeometryEngine.featureArea(exp):0;
+    const baseArea=base?GeometryEngine.featureArea(base):0;
+    return Math.max(0,expArea-baseArea);
   }catch(e){GeometryEngine.setError("Clearance area calculation failed.");return 0}
 }
 
@@ -3650,81 +3741,114 @@ function resetUsableDisplay(){
   ["uSite","uSetback","uObstacle","uClearance","uUsable"].forEach(id=>$(id).textContent="— m²");
   $("uPct").textContent="— %";
 }
-function recomputeUsable(){
-  clearOverlays();
-  GeometryEngine.clearError();
-  if(!state.closed){resetUsableDisplay();return;}
-  const site=GeometryEngine.toTurfPolygon(state.points);
-  if(!site){resetUsableDisplay();setStatus(GeometryEngine.lastError()||"Invalid site boundary.");return;}
-  const siteArea=GeometryEngine.featureArea(site);
+function evaluateSiteUsable(site,drawLayers){
+  const out={ok:false,error:"",siteArea:0,setbackArea:0,obstacleArea:0,clearanceArea:0,usableArea:0,
+    layers:{setback:null,clearance:null,usable:null}};
+  const pts=(site&&site.points)||[];
+  if(!site||!site.closed||pts.length<3){out.error="Invalid site boundary.";return out;}
+  const sitePoly=GeometryEngine.toTurfPolygon(pts);
+  if(!sitePoly){out.error=GeometryEngine.lastError()||"Invalid site boundary.";return out;}
+  const siteArea=GeometryEngine.featureArea(sitePoly);
+  out.siteArea=siteArea;
 
-  let usable=site, setbackArea=0;
-  if(state.siteSetback>0){
-    const inner=GeometryEngine.bufferFeature(site,-state.siteSetback);
+  let usable=sitePoly,setbackArea=0;
+  const setback=Number(site.siteSetback)||0;
+  if(setback>0){
+    const inner=GeometryEngine.bufferFeature(sitePoly,-setback);
     if(inner){
-      usable=inner; setbackArea=siteArea-GeometryEngine.featureArea(inner);
-      try{
-        const ring=GeometryEngine.differenceFeatures(site,inner);
-        if(ring){
-          const ll=GeometryEngine.featureToLeafletLatLngs(ring);
-          if(ll.length){
-            state.setbackLayer=L.polygon(ll,
-              {color:"#a53131",weight:1,dashArray:"5 4",fillColor:"#d64343",fillOpacity:.15,interactive:false}).addTo(state.map);
-          }
-        }
-      }catch(e){}
-    }else{
-      if(GeometryEngine.hasError()){
-        resetUsableDisplay();setStatus(GeometryEngine.lastError());return;
+      usable=inner;setbackArea=siteArea-GeometryEngine.featureArea(inner);
+      if(drawLayers){
+        const ring=GeometryEngine.differenceFeatures(sitePoly,inner);
+        if(ring)out.layers.setback=GeometryEngine.featureToLeafletLatLngs(ring);
       }
-      usable=null; setbackArea=siteArea;
+    }else{
+      if(GeometryEngine.hasError()){out.error=GeometryEngine.lastError();return out;}
+      usable=null;setbackArea=siteArea;
     }
   }
+  out.setbackArea=setbackArea;
 
-  const bareArr=[], expArr=[];
-  (state.obstaclePresent?state.obstacles:[]).forEach(o=>{
+  const bareArr=[],expArr=[];
+  ((site.obstaclePresent?site.obstacles:[])||[]).forEach(o=>{
     const base=obstacleTurfFeature(o);
     if(!base)return;
-    const bClip=GeometryEngine.intersectFeatures(base,site); if(bClip)bareArr.push(bClip);
+    const bClip=GeometryEngine.intersectFeatures(base,sitePoly); if(bClip)bareArr.push(bClip);
     let exp;
     if(o.geometry==="polyline"){try{exp=turf.buffer(turf.lineString(o.coords.map(p=>[p.lng,p.lat])),Math.max(o.clearance,0.001)/1000,{units:"kilometers"})}catch(e){GeometryEngine.setError("Obstacle clearance buffer failed.");exp=null}}
     else exp=o.clearance>0?GeometryEngine.bufferFeature(base,o.clearance):base;
-    const eClip=GeometryEngine.intersectFeatures(exp,site); if(eClip)expArr.push(eClip);
+    const eClip=GeometryEngine.intersectFeatures(exp,sitePoly); if(eClip)expArr.push(eClip);
   });
-  if(GeometryEngine.hasError()){resetUsableDisplay();setStatus(GeometryEngine.lastError());return;}
+  if(GeometryEngine.hasError()){out.error=GeometryEngine.lastError();return out;}
   const uBare=GeometryEngine.unionFeatures(bareArr);
   const uExp=GeometryEngine.unionFeatures(expArr);
-  if(GeometryEngine.hasError()){resetUsableDisplay();setStatus(GeometryEngine.lastError());return;}
+  if(GeometryEngine.hasError()){out.error=GeometryEngine.lastError();return out;}
   const obstacleArea=GeometryEngine.featureArea(uBare);
   const expArea=GeometryEngine.featureArea(uExp);
-  const clearanceOnly=Math.max(0,expArea-obstacleArea);
-
-  if(uExp){
-    const ll=GeometryEngine.featureToLeafletLatLngs(uExp);
-    if(ll.length){
-      state.clearanceLayer=L.polygon(ll,
-        {color:"#c88b1c",weight:1,dashArray:"4 3",fillColor:"#ffc13c",fillOpacity:.20,interactive:false}).addTo(state.map);
-    }
-  }
+  out.obstacleArea=obstacleArea;
+  out.clearanceArea=Math.max(0,expArea-obstacleArea);
 
   let uFinal=usable;
   if(usable&&uExp){
     uFinal=GeometryEngine.differenceFeatures(usable,uExp);
-    if(GeometryEngine.hasError()){resetUsableDisplay();setStatus(GeometryEngine.lastError());return;}
+    if(GeometryEngine.hasError()){out.error=GeometryEngine.lastError();return out;}
   }
-  const usableArea=uFinal?GeometryEngine.featureArea(uFinal):0;
+  out.usableArea=uFinal?GeometryEngine.featureArea(uFinal):0;
 
-  if(uFinal){
-    const ll=GeometryEngine.featureToLeafletLatLngs(uFinal);
-    if(ll.length)state.usableLayer=L.polygon(ll,{color:"#1e6b37",weight:2,fillColor:"#2ea358",fillOpacity:.30,interactive:false}).addTo(state.map);
+  if(drawLayers){
+    if(uExp)out.layers.clearance=GeometryEngine.featureToLeafletLatLngs(uExp);
+    if(uFinal)out.layers.usable=GeometryEngine.featureToLeafletLatLngs(uFinal);
   }
+  out.ok=true;
+  return out;
+}
+function renderProjectTotals(activeMetrics){
+  const box=$("projectTotals");
+  if(!box)return;
+  const closed=closedSiteRecords();
+  if(closed.length<2){box.style.display="none";return;}
+  let siteArea=0,obstacleArea=0,clearanceArea=0,usableArea=0,ok=true;
+  closed.forEach(s=>{
+    const m=(activeMetrics&&s.seq===state.activeSeq)?activeMetrics:evaluateSiteUsable(s,false);
+    if(!m.ok){ok=false;return;}
+    siteArea+=m.siteArea;obstacleArea+=m.obstacleArea;
+    clearanceArea+=m.clearanceArea;usableArea+=m.usableArea;
+  });
+  if(!ok){box.style.display="none";return;}
+  box.style.display="block";
+  $("projectTotalsSites").textContent=String(closed.length);
+  $("tSite").textContent=fmt(siteArea)+" m²";
+  $("tObstacle").textContent=fmt(obstacleArea)+" m²";
+  $("tClearance").textContent=fmt(clearanceArea)+" m²";
+  $("tUsable").textContent=fmt(usableArea)+" m²";
+  $("tPct").textContent=siteArea>0?fmt((usableArea/siteArea)*100,1)+" %":"— %";
+}
+function recomputeUsable(){
+  clearOverlays();
+  GeometryEngine.clearError();
+  if(!state.closed){resetUsableDisplay();renderProjectTotals();return;}
+  const metrics=evaluateSiteUsable(liveSiteRecord(),true);
+  if(!metrics.ok){
+    resetUsableDisplay();renderProjectTotals();
+    setStatus(metrics.error||"Usable area calculation failed.");return;
+  }
+  const addLayer=(latlngs,style,key)=>{
+    if(!latlngs||!latlngs.length)return;
+    state[key]=L.polygon(latlngs,style).addTo(state.map);
+  };
+  addLayer(metrics.layers.setback,
+    {color:"#a53131",weight:1,dashArray:"5 4",fillColor:"#d64343",fillOpacity:.15,interactive:false},"setbackLayer");
+  addLayer(metrics.layers.clearance,
+    {color:"#c88b1c",weight:1,dashArray:"4 3",fillColor:"#ffc13c",fillOpacity:.20,interactive:false},"clearanceLayer");
+  addLayer(metrics.layers.usable,
+    {color:"#1e6b37",weight:2,fillColor:"#2ea358",fillOpacity:.30,interactive:false},"usableLayer");
 
-  $("uSite").textContent=fmt(siteArea)+" m²";
-  $("uSetback").textContent=fmt(setbackArea)+" m²";
-  $("uObstacle").textContent=fmt(obstacleArea)+" m²";
-  $("uClearance").textContent=fmt(clearanceOnly)+" m²";
-  $("uUsable").textContent=fmt(usableArea)+" m²";
-  $("uPct").textContent=siteArea>0?fmt((usableArea/siteArea)*100,1)+" %":"— %";
+  $("uSite").textContent=fmt(metrics.siteArea)+" m²";
+  $("uSetback").textContent=fmt(metrics.setbackArea)+" m²";
+  $("uObstacle").textContent=fmt(metrics.obstacleArea)+" m²";
+  $("uClearance").textContent=fmt(metrics.clearanceArea)+" m²";
+  $("uUsable").textContent=fmt(metrics.usableArea)+" m²";
+  $("uPct").textContent=metrics.siteArea>0?fmt((metrics.usableArea/metrics.siteArea)*100,1)+" %":"— %";
+  renderProjectTotals(metrics);
 }
 
 /* =====================================================================
@@ -3946,7 +4070,7 @@ function renderThreeD(){
   ctx.fillText("Anchor: "+anchor.lat.toFixed(6)+", "+anchor.lng.toFixed(6),16,22);
   ctx.fillText("Source: "+(state.coordinateSource||"map geometry"),16,38);
 
-  const unknown=(state.obstacles||[]).filter(o=>!Number.isFinite(Number(o.height))).length;
+  const unknown=(state.obstacles||[]).filter(o=>o.height==null||!Number.isFinite(Number(o.height))).length;
   $("threeDDataStatus").textContent=sitePts.length>=3
     ? (unknown?unknown+" obstacle height(s) unavailable — shown flat":"Site + obstacle heights available")
     : "Draw and close the site for 3D geometry";
@@ -4062,6 +4186,7 @@ function renderHeightWizardStep(){
 function closeHeightWizard(){
   $("heightWizard").classList.remove("show");
   heightWizardItems=[];heightWizardIndex=0;
+  renderSitesList(true); renderObstacleList();
 }
 function openHeightWizard(){
   if(!state.closed)return;
@@ -4086,7 +4211,7 @@ function acceptHeightWizardStep(){
   const item=heightWizardItems[heightWizardIndex];
   if(item.kind==="site"){
     if(item.seq===state.activeSeq)state.siteHeight=value;
-    else{const site=(state.sites||[]).find(s=>s.seq===item.seq);if(site)site.height=value;}
+    else{const site=(state.sites||[]).find(s=>s.seq===item.seq);if(site)site.siteHeight=value;}
   }else{
     const o=siteObstacleList(item.seq).find(x=>x.id===item.id);
     if(o)o.height=value;
@@ -4348,6 +4473,7 @@ function computeSiteData(site){
     usableArea=uFinal?GeometryEngine.featureArea(uFinal):0;
   }
 
+  const clearanceSitePoly=closed?GeometryEngine.toTurfPolygon(site.points):null;
   return {
     seq:site.seq,
     siteCoordinates:(site.points||[]).map((p,i)=>({point:i+1,latitude:+p.lat.toFixed(8),longitude:+p.lng.toFixed(8)})),
@@ -4364,16 +4490,16 @@ function computeSiteData(site){
       area:+o.area.toFixed(2),perimeter:+o.perimeter.toFixed(2),
       length:+o.length.toFixed(2),width:+o.width.toFixed(2),
       clearance:+o.clearance.toFixed(2),
-      clearanceArea:+(o.clearanceArea||computeClearanceAreaFor(o)).toFixed(2),
+      clearanceArea:+(o.clearanceArea||computeClearanceAreaFor(o,clearanceSitePoly)).toFixed(2),
       remarks:o.remarks||"",radius:o.radius?+o.radius.toFixed(3):null,
-      height:Number.isFinite(Number(o.height))?+Number(o.height).toFixed(2):null
+      height:(o.height!=null&&Number.isFinite(Number(o.height)))?+Number(o.height).toFixed(2):null
     })),
     totalObstacleArea:+obstacleAreaUnion.toFixed(2),
     setbackArea:+setbackArea.toFixed(2),
     clearanceArea:+clearanceArea.toFixed(2),
     usableArea:+usableArea.toFixed(2),
     siteSetback:+(Number(site.siteSetback)||0).toFixed(2),
-    siteHeight:Number.isFinite(Number(site.siteHeight))?+Number(site.siteHeight).toFixed(2):null
+    siteHeight:(site.siteHeight!=null&&Number.isFinite(Number(site.siteHeight)))?+Number(site.siteHeight).toFixed(2):null
   };
 }
 
@@ -4583,7 +4709,7 @@ function validateDesign(){
       const name="Obstacle #"+(i+1)+(many?" of SITE "+site.seq:"");
       if(!o.coords?.length)issues.push("ERROR: "+name+" has no coordinates.");
       if(!(Number(o.length)>=0&&Number(o.width)>=0))issues.push("ERROR: "+name+" has invalid dimensions.");
-      if(!Number.isFinite(Number(o.height)))issues.push("WARNING: "+name+" height is missing.");
+      if(o.height==null||!Number.isFinite(Number(o.height)))issues.push("WARNING: "+name+" height is missing.");
     });
     if(site.closed&&GeometryEngine.polygonArea(site.points)<=0)issues.push("ERROR: "+word+" area is zero.");
   });
