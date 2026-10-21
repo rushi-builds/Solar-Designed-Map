@@ -665,6 +665,7 @@ button.wide{width:100%}
         <button id="drawButton" type="button" class="primary">📍 DRAW SITE</button>
         <button id="undoButton" class="undo" type="button" disabled>↶ UNDO</button>
         <button id="clearButton" type="button" disabled>CLEAR</button>
+        <button id="cancelDrawButton" class="cancel" type="button" disabled>✕ CANCEL</button>
       </div>
 
       <div class="btn-row">
@@ -2709,6 +2710,8 @@ function setMode(mode){
   setObstacleDimensionHud();
   c.classList.toggle("draw-precision",mode==="draw-site"||mode==="draw-obstacle");
   $("drawButton").classList.toggle("active",mode==="draw-site");
+  const drawing=(mode==="draw-site"||mode==="draw-obstacle");
+  if($("cancelDrawButton"))$("cancelDrawButton").disabled=!drawing;
   if(mode==="draw-site"||mode==="draw-obstacle")state.map.doubleClickZoom.disable();
   else state.map.doubleClickZoom.enable();
 
@@ -2958,6 +2961,19 @@ function clearAllSite(){
 }
 
 $("drawButton").addEventListener("click",()=>setMode(state.mode==="draw-site"?"pan":"draw-site"));
+function cancelDrawing(){
+  if(state.mode==="draw-obstacle"){
+    hideObsForm();
+    setStatus("Obstacle drawing cancelled.");
+    return;
+  }
+  if(state.mode==="draw-site"){
+    const hadWork=state.points.length>0||state.obstacles.length>0;
+    clearAllSite();
+    setStatus(hadWork?"Site drawing cancelled. Use History ↶ UNDO if you need it back.":"Site drawing cancelled.");
+  }
+}
+$("cancelDrawButton").addEventListener("click",cancelDrawing);
 $("undoButton").addEventListener("click",undoSite);
 $("clearButton").addEventListener("click",clearAllSite);
 
@@ -3939,8 +3955,7 @@ state.map.on("dblclick",e=>{
 
 window.addEventListener("keydown",e=>{
   if(e.key==="Escape"){
-    if(state.mode==="draw-site"){setMode("pan");setStatus("Site drawing cancelled.");}
-    else if(state.mode==="draw-obstacle"){hideObsForm();setStatus("Obstacle drawing cancelled.");}
+    if(state.mode==="draw-site"||state.mode==="draw-obstacle")cancelDrawing();
   }
   if(e.key==="Enter"&&state.mode==="draw-obstacle")finishObstacleDrawing();
   if(e.key==="Delete"||e.key==="Backspace"){
