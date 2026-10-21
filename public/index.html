@@ -3285,7 +3285,7 @@ function addObsMarkerPoint(latlng,i){
       // necessarily the corner the user aimed at. Closing is judged on the tap
       // position: only a re-tap almost on the last point (<=3 px) closes, because
       // placing the next corner near a previous one must still add a point. A tap
-      // on the first corner closes through the metric probe in addObsPoint.
+      // on the first corner closes through the screen probe in addObsPoint.
       const last=d.points[d.points.length-1];
       const dLast=last?obstacleScreenDistance(tapLL,last):Infinity;
       if(d.points.length>=3&&dLast<=3){finishObstacleDrawing();return;}
@@ -3394,13 +3394,34 @@ function obstacleScreenDistance(a,b){
     return Math.hypot(p.x-q.x,p.y-q.y);
   }catch(e){return Infinity;}
 }
+function obstacleCloseTolerancePx(d){
+  // A metre tolerance is unusable for closing: on a 6.5 x 2.7 m obstacle a third
+  // of the short side is under 2 px, so a real tap on point 1 never registered.
+  // The close zone is 60 % of the shortest side on screen, so placing the next
+  // corner one side away can never be read as a close. The floor stays under a
+  // single shortest side: a tiny obstacle drawn at low zoom has corners only a
+  // few px apart, and there the tap still adds the corner instead of closing.
+  let minSpan=Infinity;
+  for(let i=0;i<d.points.length;i++){
+    for(let j=i+1;j<d.points.length;j++){
+      const gap=obstacleScreenDistance(d.points[i],d.points[j]);
+      if(gap<minSpan)minSpan=gap;
+    }
+  }
+  if(!Number.isFinite(minSpan))minSpan=0;
+  return Math.max(2.5,Math.min(14,minSpan*0.6));
+}
 function obstacleCloseProbe(raw){
   const d=state.drawingObstacle;
   if(!d||d.points.length<3)return false;
   const first=d.points[0];
-  // Taps on the point markers are handled by the marker DOM handler below;
-  // this metric probe covers a click on the map near the first corner.
-  return GeometryEngine.distanceMeters(raw,first)<=obstacleCloseToleranceM(d);
+  try{
+    const p=state.map.latLngToContainerPoint([raw.lat,raw.lng]);
+    const f=state.map.latLngToContainerPoint([first.lat,first.lng]);
+    return Math.hypot(p.x-f.x,p.y-f.y)<=obstacleCloseTolerancePx(d);
+  }catch(e){
+    return GeometryEngine.distanceMeters(raw,first)<=obstacleCloseToleranceM(d);
+  }
 }
 function dedupeRingPoints(points,isRing){
   const out=[];
@@ -3467,7 +3488,7 @@ function addObsPoint(latlng){
   addObsMarkerPoint(target,d.points.length-1);
   resetObstacleDimensionInput();
   redrawObsPreview();
-  setStatus("Obstacle point "+d.points.length+" added. Next line can be freehand or type a distance + ENTER to lock it."+(d.points.length>=3?" Tap the last point again to close.":""));
+  setStatus("Obstacle point "+d.points.length+" added. Next line can be freehand or type a distance + ENTER to lock it."+(d.points.length>=3?" Tap the first point to close.":""));
   historyCheckpoint("Add obstacle point");
 }
 
