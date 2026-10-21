@@ -1261,9 +1261,8 @@ function restoreDesignSnapshot(snapshot,label){
     if(restoreMode==="draw-obstacle"){
       $("obsForm").classList.add("show");
       $("obsType").value=state.drawingObstacle.type;onObsTypeChange();
-      state.obsMarkers=state.drawingObstacle.points.map((p,i)=>{
-        const m=L.marker(p,{icon:makeObsIcon(i+1,i===0),zIndexOffset:900}).addTo(state.map);return m;
-      });
+      state.obsMarkers=[];
+      state.drawingObstacle.points.forEach((p,i)=>addObsMarkerPoint(p,i));
     }
     setMode(restoreMode);
     if(restoreMode==="draw-obstacle")redrawObsPreview();
@@ -3251,7 +3250,18 @@ function makeObsIcon(n,first){
     iconSize:[20,20],iconAnchor:[10,10]});
 }
 function addObsMarkerPoint(latlng,i){
-  const m=L.marker(latlng,{icon:makeObsIcon(i+1,i===0),zIndexOffset:900,interactive:false}).addTo(state.map);
+  const m=L.marker(latlng,{icon:makeObsIcon(i+1,i===0),zIndexOffset:900}).addTo(state.map);
+  // Same close-handle behaviour as site drawing: Leaflet markers swallow map
+  // clicks, so the first (green) and last point must finish the obstacle themselves.
+  m.on("click",e=>{
+    const d=state.drawingObstacle;
+    if(!d||state.mode!=="draw-obstacle")return;
+    const isArea=(d.type==="polygon"||d.type==="other");
+    if(isArea&&d.points.length>=3&&(i===0||i===d.points.length-1)){
+      L.DomEvent.stop(e);
+      finishObstacleDrawing();
+    }
+  });
   state.obsMarkers.push(m);
 }
 function clearObsMarkers(){state.obsMarkers.forEach(m=>state.map.removeLayer(m));state.obsMarkers=[]}
