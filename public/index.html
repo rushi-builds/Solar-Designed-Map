@@ -3282,15 +3282,13 @@ function addObsMarkerPoint(latlng,i){
       const tap=state.map.mouseEventToContainerPoint(ev);
       const tapLL=state.map.containerPointToLatLng(tap);
       // Icons overlap on a small obstacle, so the icon under the finger is not
-      // necessarily the corner the user aimed at. Closing is therefore judged on
-      // the tap position, not on the marker that received the event: a tap almost
-      // on a corner (<=4 px) is a deliberate close; an older corner far from the
-      // active edge gets a little more room (<=8 px).
-      let closest=Infinity;
-      d.points.forEach(p=>{const s=obstacleScreenDistance(tapLL,p);if(s<closest)closest=s;});
+      // necessarily the corner the user aimed at. Closing is judged on the tap
+      // position: only a re-tap almost on the last point (<=3 px) closes, because
+      // placing the next corner near a previous one must still add a point. A tap
+      // on the first corner closes through the metric probe in addObsPoint.
       const last=d.points[d.points.length-1];
       const dLast=last?obstacleScreenDistance(tapLL,last):Infinity;
-      if(d.points.length>=3&&(closest<=4||(dLast>25&&closest<=8))){finishObstacleDrawing();return;}
+      if(d.points.length>=3&&dLast<=3){finishObstacleDrawing();return;}
       // Any other tap on an icon is the next corner: the icon swallows the click,
       // so feed the tap position to the point adder ourselves.
       addObsPoint(tapLL);
@@ -3469,7 +3467,7 @@ function addObsPoint(latlng){
   addObsMarkerPoint(target,d.points.length-1);
   resetObstacleDimensionInput();
   redrawObsPreview();
-  setStatus("Obstacle point "+d.points.length+" added. Next line can be freehand or type a distance + ENTER to lock it.");
+  setStatus("Obstacle point "+d.points.length+" added. Next line can be freehand or type a distance + ENTER to lock it."+(d.points.length>=3?" Tap the last point again to close.":""));
   historyCheckpoint("Add obstacle point");
 }
 
