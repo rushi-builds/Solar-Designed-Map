@@ -188,6 +188,12 @@ body{display:flex;flex-direction:column}
 }
 .obs-form .form-actions{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap}
 .obs-form .form-actions button{flex:1;min-width:80px}
+.obs-form-msg{
+  display:none;margin-top:8px;padding:7px 8px;border-radius:6px;
+  background:#fdecea;border:1px solid #e0a099;color:#a13026;
+  font:800 10.5px/1.35 "Segoe UI",Arial,sans-serif
+}
+.obs-form-msg.show{display:block}
 
 button{
   appearance:none;border:1px solid #cbd7dd;background:#fff;color:#294552;
@@ -399,6 +405,10 @@ button.wide{width:100%}
    sitting under the obstacle's first corner swallowed the close tap. */
 .leaflet-container.drawing-obstacle .leaflet-marker-icon{pointer-events:none}
 .leaflet-container.drawing-obstacle .leaflet-marker-icon.obs-chip{pointer-events:auto}
+/* A saved obstacle is an interactive polygon with its own click listener, so a
+   tap that lands on it never reached the map: the next corner of a second
+   obstacle silently vanished. Every layer path is silenced while drawing. */
+.leaflet-container.drawing-obstacle .leaflet-pane path{pointer-events:none}
 
 .side-label{
   background:transparent;border:0;border-radius:0;padding:0;
@@ -566,7 +576,7 @@ button.wide{width:100%}
       <button id="export4KButton" class="map-tool" type="button" title="Export a 3840 by 2160 vector site plan">▧ 4K PLAN</button>
     </div>
 
-    <div id="buildBadge" style="position:absolute;right:12px;top:52px;z-index:899;padding:3px 7px;border-radius:4px;background:rgba(11,82,119,.86);color:#fff;font:800 8px Segoe UI,Arial;letter-spacing:.4px;pointer-events:none">GODLEVEL FIXED • BUILD 2026-10-21</div>
+    <div id="buildBadge" style="position:absolute;right:12px;top:52px;z-index:899;padding:3px 7px;border-radius:4px;background:rgba(11,82,119,.86);color:#fff;font:800 8px Segoe UI,Arial;letter-spacing:.4px;pointer-events:none">GODLEVEL FIXED • BUILD 2026-10-23-C</div>
 
     <div class="mapTypeToggle" aria-label="Base map type">
       <button id="satBtn" class="active" type="button" title="Sharp satellite imagery">SATELLITE</button>
@@ -739,6 +749,8 @@ button.wide{width:100%}
           <label>Remarks</label>
           <input type="text" id="obsRemarks" placeholder="optional" />
         </div>
+
+        <div class="obs-form-msg" id="obsFormMsg"></div>
 
         <div class="form-actions">
           <button id="obsDrawOnMap" type="button" class="orange">DRAW ON MAP</button>
@@ -3191,6 +3203,7 @@ function setObstaclePresent(yes){
 function showObsForm(editingId){
   state.editingObstacleId=editingId||null;
   const form=$("obsForm"); form.classList.add("show");
+  clearObstacleDraftError();
   $("obsFormTitle").textContent=editingId?"Edit Obstacle":"New Obstacle";
 
   if(editingId){
@@ -3213,6 +3226,7 @@ function hideObsForm(){
   state.editingObstacleId=null;
   state.drawingObstacle=null;
   clearObsPreview(); clearObsLive(); clearObsMarkers();
+  clearObstacleDraftError();
   if(state.mode==="draw-obstacle")setMode("pan");
 }
 function onObsTypeChange(){
@@ -3543,11 +3557,11 @@ function finishObstacleDrawing(){
   const t=d.type;
 
   if(t==="polygon"||t==="other"){
-    if(d.points.length<3){setStatus("Need at least 3 points for polygon.");return;}
+    if(d.points.length<3){obstacleDraftError("Need at least 3 points for polygon.");return;}
     const coords=dedupeRingPoints(d.points,true);
-    if(coords.length<3){setStatus("Need at least 3 distinct corners for polygon.");return;}
+    if(coords.length<3){obstacleDraftError("Need at least 3 distinct corners for polygon.");return;}
     if(!GeometryEngine.toTurfPolygon(coords)){
-      setStatus((GeometryEngine.lastError()||"Invalid obstacle polygon.")+" Drawing kept — fix the points or press ESC to cancel.");
+      obstacleDraftError(GeometryEngine.lastError()||"Invalid obstacle polygon.");
       return;
     }
     GeometryEngine.clearError();
@@ -3566,9 +3580,9 @@ function finishObstacleDrawing(){
   }
 
   if(t==="walkway"){
-    if(d.points.length<2){setStatus("Need at least 2 points.");return;}
+    if(d.points.length<2){obstacleDraftError("Need at least 2 points.");return;}
     const coords=dedupeRingPoints(d.points,false);
-    if(coords.length<2){setStatus("Need at least 2 distinct points.");return;}
+    if(coords.length<2){obstacleDraftError("Need at least 2 distinct points.");return;}
     const lineLen=GeometryEngine.lengthOfPolyline(coords);
     finalizeObstacle({
       id:"OBS-"+Date.now()+"-"+Math.random().toString(36).slice(2,6),
@@ -3582,9 +3596,9 @@ function finishObstacleDrawing(){
   }
 
   if(t==="safety_line"||t==="handrail"||t==="property_line"){
-    if(d.points.length<2){setStatus("Need at least 2 points.");return;}
+    if(d.points.length<2){obstacleDraftError("Need at least 2 points.");return;}
     const coords=dedupeRingPoints(d.points,false);
-    if(coords.length<2){setStatus("Need at least 2 distinct points.");return;}
+    if(coords.length<2){obstacleDraftError("Need at least 2 distinct points.");return;}
     const lineLen=GeometryEngine.lengthOfPolyline(coords);
     finalizeObstacle({
       id:"OBS-"+Date.now()+"-"+Math.random().toString(36).slice(2,6),
@@ -3598,28 +3612,83 @@ function finishObstacleDrawing(){
 }
 
 function obstacleDraftError(message){
-  setStatus(String(message||"Obstacle could not be saved.")+" Drawing kept — adjust the points and click FINISH again, or press ESC to cancel.");
+  const msg=String(message||"Obstacle could not be saved.");
+  const box=$("obsFormMsg");
+  if(box){box.textContent=msg;box.classList.add("show");}
+  setStatus(msg+" Drawing kept — adjust the points and click FINISH again, or press ESC to cancel.");
 }
-function finalizeObstacle(obstacle){
+function clearObstacleDraftError(){
+  const box=$("obsFormMsg");
+  if(box){box.textContent="";box.classList.remove("show");}
+}
+function siteOverlapsOf(obsFeat){
+  const hits=[];
+  if(!obsFeat)return hits;
+  (siteRecords()||[]).forEach(s=>{
+    if(!s.closed||(s.points||[]).length<3)return;
+    const sp=GeometryEngine.toTurfPolygon(s.points);
+    if(!sp)return;
+    try{
+      if(!turf.booleanIntersects(sp,obsFeat))return;
+      const inter=GeometryEngine.intersectFeatures(sp,obsFeat);
+      hits.push({seq:s.seq,area:inter?GeometryEngine.featureArea(inter):0});
+    }catch(e){}
+  });
+  return hits.sort((a,b)=>b.area-a.area);
+}
+let obstacleMovedFrom=null;
+function activateSiteForObstacle(seq){
+  const editing=state.editingObstacleId;
+  const from=state.activeSeq;
+  hideObsForm();
+  editSite(seq);
+  state.editingObstacleId=editing;
+  obstacleMovedFrom=from;
+}
+
+function finalizeObstacle(obstacle,routed){
+  if(!routed)obstacleMovedFrom=null;
   GeometryEngine.clearError();
   const sitePoly=GeometryEngine.toTurfPolygon(state.points);
-  if(!sitePoly){setStatus(GeometryEngine.lastError()||"Close site boundary first.");return;}
+  if(!sitePoly){obstacleDraftError(GeometryEngine.lastError()||"Close site boundary first.");return;}
 
   let obsFeat=null;
   if(obstacle.geometry==="polyline"){
-    try{obsFeat=turf.buffer(turf.lineString(obstacle.coords.map(p=>[p.lng,p.lat])),0.001/1000,{units:"kilometers"})}catch(e){setStatus("Line geometry could not be created.");return;}
+    try{obsFeat=turf.buffer(turf.lineString(obstacle.coords.map(p=>[p.lng,p.lat])),0.001/1000,{units:"kilometers"})}catch(e){obstacleDraftError("Line geometry could not be created.");return;}
   }else if(obstacle.geometry==="circle"){
     obsFeat=GeometryEngine.circleToTurfPolygon(obstacle.center.lat,obstacle.center.lng,obstacle.radius);
   }else{
     obsFeat=GeometryEngine.toTurfPolygon(obstacle.coords);
   }
-  if(!obsFeat||GeometryEngine.hasError()){setStatus(GeometryEngine.lastError()||"Invalid obstacle geometry.");return;}
+  if(!obsFeat||GeometryEngine.hasError()){obstacleDraftError(GeometryEngine.lastError()||"Invalid obstacle geometry.");return;}
   obstacle.feature=obsFeat;
+
+  // The obstacle belongs to the roof it was drawn on, not to whichever site the
+  // software happened to leave active. A stored site is only a dashed purple
+  // ghost on the map, so tapping inside it was easy — and the clip below against
+  // the ACTIVE site then refused the shape, which looked exactly like a corner
+  // chip that would not close. Reusing the EDIT path keeps the site card, the
+  // obstacle list and the Excel payload pointing at one site.
+  if(!routed&&!state.editingObstacleId&&state.closed&&(state.points||[]).length>=3){
+    const hits=siteOverlapsOf(obsFeat);
+    const total=GeometryEngine.featureArea(obsFeat)||0;
+    const best=hits[0];
+    const onActive=hits.find(h=>h.seq===state.activeSeq);
+    if(best&&best.seq!==state.activeSeq&&total>0&&best.area>=total*0.5&&best.area>(onActive?onActive.area:0)){
+      activateSiteForObstacle(best.seq);
+      finalizeObstacle(obstacle,best.seq);
+      return;
+    }
+    if(best&&!onActive){
+      obstacleDraftError("Obstacle is not inside SITE "+state.activeSeq+" and no site holds most of it (it touches SITE "+hits.map(h=>h.seq).join(", SITE ")+"). Draw it fully inside one SITE boundary, or move the corners in.");
+      return;
+    }
+  }
 
   if(obstacle.geometry!=="polyline"){
     const inter=GeometryEngine.intersectFeatures(sitePoly,obsFeat);
     if(GeometryEngine.hasError()){obstacleDraftError(GeometryEngine.lastError());return;}
-    if(!inter){obstacleDraftError("Obstacle is outside the active site.");return;}
+    if(!inter){obstacleDraftError("Obstacle is outside SITE "+state.activeSeq+" (the current site). Move its corners inside that boundary, or open EDIT on the SITE card it belongs to.");return;}
     obstacle.feature=inter;
     const clippedArea=GeometryEngine.featureArea(inter);
     if(GeometryEngine.hasError()){obstacleDraftError(GeometryEngine.lastError());return;}
@@ -3677,11 +3746,18 @@ function finalizeObstacle(obstacle){
       if(sp&&obsFeat&&turf.booleanIntersects(sp,obsFeat))spanOthers.push(s.seq);
     });
   }catch(e){}
-  if(spanOthers.length){
-    setStatus("Obstacle saved on SITE "+state.activeSeq+" (clipped). Its full shape ALSO crosses SITE "+spanOthers.join(", SITE ")+". Open EDIT on that SITE card and draw the piece inside it too — otherwise those sites will NOT subtract this obstacle from their usable area.");
+  const moved=obstacleMovedFrom!=null&&obstacleMovedFrom!==state.activeSeq;
+  let note;
+  if(moved){
+    note="Obstacle saved on SITE "+state.activeSeq+" — you drew it on this roof, so the current site moved from SITE "+obstacleMovedFrom+" to SITE "+state.activeSeq+". SITE "+obstacleMovedFrom+" is stored with its own area and obstacles.";
   }else{
-    setStatus("Obstacle saved: "+typeLabel(obstacle.type)+" ("+state.obstacles.length+" total).");
+    note="Obstacle saved: "+typeLabel(obstacle.type)+" ("+state.obstacles.length+" total) on SITE "+state.activeSeq+".";
   }
+  if(spanOthers.length){
+    note+=" Its full shape ALSO crosses SITE "+spanOthers.join(", SITE ")+". Open EDIT on that SITE card and draw the piece inside it too — otherwise those sites will NOT subtract this obstacle from their usable area.";
+  }
+  setStatus(note);
+  obstacleMovedFrom=null;
   historyCheckpoint("Save obstacle");
 }
 
