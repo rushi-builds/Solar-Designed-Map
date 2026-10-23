@@ -405,10 +405,11 @@ button.wide{width:100%}
    sitting under the obstacle's first corner swallowed the close tap. */
 .leaflet-container.drawing-obstacle .leaflet-marker-icon{pointer-events:none}
 .leaflet-container.drawing-obstacle .leaflet-marker-icon.obs-chip{pointer-events:auto}
-/* A saved obstacle is an interactive polygon with its own click listener, so a
-   tap that lands on it never reached the map: the next corner of a second
-   obstacle silently vanished. Every layer path is silenced while drawing. */
-.leaflet-container.drawing-obstacle .leaflet-pane path{pointer-events:none}
+/* A saved obstacle is an interactive <path> with its own click listener, so a tap
+   that lands on it never reaches the map: the next corner of the shape being
+   drawn silently vanishes. Every shape is silenced while drawing — in EITHER
+   draw mode, because a saved obstacle can sit under a site corner too. */
+.leaflet-container.draw-precision .leaflet-pane path{pointer-events:none}
 
 .side-label{
   background:transparent;border:0;border-radius:0;padding:0;
@@ -576,7 +577,7 @@ button.wide{width:100%}
       <button id="export4KButton" class="map-tool" type="button" title="Export a 3840 by 2160 vector site plan">▧ 4K PLAN</button>
     </div>
 
-    <div id="buildBadge" style="position:absolute;right:12px;top:52px;z-index:899;padding:3px 7px;border-radius:4px;background:rgba(11,82,119,.86);color:#fff;font:800 8px Segoe UI,Arial;letter-spacing:.4px;pointer-events:none">GODLEVEL FIXED • BUILD 2026-10-23-C</div>
+    <div id="buildBadge" style="position:absolute;right:12px;top:52px;z-index:899;padding:3px 7px;border-radius:4px;background:rgba(11,82,119,.86);color:#fff;font:800 8px Segoe UI,Arial;letter-spacing:.4px;pointer-events:none">GODLEVEL FIXED • BUILD 2026-10-23-D</div>
 
     <div class="mapTypeToggle" aria-label="Base map type">
       <button id="satBtn" class="active" type="button" title="Sharp satellite imagery">SATELLITE</button>
@@ -1529,7 +1530,12 @@ const roadLayer=new RoadLayer();
 
 state.map=L.map("map",{
   center:[20.5937,78.9629],zoom:5,minZoom:2,maxZoom:20,
-  zoomControl:false,attributionControl:true,preferCanvas:true,worldCopyJump:true,
+  // SVG, not canvas: one shared canvas is re-painted through a coalesced
+  // requestAnimationFrame, so a shape that is still in state and in the renderer
+  // can simply stop existing on screen when the next draft starts. A DOM <path>
+  // per shape cannot be lost that way, and it also makes the draw-mode
+  // pointer-event silencing below reachable (canvas shapes have no path node).
+  zoomControl:false,attributionControl:true,preferCanvas:false,worldCopyJump:true,
   zoomSnap:1,zoomDelta:1,wheelPxPerZoomLevel:100,zoomAnimation:true,
   fadeAnimation:true,markerZoomAnimation:true
 });
