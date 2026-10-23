@@ -3659,7 +3659,23 @@ function finalizeObstacle(obstacle){
   renderObstacleList();
   recomputeUsable();
   (obstacle.mapLayers||[]).forEach(l=>{try{l.bringToFront()}catch(e){}});
-  setStatus("Obstacle saved: "+typeLabel(obstacle.type)+" ("+state.obstacles.length+" total).");
+  // Honest warning if the raw (pre-clip) obstacle also covers a stored site:
+  // the clip above only saved the piece inside the ACTIVE site, so the other
+  // site's card + Excel row will not subtract it unless he re-draws there.
+  const spanOthers=[];
+  try{
+    (state.sites||[]).forEach(s=>{
+      if(s.seq===state.activeSeq)return;
+      if(!s.closed||(s.points||[]).length<3)return;
+      const sp=GeometryEngine.toTurfPolygon(s.points);
+      if(sp&&obsFeat&&turf.booleanIntersects(sp,obsFeat))spanOthers.push(s.seq);
+    });
+  }catch(e){}
+  if(spanOthers.length){
+    setStatus("Obstacle saved on SITE "+state.activeSeq+" (clipped). Its full shape ALSO crosses SITE "+spanOthers.join(", SITE ")+". Open EDIT on that SITE card and draw the piece inside it too — otherwise those sites will NOT subtract this obstacle from their usable area.");
+  }else{
+    setStatus("Obstacle saved: "+typeLabel(obstacle.type)+" ("+state.obstacles.length+" total).");
+  }
   historyCheckpoint("Save obstacle");
 }
 
