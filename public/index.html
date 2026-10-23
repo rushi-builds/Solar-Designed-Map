@@ -2703,6 +2703,22 @@ function setMode(mode){
   state.mode=mode;
   if(mode!=="draw-site")resetSiteDimensionInput();
   if(mode!=="draw-obstacle")resetObstacleDimensionInput();
+  // While drawing an obstacle the site corner chips must not swallow taps
+  // aimed at the obstacle close points (first/last corner).
+  const quietSiteMarkers=(mode==="draw-obstacle");
+  (state.markers||[]).forEach(m=>{
+    try{
+      if(quietSiteMarkers){
+        if(m.dragging&&m.dragging.enabled())m.dragging.disable();
+        if(m.setInteractive)m.setInteractive(false);
+        if(m.setZIndexOffset)m.setZIndexOffset(10);
+      }else{
+        if(m.setInteractive)m.setInteractive(true);
+        if(m.setZIndexOffset)m.setZIndexOffset(1000);
+        if(m.dragging&&!m.dragging.enabled())m.dragging.enable();
+      }
+    }catch(e){}
+  });
   const c=state.map.getContainer();
   c.closest(".map-pane")?.classList.toggle("drawing-dimension-mode",mode==="draw-site");
   c.closest(".map-pane")?.classList.toggle("drawing-obstacle-dimension-mode",mode==="draw-obstacle");
@@ -3271,7 +3287,7 @@ function addObsMarkerPoint(latlng,i){
   // so a tap on a corner never reached the map's click handler. The layer stays
   // non-interactive (no duplicate point) and a raw DOM listener on the 20 px icon
   // handles the tap itself.
-  const m=L.marker(latlng,{icon:makeObsIcon(i+1,i===0),zIndexOffset:900+i,interactive:false}).addTo(state.map);
+  const m=L.marker(latlng,{icon:makeObsIcon(i+1,i===0),zIndexOffset:1400+i,interactive:false,draggable:false}).addTo(state.map);
   const el=m.getElement();
   if(el){
     el.style.pointerEvents="auto";
