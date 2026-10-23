@@ -2374,7 +2374,7 @@ function openSearchResult(r){
   const clean=r.display_name||$("searchInput").value.trim()||"Selected";
   const keptNote=preserveDrawnWorkForLocationChange();
   if(keptNote===null){
-    setStatus("Stayed on unfinished SITE "+state.activeSeq+". Finish it or press ✕ CANCEL, then search again.");
+    setStatus("Nothing moved: the drawing in progress here is kept. Finish it or press ✕ CANCEL, then search again.");
     return;
   }
   clearSearchMarker();createSearchMarker(lat,lng,clean);
@@ -2996,6 +2996,9 @@ function clearAllSite(){
   state.closed=false;
   state.boundarySaved=false;
   state.siteHeight=null;
+  // An in-progress obstacle belongs to this live SITE, so it must leave with it:
+  // otherwise its corner chips stay on screen as a zombie drawing with no owner.
+  if(state.drawingObstacle)hideObsForm();
   state.obstacles.forEach(o=>{removeObstacleLayers(o);o.height=null;});
   state.obstacles=[]; renderObstacleList();
   clearOverlays();
@@ -3186,7 +3189,14 @@ function addAnotherSite(){
 // ring has no legal area to store, so an unfinished draft is his choice; refusing to move
 // is the only way a far corner can never be appended onto half a SITE.
 function preserveDrawnWorkForLocationChange(){
-  if(!state.points.length)return "";
+  const notes=[];
+  const draftPts=(state.drawingObstacle&&state.drawingObstacle.points)||[];
+  if(draftPts.length){
+    if(!confirm("An obstacle is still being drawn ("+draftPts.length+" points) on SITE "+state.activeSeq+".\n\nOK = discard that unfinished obstacle and move to the searched location.\nCancel = stay here and finish it."))return null;
+    hideObsForm();
+    notes.push("Unfinished obstacle ("+draftPts.length+" points) discarded — History ↶ UNDO restores it.");
+  }
+  if(!state.points.length)return notes.join(" ");
   if(state.closed&&state.points.length>=3){
     const stored=liveSiteRecord();
     state.sites.push(stored);
@@ -3196,7 +3206,8 @@ function preserveDrawnWorkForLocationChange(){
     renderSitesList(true);
     recomputeUsable();
     historyCheckpoint("Store site "+stored.seq);
-    return "SITE "+stored.seq+" with "+(stored.obstacles||[]).length+" obstacle(s) is kept on the map as a stored site. ";
+    notes.push("SITE "+stored.seq+" with "+(stored.obstacles||[]).length+" obstacle(s) is kept on the map as a stored site.");
+    return notes.join(" ");
   }
   const discard=confirm("SITE "+state.activeSeq+" is unfinished ("+state.points.length+" points).\n\nOK = discard that draft and move to the searched location (History ↶ UNDO brings it back).\nCancel = stay here and keep drawing SITE "+state.activeSeq+".");
   if(!discard)return null;
@@ -3206,7 +3217,8 @@ function preserveDrawnWorkForLocationChange(){
   renderSitesList(true);
   recomputeUsable();
   historyCheckpoint("Discard unfinished site "+seq);
-  return "Unfinished SITE "+seq+" draft discarded — History ↶ UNDO restores it. ";
+  notes.push("Unfinished SITE "+seq+" draft discarded — History ↶ UNDO restores it.");
+  return notes.join(" ");
 }
 function editSite(seq){
   const index=state.sites.findIndex(s=>s.seq===seq);
