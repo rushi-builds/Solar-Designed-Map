@@ -393,6 +393,13 @@ button.wide{width:100%}
 }
 .obs-point.first{background:#238a58}
 
+/* While drawing an obstacle, only its own corner chips may take a tap. A marker
+   keeps pointer-events on its wrapper even at interactive:false, and a marker
+   that listens for click steals the event from the map, so a site corner chip
+   sitting under the obstacle's first corner swallowed the close tap. */
+.leaflet-container.drawing-obstacle .leaflet-marker-icon{pointer-events:none}
+.leaflet-container.drawing-obstacle .leaflet-marker-icon.obs-chip{pointer-events:auto}
+
 .side-label{
   background:transparent;border:0;border-radius:0;padding:0;
   font:900 12px "Segoe UI",Arial,sans-serif;color:#fff;white-space:nowrap;
@@ -2710,10 +2717,8 @@ function setMode(mode){
     try{
       if(quietSiteMarkers){
         if(m.dragging&&m.dragging.enabled())m.dragging.disable();
-        if(m.setInteractive)m.setInteractive(false);
         if(m.setZIndexOffset)m.setZIndexOffset(10);
       }else{
-        if(m.setInteractive)m.setInteractive(true);
         if(m.setZIndexOffset)m.setZIndexOffset(1000);
         if(m.dragging&&!m.dragging.enabled())m.dragging.enable();
       }
@@ -2722,6 +2727,7 @@ function setMode(mode){
   const c=state.map.getContainer();
   c.closest(".map-pane")?.classList.toggle("drawing-dimension-mode",mode==="draw-site");
   c.closest(".map-pane")?.classList.toggle("drawing-obstacle-dimension-mode",mode==="draw-obstacle");
+  c.classList.toggle("drawing-obstacle",mode==="draw-obstacle");
   setSiteDimensionHud();
   setObstacleDimensionHud();
   c.classList.toggle("draw-precision",mode==="draw-site"||mode==="draw-obstacle");
@@ -3279,7 +3285,7 @@ $("obsUndoPoint").addEventListener("click",undoObsPoint);
 $("obsFinishDraw").addEventListener("click",finishObstacleDrawing);
 
 function makeObsIcon(n,first){
-  return L.divIcon({className:"",html:'<div class="obs-point'+(first?" first":"")+'">'+n+'</div>',
+  return L.divIcon({className:"obs-chip",html:'<div class="obs-point'+(first?" first":"")+'">'+n+'</div>',
     iconSize:[20,20],iconAnchor:[10,10]});
 }
 function addObsMarkerPoint(latlng,i){
