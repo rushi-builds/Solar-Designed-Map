@@ -577,7 +577,7 @@ button.wide{width:100%}
       <button id="export4KButton" class="map-tool" type="button" title="Export a 3840 by 2160 vector site plan">▧ 4K PLAN</button>
     </div>
 
-    <div id="buildBadge" style="position:absolute;right:12px;top:52px;z-index:899;padding:3px 7px;border-radius:4px;background:rgba(11,82,119,.86);color:#fff;font:800 8px Segoe UI,Arial;letter-spacing:.4px;pointer-events:none">GODLEVEL FIXED • BUILD 2026-10-23-E</div>
+    <div id="buildBadge" style="position:absolute;right:12px;top:52px;z-index:899;padding:3px 7px;border-radius:4px;background:rgba(11,82,119,.86);color:#fff;font:800 8px Segoe UI,Arial;letter-spacing:.4px;pointer-events:none">GODLEVEL FIXED • BUILD 2026-10-23-F</div>
 
     <div class="mapTypeToggle" aria-label="Base map type">
       <button id="satBtn" class="active" type="button" title="Sharp satellite imagery">SATELLITE</button>
@@ -2372,7 +2372,7 @@ function openSearchResult(r){
   const lat=Number(r.lat),lng=Number(r.lon);
   if(!Number.isFinite(lat)||!Number.isFinite(lng)||Math.abs(lat)>90||Math.abs(lng)>180){setStatus("That result has no valid map coordinate.");return;}
   const clean=r.display_name||$("searchInput").value.trim()||"Selected";
-  if(state.points.length)clearAllSite();
+  const keptNote=preserveDrawnWorkForLocationChange();
   clearSearchMarker();createSearchMarker(lat,lng,clean);
   state.lastCleanLocation=clean;state.selectedLocation={lat,lng};
   state.selectedPlaceId=String(r.placeId||r.place_id||"").trim();
@@ -2381,7 +2381,7 @@ function openSearchResult(r){
   $("searchResults").classList.remove("show");
   state.map.flyTo([lat,lng],19,{duration:.8});
   notifyParentLocation(clean,lat,lng);
-  setStatus("Location opened. Press DRAW SITE to mark boundary.");
+  setStatus("Location opened. Press DRAW SITE to mark boundary. "+keptNote);
 }
 async function autocomplete(q){
   if(q.length<2){$("searchResults").classList.remove("show");return;}
@@ -3070,7 +3070,7 @@ function renderSiteGhosts(){
   (state.obstacles||[]).forEach(o=>(o.mapLayers||[]).forEach(l=>{try{l.bringToFront()}catch(e){}}));
 }
 function storedObstacleGhost(o){
-  const style={color:"#a04519",weight:1.5,opacity:.55,dashArray:"5 4",fillColor:"#c0663a",fillOpacity:.14,interactive:false};
+  const style={color:"#a04519",weight:2,opacity:.85,dashArray:"5 4",fillColor:"#c0663a",fillOpacity:.22,interactive:false};
   if(o.geometry==="circle"&&o.center&&Number.isFinite(Number(o.radius)))
     return L.circle([o.center.lat,o.center.lng],Object.assign({},style,{radius:Number(o.radius)}));
   if(o.geometry==="polyline")
@@ -3174,6 +3174,27 @@ function addAnotherSite(){
   setMode("draw-site");
   historyCheckpoint("Store site "+stored.seq);
   setStatus("SITE "+stored.seq+" stored. Now draw SITE "+state.activeSeq+" — its obstacles belong to it.");
+}
+// SEARCH, a pasted Google link and the coordinate Excel injects on open all move
+// the map. This used to call clearAllSite(), which deleted the live SITE together
+// with every obstacle saved on it — that is what made finished drawings vanish the
+// moment he searched the next plot. A location change now only makes room: a closed
+// site is stored first and stays on screen, an unfinished one is kept untouched.
+function preserveDrawnWorkForLocationChange(){
+  if(!state.points.length)return "";
+  if(state.closed&&state.points.length>=3){
+    const stored=liveSiteRecord();
+    state.sites.push(stored);
+    state.activeSeq=nextSiteSeq();
+    clearAllSite();
+    renderSiteGhosts();
+    renderSitesList(true);
+    recomputeUsable();
+    historyCheckpoint("Store site "+stored.seq);
+    return "SITE "+stored.seq+" with "+(stored.obstacles||[]).length+" obstacle(s) is kept on the map as a stored site. ";
+  }
+  setMode("pan");
+  return "Unfinished SITE "+state.activeSeq+" ("+state.points.length+" points) was kept. Finish it, or press ✕ CANCEL to discard it, before drawing here. ";
 }
 function editSite(seq){
   const index=state.sites.findIndex(s=>s.seq===seq);
