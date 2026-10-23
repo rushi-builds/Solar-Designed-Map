@@ -3171,6 +3171,8 @@ function hydrateLiveSite(site){
 }
 function addAnotherSite(){
   if(!state.closed||state.points.length<3){setStatus("Close the current SITE before adding another one.");return;}
+  const draftPts=(state.drawingObstacle&&state.drawingObstacle.points)||[];
+  if(draftPts.length&&!confirm("An obstacle is still being drawn ("+draftPts.length+" points) on SITE "+state.activeSeq+".\n\nOK = discard that unfinished obstacle and start SITE "+nextSiteSeq()+".\nCancel = stay and finish it."))return;
   const stored=liveSiteRecord();
   state.sites.push(stored);
   state.activeSeq=nextSiteSeq();
@@ -3223,6 +3225,8 @@ function preserveDrawnWorkForLocationChange(){
 function editSite(seq){
   const index=state.sites.findIndex(s=>s.seq===seq);
   if(index<0)return;
+  const draftPts=(state.drawingObstacle&&state.drawingObstacle.points)||[];
+  if(draftPts.length&&!confirm("An obstacle is still being drawn ("+draftPts.length+" points) on SITE "+state.activeSeq+".\n\nOK = discard that unfinished obstacle and edit SITE "+seq+".\nCancel = stay and finish it."))return;
   const discard=!state.closed&&state.points.length>0;
   if(discard&&!confirm("SITE "+state.activeSeq+" is unfinished and will be discarded. Continue?"))return;
   const carryOver=state.closed&&state.points.length>=3?liveSiteRecord():null;
@@ -3236,6 +3240,9 @@ function editSite(seq){
   renderSitesList(true);
   updateSiteStats();
   setMode("pan");
+  // Switching to a stored site must show it, otherwise the card looks dead: the
+  // view is still wherever the last search left it and his corners are off screen.
+  if(chosen.points&&chosen.points.length>=2)state.map.fitBounds(L.latLngBounds(chosen.points.map(p=>[p.lat,p.lng])),{padding:[40,40],animate:false,maxZoom:20});
   historyCheckpoint("Edit site "+chosen.seq);
   setStatus("Editing SITE "+chosen.seq+". Change corners or obstacles, then click ADD SITE or SAVE.");
 }
