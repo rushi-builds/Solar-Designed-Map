@@ -577,7 +577,7 @@ button.wide{width:100%}
       <button id="export4KButton" class="map-tool" type="button" title="Export a 3840 by 2160 vector site plan">▧ 4K PLAN</button>
     </div>
 
-    <div id="buildBadge" style="position:absolute;right:12px;top:52px;z-index:899;padding:3px 7px;border-radius:4px;background:rgba(11,82,119,.86);color:#fff;font:800 8px Segoe UI,Arial;letter-spacing:.4px;pointer-events:none">GODLEVEL FIXED • BUILD 2026-10-23-D</div>
+    <div id="buildBadge" style="position:absolute;right:12px;top:52px;z-index:899;padding:3px 7px;border-radius:4px;background:rgba(11,82,119,.86);color:#fff;font:800 8px Segoe UI,Arial;letter-spacing:.4px;pointer-events:none">GODLEVEL FIXED • BUILD 2026-10-23-E</div>
 
     <div class="mapTypeToggle" aria-label="Base map type">
       <button id="satBtn" class="active" type="button" title="Sharp satellite imagery">SATELLITE</button>
@@ -3057,7 +3057,26 @@ function renderSiteGhosts(){
     const layer=L.polygon(ring,{color:"#5b21b6",weight:2,dashArray:"7 5",fillColor:"#8b5cf6",fillOpacity:.10,interactive:false});
     layer.addTo(state.map);
     state.ghostLayers.push(layer);
+    // Only the current site's obstacles used to be drawn, so storing a site or
+    // switching cards erased an obstacle he had already saved and it looked
+    // deleted. Dimmed and dashed means: drawn, saved, belongs to that other roof.
+    (site.obstacles||[]).forEach(o=>{
+      const l=storedObstacleGhost(o);
+      if(!l)return;
+      l.addTo(state.map);
+      state.ghostLayers.push(l);
+    });
   });
+  (state.obstacles||[]).forEach(o=>(o.mapLayers||[]).forEach(l=>{try{l.bringToFront()}catch(e){}}));
+}
+function storedObstacleGhost(o){
+  const style={color:"#a04519",weight:1.5,opacity:.55,dashArray:"5 4",fillColor:"#c0663a",fillOpacity:.14,interactive:false};
+  if(o.geometry==="circle"&&o.center&&Number.isFinite(Number(o.radius)))
+    return L.circle([o.center.lat,o.center.lng],Object.assign({},style,{radius:Number(o.radius)}));
+  if(o.geometry==="polyline")
+    return L.polyline((o.coords||[]).map(p=>[p.lat,p.lng]),Object.assign({},style,{fillOpacity:0}));
+  const ring=(o.coords||[]).map(p=>[p.lat,p.lng]);
+  return ring.length>=3?L.polygon(ring,style):null;
 }
 var siteListSignature="";
 function siteMetrics(site){
